@@ -67,6 +67,6 @@ enlaza los paquetes locales de `../relayo` (`pnpm.overrides`). Quitar los overri
 
 ## Pendiente (fase 2)
 
-- Probar el adaptador de BullMQ con Redis (Docker). PostgreSQL ya está probado: `test/store.test.ts` corre contra `DATABASE_URL` en un esquema temporal, y `pnpm smoke` contra una instancia en marcha.
+- ~~PostgreSQL y BullMQ~~: probados (`test/store.test.ts`, `test/bullmq.test.ts`) contra `DATABASE_URL` y `REDIS_URL` del `.env`, con esquema y prefijo de colas temporales.
 - Rebotes asíncronos también como correo DSN (RFC 3464) para quien los lee por buzón.
 - Panel Angular con la línea de tiempo por correo.
