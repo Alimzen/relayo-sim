@@ -1,11 +1,42 @@
 import type { RelayoEvent } from '@alimzen/core';
 import type { ScenarioSelection } from './scenarios/resolve.js';
 
+export interface User {
+  id: string;
+  /** Lowercased. */
+  email: string;
+  name: string;
+  /** `scrypt$N$r$p$salt$hash`, see accounts/password.ts. */
+  passwordHash: string;
+  createdAt: Date;
+}
+
+export interface Session {
+  /** SHA-256 of the session token; the token only lives in the browser's cookie. */
+  idHash: string;
+  userId: string;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+export interface ApiKey {
+  id: string;
+  projectId: string;
+  name: string;
+  /** First characters of the key, to recognize it in lists (`sim_live_AbC1…`). */
+  prefix: string;
+  /** SHA-256 of the key; the key itself is shown once, when it is created. */
+  keyHash: string;
+  createdAt: Date;
+  lastUsedAt?: Date;
+  revokedAt?: Date;
+}
+
 export interface Project {
   id: string;
   name: string;
-  /** SHA-256 of the API key; the key itself is shown once, when the project is created. */
-  apiKeyHash: string;
+  /** The user who owns the project; absent for projects created with the admin token. */
+  ownerId?: string;
   webhookUrl?: string;
   webhookSecret: string;
   /**
@@ -46,4 +77,19 @@ export type SimEvent = RelayoEvent & { projectId: string };
 
 export interface MessageWithEvents extends SimMessage {
   events: SimEvent[];
+}
+
+/** A message in a list, with where it stands: the latest event of its first recipient. */
+export interface MessageListItem extends SimMessage {
+  latest?: { type: SimEvent['type']; bounceType?: 'hard' | 'soft' | 'block' };
+}
+
+export interface ProjectStats {
+  since: Date;
+  messages: number;
+  /** Event counts by type. */
+  events: Partial<Record<SimEvent['type'], number>>;
+  bounces: { hard: number; soft: number; block: number };
+  /** Per UTC day, oldest first, including days without events. */
+  daily: Array<{ date: string; delivered: number; bounced: number; deferred: number; complained: number }>;
 }

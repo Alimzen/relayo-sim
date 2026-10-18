@@ -12,7 +12,7 @@ const smtpPort = Number(process.env.SIM_SMTP_PORT ?? 2525);
 const adminToken = process.env.ADMIN_TOKEN;
 if (!adminToken) throw new Error('ADMIN_TOKEN is required (it is in .env)');
 
-const created = await fetch(`${simUrl}/v1/projects`, {
+const created = await fetch(`${simUrl}/v1/admin/projects`, {
   method: 'POST',
   headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
   body: JSON.stringify({ name: `Smoke ${new Date().toISOString()}` }),

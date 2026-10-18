@@ -7,7 +7,9 @@ import {
   type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from '@nestjs/common';
-import { AdminGuard, ApiKeyGuard } from './api/auth.js';
+import { AccountsService } from './accounts/accounts.service.js';
+import { AuthController, ProjectsController } from './api/account.controllers.js';
+import { AdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
 import { AdminController, HealthController, MessagesController, ProjectController, ScenariosController } from './api/controllers.js';
 import { SIM_CONFIG, type SimConfig } from './config.js';
 import { infrastructure, type Infrastructure } from './infrastructure.js';
@@ -59,7 +61,15 @@ export class AppModule {
   static forRoot(config: SimConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, ScenariosController, MessagesController, ProjectController, AdminController],
+      controllers: [
+        HealthController,
+        ScenariosController,
+        AuthController,
+        ProjectsController,
+        MessagesController,
+        ProjectController,
+        AdminController,
+      ],
       providers: [
         { provide: SIM_CONFIG, useValue: config },
         { provide: INFRASTRUCTURE, useFactory: () => infrastructure(config) },
@@ -72,7 +82,13 @@ export class AppModule {
             new SimulationService(store, scheduler, dispatcher, { timeScale: config.timeScale, reports: new SmtpReportSender() }),
           inject: [SIM_STORE, EVENT_SCHEDULER, WEBHOOK_DISPATCHER],
         },
-        ApiKeyGuard,
+        {
+          provide: AccountsService,
+          useFactory: (store: SimStore, sim: SimulationService) => new AccountsService(store, sim, { signup: config.signup }),
+          inject: [SIM_STORE, SimulationService],
+        },
+        ProjectGuard,
+        SessionGuard,
         AdminGuard,
         Lifecycle,
       ],

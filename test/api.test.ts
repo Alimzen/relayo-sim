@@ -15,13 +15,13 @@ const ADMIN = 'admin-token-for-tests';
 beforeAll(async () => {
   hooks = await webhookReceiver();
   app = await NestFactory.create(
-    AppModule.forRoot({ httpPort: 0, smtpPort: 0, host: '127.0.0.1', timeScale: 0, maxHangMs: 300, adminToken: ADMIN }),
+    AppModule.forRoot({ httpPort: 0, smtpPort: 0, host: '127.0.0.1', timeScale: 0, maxHangMs: 300, adminToken: ADMIN, signup: true, secureCookies: false }),
     { logger: false },
   );
   await app.listen(0, '127.0.0.1');
   base = await app.getUrl();
 
-  const created = await post('/v1/projects', { name: 'Tests', webhookUrl: hooks.url }, ADMIN);
+  const created = await post('/v1/admin/projects', { name: 'Tests', webhookUrl: hooks.url }, ADMIN);
   expect(created.status).toBe(201);
   const project = (await created.json()) as { apiKey: string; webhookSecret: string; id: string };
   apiKey = project.apiKey;
@@ -105,7 +105,7 @@ describe('HTTP API', () => {
     expect((await post('/v1/messages', { from: 'nope', to: ['a@b.c'], subject: 's' })).status).toBe(400);
     expect((await post('/v1/messages', { from: 'a@b.c', to: [], subject: 's' })).status).toBe(400);
     expect((await post('/v1/messages', { from: 'a@b.c', to: ['x@y.z'], subject: 's' }, 'wrong')).status).toBe(401);
-    expect((await post('/v1/projects', { name: 'x' }, apiKey)).status).toBe(401);
+    expect((await post('/v1/admin/projects', { name: 'x' }, apiKey)).status).toBe(401);
     expect((await get('/v1/messages/sim_unknown')).status).toBe(404);
   });
 

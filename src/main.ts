@@ -11,6 +11,8 @@ import { configFromEnv } from './config.js';
 const config = configFromEnv();
 const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(config));
 app.enableShutdownHooks();
+// Behind a proxy (load balancer, Fly, Render...), take the client IP from X-Forwarded-For for login limits.
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
 
 // The built panel (panel/dist/panel/browser) is served at /, with the API under /v1.
 const panelDir = process.env.PANEL_DIR ?? join(process.cwd(), 'panel', 'dist', 'panel', 'browser');

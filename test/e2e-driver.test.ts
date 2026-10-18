@@ -21,7 +21,7 @@ const seen: RelayoEvent[] = [];
 
 beforeAll(async () => {
   sim = await NestFactory.create(
-    AppModule.forRoot({ httpPort: 0, host: '127.0.0.1', timeScale: 0, maxHangMs: 300, adminToken: ADMIN }),
+    AppModule.forRoot({ httpPort: 0, host: '127.0.0.1', timeScale: 0, maxHangMs: 300, adminToken: ADMIN, signup: true, secureCookies: false }),
     { logger: false },
   );
   await sim.listen(0, '127.0.0.1');
@@ -42,7 +42,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => appServer.listen(0, '127.0.0.1', resolve));
   const webhookUrl = `http://127.0.0.1:${(appServer.address() as AddressInfo).port}/webhooks/relayo`;
 
-  const created = await fetch(`${simUrl}/v1/projects`, {
+  const created = await fetch(`${simUrl}/v1/admin/projects`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${ADMIN}` },
     body: JSON.stringify({ name: 'My app CI', webhookUrl }),

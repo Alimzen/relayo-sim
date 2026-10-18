@@ -38,7 +38,7 @@ App ──HTTP /v1────▶ API (NestJS) ──┼─▶ SimulationService
 | `GET /v1/messages/:id` | API key | Mensaje con su línea de tiempo |
 | `GET /v1/messages/:id/events/:eventId/report` | API key | DSN o ARF del evento (`message/rfc822`) |
 | `GET`, `PATCH /v1/project` | API key | Proyecto, `webhookUrl` y `reportsSmtpUrl` |
-| `POST /v1/projects` | `ADMIN_TOKEN` | Crea un proyecto; devuelve `apiKey` y `webhookSecret` una sola vez |
+| `POST /v1/admin/projects` | `ADMIN_TOKEN` | Crea un proyecto sin dueño (scripts); devuelve `apiKey` y `webhookSecret` una sola vez |
 
 Webhooks: `POST` con un evento Relayo en JSON y `Relayo-Signature: t=<unix>,v1=<hex HMAC-SHA256 de "t.cuerpo">`
 (secreto del proyecto). 8 reintentos con backoff exponencial.

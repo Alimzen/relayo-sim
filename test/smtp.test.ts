@@ -25,7 +25,7 @@ beforeEach(async () => {
 async function setup() {
   const { sim, scheduler, dispatcher, store } = memorySimulation(0);
   const hooks = await webhookReceiver();
-  const { project, apiKey } = await sim.createProject('Tests', hooks.url);
+  const { project, apiKey } = await sim.createProject('Tests', { webhookUrl: hooks.url });
   hooks.setSecret(project.webhookSecret);
   const server = new SmtpSimServer(sim, { port: 0, host: '127.0.0.1', maxHangMs: 300 });
   const port = await server.listen();

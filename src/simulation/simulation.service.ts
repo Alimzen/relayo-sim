@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { BounceEvent, ClickEvent, RejectEvent, RelayoEvent } from '@alimzen/core';
-import type { Project, SimEvent, SimMessage, SimRecipient } from '../domain.js';
+import type { ApiKey, Project, SimEvent, SimMessage, SimRecipient } from '../domain.js';
 import { buildReport, reportRecipient } from '../reports/reports.js';
 import type { ReportSender } from '../reports/sender.js';
 import type { SmtpReply, TimelineStep } from '../scenarios/catalog.js';
@@ -53,23 +53,52 @@ export class SimulationService {
 
   // --- Projects ---------------------------------------------------------------------------------
 
-  /** Creates a project. The API key is returned only here; only its hash is stored. */
-  async createProject(name: string, webhookUrl?: string): Promise<{ project: Project; apiKey: string }> {
-    const apiKey = `sim_live_${randomBytes(24).toString('base64url')}`;
+  /** Creates a project with a first API key. The key is returned only here; only its hash is stored. */
+  async createProject(name: string, options: { ownerId?: string; webhookUrl?: string } = {}): Promise<{ project: Project; apiKey: string }> {
     const project: Project = {
       id: `prj_${randomUUID()}`,
       name,
-      apiKeyHash: hashKey(apiKey),
-      webhookSecret: `whsec_${randomBytes(24).toString('base64url')}`,
+      webhookSecret: newWebhookSecret(),
       createdAt: new Date(),
-      ...(webhookUrl && { webhookUrl }),
+      ...(options.ownerId && { ownerId: options.ownerId }),
+      ...(options.webhookUrl && { webhookUrl: options.webhookUrl }),
     };
     await this.store.createProject(project);
+    const { apiKey } = await this.createApiKey(project.id, 'Default');
     return { project, apiKey };
   }
 
-  authenticate(apiKey: string): Promise<Project | undefined> {
-    return this.store.findProjectByApiKeyHash(hashKey(apiKey));
+  /** A new API key for a project. The key is returned only here. */
+  async createApiKey(projectId: string, name: string): Promise<{ key: ApiKey; apiKey: string }> {
+    const apiKey = `sim_live_${randomBytes(24).toString('base64url')}`;
+    const key: ApiKey = {
+      id: `key_${randomUUID()}`,
+      projectId,
+      name,
+      prefix: apiKey.slice(0, 13),
+      keyHash: hashKey(apiKey),
+      createdAt: new Date(),
+    };
+    await this.store.createApiKey(key);
+    return { key, apiKey };
+  }
+
+  /** Replaces the webhook signing secret. Webhooks signed with the old one stop verifying. */
+  async rotateWebhookSecret(projectId: string): Promise<string> {
+    const secret = newWebhookSecret();
+    await this.store.updateProject(projectId, { webhookSecret: secret });
+    return secret;
+  }
+
+  async authenticate(apiKey: string): Promise<Project | undefined> {
+    const found = await this.store.findProjectByApiKeyHash(hashKey(apiKey));
+    if (!found) return undefined;
+    // "Last used" is a hint, not an audit log: write it at most once a minute per key.
+    const now = new Date();
+    if (!found.key.lastUsedAt || now.getTime() - found.key.lastUsedAt.getTime() > 60_000) {
+      void this.store.touchApiKey(found.key.id, now).catch(() => undefined);
+    }
+    return found.project;
   }
 
   // --- Sending ----------------------------------------------------------------------------------
@@ -218,6 +247,10 @@ function toEvent(message: SimMessage, job: ScheduledStep): SimEvent {
     return event;
   }
   return base;
+}
+
+function newWebhookSecret(): string {
+  return `whsec_${randomBytes(24).toString('base64url')}`;
 }
 
 export function hashKey(apiKey: string): string {

@@ -1,9 +1,10 @@
 import {
   BadRequestException,
-  Header,
   Body,
   Controller,
+  Delete,
   Get,
+  Header,
   HttpCode,
   Inject,
   NotFoundException,
@@ -13,12 +14,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import type { Project, SimMessage } from '../domain.js';
-import { maskSmtpUrl } from '../reports/sender.js';
+import type { Project, SimEvent } from '../domain.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { SimulationService } from '../simulation/simulation.service.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
-import { AdminGuard, ApiKeyGuard, CurrentProject } from './auth.js';
+import { AdminGuard, CurrentProject, ProjectGuard, SessionOnly } from './auth.js';
+import { publicKey, publicMessage, publicProject } from './present.js';
 
 type Address = string | { address: string; name?: string };
 
@@ -39,22 +40,10 @@ export interface SendBody {
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
+const EVENT_TYPES: ReadonlySet<string> = new Set<SimEvent['type']>([
+  'accepted', 'delivered', 'deferred', 'bounced', 'complained', 'rejected', 'opened', 'clicked', 'unsubscribed', 'failed',
+]);
 const addressOf = (value: Address) => (typeof value === 'string' ? value : value?.address);
-
-function publicProject(project: Project) {
-  return {
-    id: project.id,
-    name: project.name,
-    webhookUrl: project.webhookUrl ?? null,
-    reportsSmtpUrl: project.reportsSmtpUrl ? maskSmtpUrl(project.reportsSmtpUrl) : null,
-    createdAt: project.createdAt,
-  };
-}
-
-function publicMessage(message: SimMessage) {
-  const { projectId: _projectId, ...rest } = message;
-  return rest;
-}
 
 @Controller('v1')
 export class ScenariosController {
@@ -65,7 +54,7 @@ export class ScenariosController {
 }
 
 @Controller('v1/messages')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ProjectGuard)
 export class MessagesController {
   constructor(
     @Inject(SimulationService) private readonly sim: SimulationService,
@@ -94,13 +83,23 @@ export class MessagesController {
     return { id: message.id, status: 'queued', recipients: message.recipients };
   }
 
+  /** Newest first. `q` searches subject, sender and recipients; `status` keeps messages with that event type. */
   @Get()
-  async list(@CurrentProject() project: Project, @Query('limit') limit?: string, @Query('before') before?: string) {
+  async list(
+    @CurrentProject() project: Project,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+  ) {
     const max = Math.min(100, Math.max(1, Number(limit) || 25));
     const beforeDate = before ? new Date(before) : undefined;
+    if (status && !EVENT_TYPES.has(status)) throw new BadRequestException(`Unknown status "${status}"`);
     const messages = await this.store.listMessages(project.id, {
       limit: max,
       ...(beforeDate && !Number.isNaN(beforeDate.getTime()) && { before: beforeDate }),
+      ...(q?.trim() && { search: q.trim().slice(0, 200) }),
+      ...(status && { status: status as SimEvent['type'] }),
     });
     return { data: messages.map(publicMessage) };
   }
@@ -125,9 +124,12 @@ export class MessagesController {
 }
 
 @Controller('v1/project')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ProjectGuard)
 export class ProjectController {
-  constructor(@Inject(SIM_STORE) private readonly store: SimStore) {}
+  constructor(
+    @Inject(SimulationService) private readonly sim: SimulationService,
+    @Inject(SIM_STORE) private readonly store: SimStore,
+  ) {}
 
   @Get()
   get(@CurrentProject() project: Project) {
@@ -141,13 +143,62 @@ export class ProjectController {
     @Body() body: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null },
   ) {
     const changes: ProjectChanges = {};
-    if (typeof body?.name === 'string' && body.name.trim()) changes.name = body.name.trim();
+    if (typeof body?.name === 'string') {
+      const name = body.name.trim();
+      if (!name || name.length > 80) throw new BadRequestException('"name" must have 1 to 80 characters');
+      changes.name = name;
+    }
     const webhookUrl = urlChange(body?.webhookUrl, /^https?:\/\//, '"webhookUrl" must be an http(s) url');
     const reportsSmtpUrl = urlChange(body?.reportsSmtpUrl, /^smtps?:\/\//, '"reportsSmtpUrl" must be an smtp:// or smtps:// url');
     if (webhookUrl !== undefined) changes.webhookUrl = webhookUrl;
     if (reportsSmtpUrl !== undefined) changes.reportsSmtpUrl = reportsSmtpUrl;
     await this.store.updateProject(project.id, changes);
     return publicProject((await this.store.getProject(project.id))!);
+  }
+
+  /** Totals and a per-day series over the last `days` days (1–90, default 7). */
+  @Get('stats')
+  async stats(@CurrentProject() project: Project, @Query('days') days?: string) {
+    const span = Math.min(90, Math.max(1, Number(days) || 7));
+    const since = new Date();
+    since.setUTCHours(0, 0, 0, 0);
+    since.setUTCDate(since.getUTCDate() - (span - 1));
+    return this.store.stats(project.id, since);
+  }
+
+  @Get('keys')
+  @SessionOnly()
+  async keys(@CurrentProject() project: Project) {
+    return { data: (await this.store.listApiKeys(project.id)).map(publicKey) };
+  }
+
+  /** A new API key. The key itself is only in this response. */
+  @Post('keys')
+  @SessionOnly()
+  async createKey(@CurrentProject() project: Project, @Body() body: { name?: unknown }) {
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name || name.length > 60) throw new BadRequestException('El nombre de la clave debe tener entre 1 y 60 caracteres.');
+    const { key, apiKey } = await this.sim.createApiKey(project.id, name);
+    return { ...publicKey(key), apiKey };
+  }
+
+  @Delete('keys/:id')
+  @HttpCode(204)
+  @SessionOnly()
+  async revokeKey(@CurrentProject() project: Project, @Param('id') id: string) {
+    if (!(await this.store.revokeApiKey(project.id, id))) throw new NotFoundException('Key not found or already revoked');
+  }
+
+  @Get('webhook-secret')
+  @SessionOnly()
+  webhookSecret(@CurrentProject() project: Project) {
+    return { webhookSecret: project.webhookSecret };
+  }
+
+  @Post('webhook-secret/rotate')
+  @SessionOnly()
+  async rotateWebhookSecret(@CurrentProject() project: Project) {
+    return { webhookSecret: await this.sim.rotateWebhookSecret(project.id) };
   }
 }
 
@@ -159,7 +210,8 @@ function urlChange(value: unknown, pattern: RegExp, error: string): string | nul
   return value;
 }
 
-@Controller('v1/projects')
+/** For operators: creates projects outside any account (scripts, CI, migrations). */
+@Controller('v1/admin/projects')
 @UseGuards(AdminGuard)
 export class AdminController {
   constructor(@Inject(SimulationService) private readonly sim: SimulationService) {}
@@ -168,7 +220,9 @@ export class AdminController {
   @Post()
   async create(@Body() body: { name?: string; webhookUrl?: string }) {
     if (typeof body?.name !== 'string' || !body.name.trim()) throw new BadRequestException('"name" is required');
-    const { project, apiKey } = await this.sim.createProject(body.name.trim(), body.webhookUrl);
+    const { project, apiKey } = await this.sim.createProject(body.name.trim(), {
+      ...(typeof body.webhookUrl === 'string' && { webhookUrl: body.webhookUrl }),
+    });
     return { ...publicProject(project), apiKey, webhookSecret: project.webhookSecret };
   }
 }

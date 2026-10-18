@@ -113,7 +113,7 @@ describe.runIf(REDIS_URL)('BullMQ adapters (Redis)', () => {
 
     // timeScale 0: every step is due at once and workers run them concurrently, in any order.
     const sim = new SimulationService(store, scheduler, dispatcher, { timeScale: 0 });
-    const { project } = await sim.createProject('Redis e2e', hooks.url);
+    const { project } = await sim.createProject('Redis e2e', { webhookUrl: hooks.url });
     hooks.setSecret(project.webhookSecret);
 
     const message = await sim.acceptFromApi(project, {

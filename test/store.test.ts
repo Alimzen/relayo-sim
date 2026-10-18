@@ -34,7 +34,6 @@ if (DATABASE_URL) {
 const project = (id = 'prj_1'): Project => ({
   id,
   name: 'Tests',
-  apiKeyHash: `hash_${id}`,
   webhookSecret: 'whsec_x',
   createdAt: new Date('2026-10-18T10:00:00Z'),
 });
@@ -64,11 +63,28 @@ const event = (id: string, messageId: string, type: SimEvent['type'], at: string
 });
 
 describe.each(stores)('%s store', (_, open) => {
-  it('stores projects and finds them by API key hash', async () => {
+  it('stores projects and finds them through their active API keys', async () => {
     const store = await open();
     await store.createProject(project());
-    expect(await store.findProjectByApiKeyHash('hash_prj_1')).toMatchObject({ id: 'prj_1', name: 'Tests' });
+    const key = { id: 'key_1', projectId: 'prj_1', name: 'CI', prefix: 'sim_live_abcd', keyHash: 'hash_1', createdAt: new Date('2026-10-18T10:00:00Z') };
+    await store.createApiKey(key);
+    await store.createApiKey({ ...key, id: 'key_2', name: 'Local', keyHash: 'hash_2', createdAt: new Date('2026-10-18T11:00:00Z') });
+
+    expect(await store.findProjectByApiKeyHash('hash_1')).toMatchObject({ project: { id: 'prj_1', name: 'Tests' }, key: { id: 'key_1' } });
     expect(await store.findProjectByApiKeyHash('nope')).toBeUndefined();
+    expect((await store.listApiKeys('prj_1')).map((k) => k.name)).toEqual(['Local', 'CI']);
+
+    await store.touchApiKey('key_1', new Date('2026-10-18T12:00:00Z'));
+    expect(await store.revokeApiKey('prj_other', 'key_1')).toBe(false);
+    expect(await store.revokeApiKey('prj_1', 'key_1')).toBe(true);
+    expect(await store.revokeApiKey('prj_1', 'key_1')).toBe(false);
+    expect(await store.findProjectByApiKeyHash('hash_1')).toBeUndefined();
+    const revoked = (await store.listApiKeys('prj_1')).find((k) => k.id === 'key_1');
+    expect(revoked).toMatchObject({ lastUsedAt: new Date('2026-10-18T12:00:00Z') });
+    expect(revoked?.revokedAt).toBeInstanceOf(Date);
+
+    await store.updateProject('prj_1', { webhookSecret: 'whsec_new' });
+    expect((await store.getProject('prj_1'))?.webhookSecret).toBe('whsec_new');
 
     await store.updateProject('prj_1', { webhookUrl: 'https://app.example.com/hooks' });
     expect(await store.getProject('prj_1')).toMatchObject({ webhookUrl: 'https://app.example.com/hooks', name: 'Tests' });
@@ -146,4 +162,78 @@ describe.each(stores)('%s store', (_, open) => {
 
 describe.runIf(!DATABASE_URL)('postgres store', () => {
   it.skip('needs DATABASE_URL or TEST_DATABASE_URL (in .env) to run', () => {});
+});
+
+describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
+  const user = { id: 'usr_1', email: 'ana@empresa.com', name: 'Ana', passwordHash: 'scrypt$x', createdAt: new Date('2026-10-18T09:00:00Z') };
+
+  it('keeps users, unique by email, and lists their projects', async () => {
+    const store = await open();
+    await store.createUser(user);
+    await expect(store.createUser({ ...user, id: 'usr_2' })).rejects.toThrow();
+    expect(await store.findUserByEmail('ANA@empresa.com')).toMatchObject({ id: 'usr_1', name: 'Ana' });
+    await store.updateUser('usr_1', { name: 'Ana P.' });
+    expect((await store.getUser('usr_1'))?.name).toBe('Ana P.');
+
+    await store.createProject({ ...project('prj_b'), ownerId: 'usr_1', createdAt: new Date('2026-10-18T11:00:00Z') });
+    await store.createProject({ ...project('prj_a'), ownerId: 'usr_1' });
+    await store.createProject(project('prj_admin'));
+    expect((await store.listProjects('usr_1')).map((p) => p.id)).toEqual(['prj_a', 'prj_b']);
+  });
+
+  it('keeps sessions until they expire or are deleted', async () => {
+    const store = await open();
+    await store.createUser(user);
+    const now = Date.now();
+    await store.createSession({ idHash: 's1', userId: 'usr_1', createdAt: new Date(now), expiresAt: new Date(now + 60_000) });
+    await store.createSession({ idHash: 's2', userId: 'usr_1', createdAt: new Date(now), expiresAt: new Date(now + 60_000) });
+    await store.createSession({ idHash: 'old', userId: 'usr_1', createdAt: new Date(now), expiresAt: new Date(now - 1) });
+
+    expect(await store.getSession('s1')).toMatchObject({ userId: 'usr_1' });
+    expect(await store.getSession('old')).toBeUndefined();
+    await store.deleteUserSessions('usr_1', 's1');
+    expect(await store.getSession('s2')).toBeUndefined();
+    expect(await store.getSession('s1')).toBeDefined();
+    await store.deleteSession('s1');
+    expect(await store.getSession('s1')).toBeUndefined();
+  });
+
+  it('searches and filters messages, with the latest status of each', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const recipients = (address: string) => [{ address, scenario: { name: 'x', source: 'address' as const } }];
+    await store.saveMessage(message('sim_1', '2026-10-18T10:00:00Z', { subject: 'Factura octubre', recipients: recipients('hard-bounce@sim.relayo.dev') }));
+    await store.saveMessage(message('sim_2', '2026-10-18T10:01:00Z', { subject: 'Bienvenida', recipients: recipients('ana@sim.relayo.dev') }));
+    await store.addEvent(event('a1', 'sim_1', 'accepted', '2026-10-18T10:00:01Z'));
+    await store.addEvent({ ...event('a2', 'sim_1', 'bounced', '2026-10-18T10:00:02Z'), bounceType: 'hard', reason: 'user_unknown' } as SimEvent);
+    for (const e of [event('b1', 'sim_2', 'accepted', '2026-10-18T10:01:01Z'), event('b2', 'sim_2', 'delivered', '2026-10-18T10:01:02Z')]) {
+      await store.addEvent(e);
+    }
+    // events reference their own recipients
+    const all = await store.listMessages('prj_1', { limit: 10 });
+    expect(all.map((m) => m.id)).toEqual(['sim_2', 'sim_1']);
+
+    expect((await store.listMessages('prj_1', { limit: 10, search: 'FACTURA' })).map((m) => m.id)).toEqual(['sim_1']);
+    expect((await store.listMessages('prj_1', { limit: 10, search: 'ana@sim' })).map((m) => m.id)).toEqual(['sim_2']);
+    expect((await store.listMessages('prj_1', { limit: 10, search: '100%' }))).toEqual([]);
+    expect((await store.listMessages('prj_1', { limit: 10, status: 'bounced' })).map((m) => m.id)).toEqual(['sim_1']);
+  });
+
+  it('counts messages, events and bounces by type and day', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const today = new Date();
+    const at = (minutes: number) => new Date(today.getTime() - minutes * 60_000).toISOString();
+    await store.saveMessage(message('sim_1', at(10)));
+    await store.addEvent(event('e1', 'sim_1', 'delivered', at(9)));
+    await store.addEvent({ ...event('e2', 'sim_1', 'bounced', at(8)), bounceType: 'block' } as SimEvent);
+    await store.addEvent(event('e3', 'sim_1', 'complained', at(7)));
+
+    const stats = await store.stats('prj_1', new Date(today.getTime() - 6 * 86_400_000));
+    expect(stats.messages).toBe(1);
+    expect(stats.events).toMatchObject({ delivered: 1, bounced: 1, complained: 1 });
+    expect(stats.bounces).toEqual({ hard: 0, soft: 0, block: 1 });
+    expect(stats.daily.length).toBeGreaterThanOrEqual(7);
+    expect(stats.daily.reduce((sum, d) => sum + d.delivered + d.bounced + d.complained, 0)).toBe(3);
+  });
 });

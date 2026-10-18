@@ -12,6 +12,10 @@ export interface SimConfig {
   adminToken?: string;
   timeScale: number;
   maxHangMs: number;
+  /** Whether anyone can create an account in the panel. */
+  signup: boolean;
+  /** Mark the session cookie `Secure` (HTTPS only). On in production. */
+  secureCookies: boolean;
   tls?: { key: string; cert: string };
 }
 
@@ -24,6 +28,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
     host: env.HOST ?? '0.0.0.0',
     timeScale: number(env.TIME_SCALE, 1),
     maxHangMs: number(env.SMTP_MAX_HANG_MS, 120_000),
+    signup: env.SIGNUP !== 'closed',
+    secureCookies: env.COOKIE_SECURE === 'true' || (env.COOKIE_SECURE !== 'false' && env.NODE_ENV === 'production'),
   };
   if (env.SMTP_PORT !== 'off') config.smtpPort = number(env.SMTP_PORT, 2525);
   if (env.DATABASE_URL) config.databaseUrl = env.DATABASE_URL;
