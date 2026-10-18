@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+dist
+panel/dist
+panel/.angular
+.env
+.env.*
+!deploy/.env.example
+.git
+*.log
+test
+scripts

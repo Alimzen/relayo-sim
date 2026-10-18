@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relayo Sim · Simulador de entrega de correo</title>
+<meta name="description" content="Rebotes, quejas, greylisting y bloqueos bajo demanda. Relayo Sim responde como los servidores de correo reales para que pruebes tu aplicación antes de producción.">
+<meta property="og:title" content="Relayo Sim · Simulador de entrega de correo">
+<meta property="og:description" content="Rebotes, quejas, greylisting y bloqueos bajo demanda, para tus tests y tu CI.">
+<link rel="icon" href="/favicon.ico">
+<link rel="preload" href="/site/inter.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face {
+  font-family: 'Inter Variable';
+  src: url('/site/inter.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-2: #f6f6f7;
+  --surface: #ffffff;
+  --text: #18181b;
+  --text-2: #3f3f46;
+  --muted: #71717a;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --primary: #18181b;
+  --primary-hover: #2e2e33;
+  --primary-text: #ffffff;
+  --link: #2563eb;
+  --code-bg: #f4f4f5;
+  --good: #15803d;
+  --good-bg: #f0fdf4;
+  --warn: #a16207;
+  --warn-bg: #fefce8;
+  --bad: #b91c1c;
+  --bad-bg: #fef2f2;
+  --block: #6d28d9;
+  --block-bg: #f5f3ff;
+  --serious: #c2410c;
+  --serious-bg: #fff7ed;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.04);
+  font-family: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0e0e10;
+    --bg-2: #141416;
+    --surface: #141416;
+    --text: #ececef;
+    --text-2: #c9c9cf;
+    --muted: #8e8e96;
+    --border: #26262b;
+    --border-strong: #34343a;
+    --primary: #ececef;
+    --primary-hover: #ffffff;
+    --primary-text: #111113;
+    --link: #6ea2ff;
+    --code-bg: #1d1d21;
+    --good: #4ade80;
+    --good-bg: #0f2a1a;
+    --warn: #facc15;
+    --warn-bg: #2a230b;
+    --bad: #f87171;
+    --bad-bg: #2f1313;
+    --block: #c4b5fd;
+    --block-bg: #231a3d;
+    --serious: #fb923c;
+    --serious-bg: #2e1a0d;
+    --shadow: none;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+h1, h2, h3, p { margin: 0; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+code, pre { font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+/* Header */
+.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+.top .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 600; color: var(--text); }
+.brand:hover { text-decoration: none; }
+.brand-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; background: var(--primary); color: var(--primary-text); }
+.brand small { font-size: inherit; font-weight: 500; color: var(--muted); }
+.nav { display: flex; gap: 22px; font-size: 14.5px; }
+.nav a { color: var(--text-2); }
+.top .actions { margin-left: auto; display: flex; gap: 8px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; padding: 0 16px; border-radius: 7px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14.5px; font-weight: 500; white-space: nowrap; }
+.btn:hover { text-decoration: none; background: var(--bg-2); }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-lg { height: 44px; padding: 0 20px; font-size: 15px; }
+
+/* Hero */
+.hero { padding: 72px 0 64px; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 48px; align-items: center; }
+.eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--text-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px; margin-bottom: 20px; }
+.eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+h1 { font-size: 46px; line-height: 1.1; letter-spacing: -0.025em; font-weight: 650; }
+.lede { margin-top: 18px; font-size: 18px; color: var(--text-2); max-width: 520px; }
+.cta { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 10px; }
+.fine { margin-top: 14px; font-size: 13.5px; color: var(--muted); }
+
+.window { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.window-bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg-2); font-size: 12.5px; color: var(--muted); }
+.window-bar span { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
+.window-bar b { margin-left: 8px; font-weight: 500; }
+.window pre { margin: 0; padding: 16px 18px; overflow-x: auto; line-height: 1.65; color: var(--text-2); }
+.k { color: var(--block); }
+.s { color: var(--good); }
+.c { color: var(--muted); }
+.timeline { border-top: 1px solid var(--border); padding: 14px 18px 16px; display: grid; gap: 10px; font-size: 13.5px; }
+.ev { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }
+.ev small { display: block; color: var(--muted); font-size: 12.5px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.good { color: var(--good); background: var(--good-bg); }
+.pill.warn { color: var(--warn); background: var(--warn-bg); }
+.pill.bad { color: var(--bad); background: var(--bad-bg); }
+.pill.block { color: var(--block); background: var(--block-bg); }
+.pill.serious { color: var(--serious); background: var(--serious-bg); }
+.pill.neutral { color: var(--muted); background: var(--code-bg); }
+
+/* Sections */
+section.band { padding: 80px 0; border-top: 1px solid var(--border); }
+section.alt { background: var(--bg-2); }
+.section-head { max-width: 640px; margin-bottom: 40px; }
+.section-head h2 { font-size: 32px; line-height: 1.2; letter-spacing: -0.02em; font-weight: 650; }
+.section-head p { margin-top: 12px; color: var(--text-2); font-size: 17px; }
+.label { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.step { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 22px; }
+.step b { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; background: var(--code-bg); font-size: 13px; margin-bottom: 14px; }
+.step h3 { font-size: 16px; margin-bottom: 6px; }
+.step p { color: var(--text-2); font-size: 15px; }
+
+.groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.group { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.group h3 { font-size: 14px; padding: 12px 18px; border-bottom: 1px solid var(--border); background: var(--bg-2); }
+.group ul { list-style: none; margin: 0; padding: 0; }
+.group li { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; padding: 11px 18px; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--text-2); }
+.group li:last-child { border-bottom: 0; }
+.group li code { justify-self: start; background: none; padding: 0; color: var(--text); }
+
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
+.points { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 14px; }
+.points li { display: grid; grid-template-columns: 20px 1fr; gap: 12px; color: var(--text-2); }
+.points svg { margin-top: 4px; color: var(--good); }
+.points strong { color: var(--text); font-weight: 600; }
+
+.mail { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; font-size: 13.5px; }
+.tabs { display: flex; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--border); }
+.tabs span { padding: 10px 10px; color: var(--muted); font-weight: 500; }
+.tabs span.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--text); }
+.env { display: grid; grid-template-columns: 90px 1fr; gap: 3px 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.env dt { color: var(--muted); }
+.env dd { margin: 0; }
+.render { padding: 18px; background: var(--bg-2); }
+.render-card { max-width: 380px; margin: 0 auto; background: #fff; color: #222; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5; font-family: Arial, sans-serif; }
+.render-card .head { background: #0f4c81; color: #fff; padding: 16px 18px; font-weight: 700; }
+.render-card .body { padding: 14px 18px; font-size: 13px; line-height: 1.5; }
+.render-card .button { display: inline-block; margin-top: 10px; background: #0f4c81; color: #fff; border-radius: 5px; padding: 7px 12px; font-size: 12.5px; }
+.attach { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--border); color: var(--text-2); }
+
+.ci { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 20px; }
+.terminal pre { color: var(--text-2); }
+.ok { color: var(--good); }
+.no { color: var(--bad); }
+
+.works { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.work { border: 1px solid var(--border); border-radius: 10px; padding: 18px; background: var(--surface); }
+.work h3 { font-size: 15px; margin-bottom: 6px; }
+.work p { font-size: 14px; color: var(--text-2); }
+
+.final { text-align: center; }
+.final h2 { font-size: 34px; letter-spacing: -0.02em; font-weight: 650; }
+.final p { margin: 12px auto 0; color: var(--text-2); max-width: 520px; font-size: 17px; }
+.final .cta { justify-content: center; }
+
+footer { border-top: 1px solid var(--border); padding: 28px 0 40px; font-size: 14px; color: var(--muted); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; }
+footer .links { margin-left: auto; display: flex; gap: 20px; }
+footer a { color: var(--text-2); }
+
+@media (max-width: 960px) {
+  .hero .wrap, .split, .ci { grid-template-columns: minmax(0, 1fr); }
+  .groups { grid-template-columns: minmax(0, 1fr); }
+  .works { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nav { display: none; }
+  h1 { font-size: 38px; }
+}
+
+@media (max-width: 640px) {
+  .wrap { padding: 0 16px; }
+  .hero { padding: 48px 0; }
+  h1 { font-size: 32px; }
+  .lede { font-size: 16.5px; }
+  .steps, .works { grid-template-columns: minmax(0, 1fr); }
+  .group li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  section.band { padding: 56px 0; }
+  .section-head h2, .final h2 { font-size: 26px; }
+  .top .actions .btn:not(.btn-primary) { display: none; }
+  footer .links { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Relayo Sim, inicio">
+      <span class="brand-mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span>
+      <span>Relayo <small>Sim</small></span>
+    </a>
+    <nav class="nav" aria-label="Secciones">
+      <a href="#escenarios">Escenarios</a>
+      <a href="#bandeja">Bandeja</a>
+      <a href="#ci">CI</a>
+      <a href="https://github.com/Alimzen/relayo">Documentación</a>
+    </nav>
+    <div class="actions" data-guest>
+      <a class="btn" href="/login">Entrar</a>
+      <a class="btn btn-primary" href="/signup">Crear cuenta</a>
+    </div>
+    <div class="actions" data-member hidden>
+      <a class="btn btn-primary" href="/overview">Ir al panel</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow"><i aria-hidden="true"></i>Gratis durante la beta</p>
+        <h1>Prueba lo que pasa después de enviar un correo.</h1>
+        <p class="lede">
+          Rebotes, quejas de spam, greylisting, bloqueos por lista negra, buzones llenos. Relayo Sim responde como los
+          servidores de correo reales, para que tu aplicación los maneje bien antes de que ocurran en producción.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary btn-lg" href="/signup" data-guest>Crear cuenta</a>
+          <a class="btn btn-primary btn-lg" href="/overview" data-member hidden>Ir al panel</a>
+          <a class="btn btn-lg" href="https://github.com/Alimzen/relayo">Ver en GitHub</a>
+        </div>
+        <p class="fine">Por SMTP o por API HTTP. Sin tarjeta.</p>
+      </div>
+
+      <figure class="window" style="margin:0" aria-label="Ejemplo: un envío a hard-bounce y los eventos que produce">
+        <div class="window-bar"><span></span><span></span><span></span><b>signup.test.ts</b></div>
+<pre><code><span class="k">await</span> relayo.email.send({
+  from: { address: <span class="s">'hola@tuapp.com'</span> },
+  to: { address: <span class="s">'hard-bounce@sim.relayo.dev'</span> },
+  subject: <span class="s">'Confirma tu cuenta'</span>,
+});
+
+<span class="c">// Tu webhook recibe, firmado y normalizado:</span>
+relayo.on(<span class="s">'bounced'</span>, (e) =&gt; markInvalid(e.recipient));</code></pre>
+        <div class="timeline" aria-label="Línea de tiempo">
+          <div class="ev"><span class="pill neutral">Aceptado</span><span>El simulador acepta el envío <small>hace 2 s</small></span></div>
+          <div class="ev"><span class="pill bad">Rebote duro</span><span>El usuario no existe · 550 5.1.1 <small>bounceType: hard · reason: user_unknown</small></span></div>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="band alt">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="label">Cómo funciona</p>
+        <h2>Una dirección de correo elige lo que pasa.</h2>
+        <p>Nada que configurar por test: el destinatario es el escenario.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <b>1</b>
+          <h3>Envía a una dirección de escenario</h3>
+          <p>Por SMTP desde cualquier librería, o por la API HTTP. <code>greylist+3@sim.relayo.dev</code> acepta al tercer intento.</p>
+        </div>
+        <div class="step">
+          <b>2</b>
+          <h3>Responde como el mundo real</h3>
+          <p>Códigos SMTP y ampliados correctos, rechazos en RCPT o tras DATA, informes DSN y ARF por correo, aplazamientos con el tiempo que pidas.</p>
+        </div>
+        <div class="step">
+          <b>3</b>
+          <h3>Tu app recibe los eventos</h3>
+          <p>Webhooks firmados con el modelo de eventos de <a href="https://github.com/Alimzen/relayo">Relayo</a>: el mismo que usarás con SES, SendGrid, Resend, Postmark o Mailgun.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="escenarios">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="label">Escenarios</p>
+        <h2>Los fallos que tu aplicación debería saber manejar.</h2>
+        <p>Cada rebote viene clasificado: duro (la dirección no sirve), suave (temporal) o bloqueo (revisa tu configuración y conserva el contacto).</p>
+      </div>
+      <div class="groups">
+        <div class="group">
+          <h3>Rebotes</h3>
+          <ul>
+            <li><code>hard-bounce@</code><span>El buzón no existe: 550 5.1.1</span></li>
+            <li><code>no-mx@</code><span>El dominio no recibe correo: 550 5.1.2</span></li>
+            <li><code>mailbox-full@</code><span>Buzón lleno: 452 4.2.2 en cada intento</span></li>
+            <li><code>too-large@</code><span>Mensaje demasiado grande: 552 5.3.4</span></li>
+            <li><code>timeout@</code><span>El receptor no responde a DATA</span></li>
+          </ul>
+        </div>
+        <div class="group">
+          <h3>Bloqueos</h3>
+          <ul>
+            <li><code>blocked@</code><span>Rechazado por política: 550 5.7.1</span></li>
+            <li><code>blocklisted@</code><span>Tu IP en una lista negra: 554 5.7.1</span></li>
+            <li><code>dmarc@</code><span>Fallo de SPF, DKIM o DMARC: 550 5.7.26</span></li>
+            <li><code>suppressed@</code><span>En la lista de supresión, nunca se intenta</span></li>
+          </ul>
+        </div>
+        <div class="group">
+          <h3>Aplazamientos</h3>
+          <ul>
+            <li><code>greylist+3@</code><span>451 4.7.1 hasta el tercer intento</span></li>
+            <li><code>rate-limit@</code><span>El receptor te limita: 421 4.7.28</span></li>
+            <li><code>delay+30m@</code><span>Se entrega tarde, aplazado mientras tanto</span></li>
+          </ul>
+        </div>
+        <div class="group">
+          <h3>Después de la entrega</h3>
+          <ul>
+            <li><code>complaint@</code><span>Lo marcan como spam (informe ARF)</span></li>
+            <li><code>unsubscribe@</code><span>El destinatario se da de baja</span></li>
+            <li><code>engaged@</code><span>Se abre y se hace clic</span></li>
+            <li><code>cualquier@</code><span>Cualquier otra dirección se entrega</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="fine" style="margin-top:20px">Todas en <code>@sim.relayo.dev</code>. Añade <code>+async</code> para que SMTP acepte y el rebote llegue después, como en un relay.</p>
+    </div>
+  </section>
+
+  <section class="band alt" id="bandeja">
+    <div class="wrap split">
+      <div>
+        <p class="label">Bandeja de captura</p>
+        <h2 style="font-size:32px;line-height:1.2;letter-spacing:-0.02em;font-weight:650">Mira el correo que enviaste de verdad.</h2>
+        <ul class="points">
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Vista previa</strong> a ancho de escritorio o de móvil, en un marco aislado sin scripts.</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Texto, HTML y cabeceras</strong> tal como llegaron, y el original en <code>.eml</code>.</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Adjuntos</strong> para descargar, e imágenes <code>cid:</code> en su sitio.</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><strong>La línea de tiempo</strong> de cada destinatario al lado: qué respondió el servidor y cuándo.</span></li>
+        </ul>
+      </div>
+      <div class="mail" role="img" aria-label="Captura de la bandeja: un correo de factura en la pestaña de vista previa, con un adjunto PDF">
+        <div class="tabs"><span>Eventos</span><span class="on">Vista previa</span><span>Texto</span><span>HTML</span><span>Cabeceras</span></div>
+        <dl class="env">
+          <dt>De</dt><dd>Empresa S.A. &lt;facturas@empresa.com&gt;</dd>
+          <dt>Para</dt><dd>ana@sim.relayo.dev</dd>
+          <dt>Asunto</dt><dd>Tu factura de octubre</dd>
+        </dl>
+        <div class="render">
+          <div class="render-card">
+            <div class="head">Tu factura de octubre</div>
+            <div class="body">Hola Ana, adjuntamos tu factura del mes. Total: 35,09 €<br><span class="button">Ver factura</span></div>
+          </div>
+        </div>
+        <div class="attach"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>factura-octubre.pdf <span style="color:var(--muted)">· 48 KB</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="ci">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="label">En tu CI</p>
+        <h2>Que el build falle si un rebote no se maneja.</h2>
+        <p>La CLI <code>relayo</code> espera el evento que tu código tiene que tratar. La acción de GitHub deja en cada ejecución un resumen de todos los correos enviados.</p>
+      </div>
+      <div class="ci">
+        <figure class="window" style="margin:0">
+          <div class="window-bar"><span></span><span></span><span></span><b>.github/workflows/test.yml</b></div>
+<pre><code><span class="k">- uses:</span> Alimzen/relayo/actions/sim@main
+  <span class="k">with:</span>
+    url: ${{ vars.RELAYO_SIM_URL }}
+    api-key: ${{ secrets.RELAYO_SIM_API_KEY }}
+
+<span class="k">- run:</span> npm test
+
+<span class="k">- run:</span> npx relayo wait --search <span class="s">"Confirma tu cuenta"</span> \
+         --for bounced:hard --timeout 1m
+
+<span class="k">- uses:</span> Alimzen/relayo/actions/sim@main
+  <span class="k">if:</span> always()
+  <span class="k">with:</span> { step: report }</code></pre>
+        </figure>
+        <figure class="window terminal" style="margin:0">
+          <div class="window-bar"><span></span><span></span><span></span><b>Terminal</b></div>
+<pre><code>$ npx relayo wait sim_8c1f --for bounced:hard
+<span class="ok">✓</span> sim_8c1f: bounced:hard · user_unknown · 550 5.1.1
+
+$ npx relayo wait sim_93ab --for delivered --timeout 30s
+<span class="no">✗</span> No "delivered" event after 30s.
+  Seen:
+    sim_93ab: deferred (greylist+5@sim.relayo.dev)
+
+$ echo $?
+1</code></pre>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band alt">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="label">Funciona con lo que ya usas</p>
+        <h2>Sin cambiar tu código de envío.</h2>
+      </div>
+      <div class="works">
+        <div class="work"><h3>SMTP</h3><p>Nodemailer, Django, Rails, Laravel, Spring… Apunta el host al simulador y usa tu clave como contraseña.</p></div>
+        <div class="work"><h3>API HTTP</h3><p>Un <code>POST /v1/messages</code> con el mismo cuerpo que la librería Relayo.</p></div>
+        <div class="work"><h3>Relayo</h3><p>El driver <code>@alimzen/simulator</code> en tests y CI; SES, SendGrid o Resend en producción.</p></div>
+        <div class="work"><h3>NestJS</h3><p><code>@alimzen/nestjs</code>: módulo, servicio y <code>@OnRelayoEvent()</code> para tus handlers.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band final">
+    <div class="wrap">
+      <h2>Empieza a probar tus rebotes hoy.</h2>
+      <p>Crea una cuenta, copia tu clave y envía tu primer correo a <code>hard-bounce@sim.relayo.dev</code>.</p>
+      <div class="cta">
+        <a class="btn btn-primary btn-lg" href="/signup" data-guest>Crear cuenta</a>
+        <a class="btn btn-primary btn-lg" href="/overview" data-member hidden>Ir al panel</a>
+        <a class="btn btn-lg" href="https://github.com/Alimzen/relayo">Leer la documentación</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© Alimzen · Relayo Sim</span>
+    <div class="links">
+      <a href="https://github.com/Alimzen/relayo">GitHub</a>
+      <a href="https://www.npmjs.com/org/alimzen">npm</a>
+      <a href="/login">Entrar</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Signed-in visitors get a link to the panel instead of the sign-up buttons.
+  fetch('/v1/auth/me', { credentials: 'same-origin' })
+    .then(function (r) {
+      if (!r.ok) return;
+      document.querySelectorAll('[data-guest]').forEach(function (el) { el.hidden = true; });
+      document.querySelectorAll('[data-member]').forEach(function (el) { el.hidden = false; });
+    })
+    .catch(function () {});
+</script>
+</body>
+</html>

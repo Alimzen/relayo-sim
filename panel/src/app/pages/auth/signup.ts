@@ -11,7 +11,7 @@ import { safeNext } from './login';
   imports: [FormsModule, RouterLink, Brand],
   template: `
     <main class="auth">
-      <app-brand />
+      <a href="/" class="brand-link" aria-label="Relayo Sim, inicio"><app-brand /></a>
       @if (closed()) {
         <div class="card auth-card">
           <h1>Registro cerrado</h1>

@@ -1,0 +1,6 @@
+# HTTPS for the panel and API, with a Let's Encrypt certificate that Caddy obtains and renews.
+# The SMTP server reuses that certificate for STARTTLS (see docker-compose.yml).
+{$SIM_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy sim:3000
+}

@@ -15,7 +15,7 @@ export function safeNext(next: string | undefined): string {
   imports: [FormsModule, RouterLink, Brand],
   template: `
     <main class="auth">
-      <app-brand />
+      <a href="/" class="brand-link" aria-label="Relayo Sim, inicio"><app-brand /></a>
       <form class="card auth-card" (ngSubmit)="submit()">
         <h1>Entrar</h1>
         <p class="lede">Accede a tus proyectos de Relayo Sim.</p>

@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import {
   Inject,
   Injectable,
@@ -27,6 +28,7 @@ const INFRASTRUCTURE = Symbol.for('relayo-sim:infrastructure');
 class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger('RelayoSim');
   private smtp: SmtpSimServer | undefined;
+  private tlsReload: ReturnType<typeof setInterval> | undefined;
   /** Port the SMTP server listens on, once started (useful with port 0 in tests). */
   smtpPort: number | undefined;
 
@@ -38,17 +40,35 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
 
   async onApplicationBootstrap(): Promise<void> {
     if (this.config.smtpPort === undefined) return;
+    const tls = this.config.tls;
+    const loadTls = async () =>
+      tls && 'keyFile' in tls ? { key: await readFile(tls.keyFile, 'utf8'), cert: await readFile(tls.certFile, 'utf8') } : tls;
+    const initial = await loadTls().catch((error: Error) => {
+      // On a first deploy the proxy may still be getting the certificate: fail, and let the restart policy retry.
+      throw new Error(`Cannot read the SMTP TLS certificate (TLS_KEY_FILE / TLS_CERT_FILE): ${error.message}`);
+    });
     this.smtp = new SmtpSimServer(this.sim, {
       port: this.config.smtpPort,
       host: this.config.host,
       maxHangMs: this.config.maxHangMs,
-      ...(this.config.tls && { tls: this.config.tls }),
+      ...(initial && { tls: initial }),
     });
+    if (tls && 'keyFile' in tls) {
+      // Certificates from files renew (Let's Encrypt, every ~60 days): pick up the new ones twice a day.
+      this.tlsReload = setInterval(() => {
+        void loadTls().then(
+          (fresh) => fresh && this.smtp?.updateTls(fresh),
+          (error: Error) => this.logger.warn(`Could not reload the TLS certificate: ${error.message}`),
+        );
+      }, 12 * 3_600_000);
+      this.tlsReload.unref();
+    }
     this.smtpPort = await this.smtp.listen();
     this.logger.log(`SMTP listening on ${this.config.host}:${this.smtpPort}`);
   }
 
   async onApplicationShutdown(): Promise<void> {
+    clearInterval(this.tlsReload);
     await this.smtp?.close();
     await this.infra.close();
   }

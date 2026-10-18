@@ -99,8 +99,11 @@ cuenta. Claro y oscuro, adaptado a móvil.
 ```sh
 cd panel && pnpm install
 pnpm start          # http://localhost:4200, con proxy de /v1 a :3000
-pnpm build          # el servidor sirve panel/dist en / (PANEL_DIR para otra ruta)
+pnpm build          # el servidor sirve panel/dist (PANEL_DIR para otra ruta)
 ```
+
+La landing (`landing/index.html`, HTML estático) se sirve en `/` exactamente, con sus recursos en `/site/`
+(`LANDING_DIR` para otra ruta); el panel atiende el resto de rutas (`/login`, `/overview`…).
 
 Angular 22 pide Node ≥ 22.22; se usa la 21 porque el entorno tiene Node 22.17. Subir de versión al actualizar Node.
 
@@ -126,9 +129,32 @@ ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim 
 | `TIME_SCALE` | 1 | Multiplica los retrasos; `0` = todo al instante |
 | `SMTP_MAX_HANG_MS` | 120000 | Límite del escenario `timeout` |
 | `TLS_KEY` / `TLS_CERT` | — | PEM para STARTTLS |
+| `TLS_KEY_FILE` / `TLS_CERT_FILE` | — | Rutas a los PEM; se releen dos veces al día (certificados que se renuevan) |
 
-Mientras `@alimzen/core` 0.2.1 / `@alimzen/smtp` 0.2.1 y `@alimzen/simulator` no estén publicados, `package.json`
-enlaza los paquetes locales de `../relayo` (`pnpm.overrides`). Quitar los overrides tras publicarlos.
+## Despliegue
+
+Una imagen (`Dockerfile`) con API, SMTP, panel y landing. `deploy/` trae lo necesario para un servidor propio
+(cualquier VPS con Docker):
+
+- **Caddy** delante: HTTPS con Let's Encrypt, obtenido y renovado solo.
+- **SMTP en 587 y 2525** (los puertos de envío que los proveedores de CI dejan abiertos; el 25 no hace falta), con
+  STARTTLS usando el mismo certificado. El servicio `certs` lo copia con permisos legibles para el simulador, que
+  corre sin privilegios.
+- **PostgreSQL y Redis** con volúmenes persistentes.
+
+```sh
+# En el servidor, con el registro DNS A/AAAA de SIM_DOMAIN apuntando a él y los puertos 80, 443, 587 y 2525 abiertos
+git clone https://github.com/Alimzen/relayo-sim.git && cd relayo-sim/deploy
+cp .env.example .env            # SIM_DOMAIN, POSTGRES_PASSWORD, ADMIN_TOKEN, SIGNUP
+docker compose up -d --build
+docker compose logs -f sim      # la primera vez reinicia hasta que Caddy tiene el certificado (1–2 min)
+```
+
+Para actualizar: `git pull && docker compose up -d --build`. Las migraciones de PostgreSQL se aplican solas al
+arrancar. Copias de seguridad: `docker compose exec postgres pg_dump -U relayo relayo_sim > backup.sql`.
+
+Las direcciones de escenario (`@sim.relayo.dev`) no necesitan DNS: los correos llegan al SMTP del simulador porque
+la aplicación lo usa como servidor de salida, no por MX.
 
 ## Pendiente (fase 2)
 

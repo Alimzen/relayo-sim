@@ -16,7 +16,18 @@ app.useBodyParser('json', { limit: '35mb' });
 // Behind a proxy (load balancer, Fly, Render...), take the client IP from X-Forwarded-For for login limits.
 if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
 
-// The built panel (panel/dist/panel/browser) is served at /, with the API under /v1.
+// The landing page (landing/) is served at / exactly, with its assets under /site/.
+const landingDir = process.env.LANDING_DIR ?? join(process.cwd(), 'landing');
+if (existsSync(join(landingDir, 'index.html'))) {
+  app.useStaticAssets(landingDir, { prefix: '/site/', index: false, maxAge: '1d' });
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method !== 'GET' || req.path !== '/') return next();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(join(landingDir, 'index.html'));
+  });
+}
+
+// The built panel (panel/dist/panel/browser) is served for every other page, with the API under /v1.
 const panelDir = process.env.PANEL_DIR ?? join(process.cwd(), 'panel', 'dist', 'panel', 'browser');
 const logger = new Logger('RelayoSim');
 if (existsSync(join(panelDir, 'index.html'))) {

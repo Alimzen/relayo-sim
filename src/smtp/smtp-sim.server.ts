@@ -141,6 +141,11 @@ export class SmtpSimServer {
     this.hanging.add(timer);
   }
 
+  /** Swaps the STARTTLS certificate without restarting (e.g. after a renewal). */
+  updateTls(tls: { key: string; cert: string }): void {
+    this.server.updateSecureContext({ key: tls.key, cert: tls.cert });
+  }
+
   async listen(): Promise<number> {
     await new Promise<void>((resolve) => this.server.listen(this.options.port, this.options.host ?? '0.0.0.0', resolve));
     return (this.server.server.address() as AddressInfo).port;

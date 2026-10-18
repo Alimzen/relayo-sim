@@ -16,7 +16,8 @@ export interface SimConfig {
   signup: boolean;
   /** Mark the session cookie `Secure` (HTTPS only). On in production. */
   secureCookies: boolean;
-  tls?: { key: string; cert: string };
+  /** STARTTLS for SMTP: PEM contents, or paths to PEM files re-read periodically (certificates that renew). */
+  tls?: { key: string; cert: string } | { keyFile: string; certFile: string };
 }
 
 export const SIM_CONFIG = Symbol.for('relayo-sim:config');
@@ -36,5 +37,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
   if (env.REDIS_URL) config.redisUrl = env.REDIS_URL;
   if (env.ADMIN_TOKEN) config.adminToken = env.ADMIN_TOKEN;
   if (env.TLS_KEY && env.TLS_CERT) config.tls = { key: env.TLS_KEY, cert: env.TLS_CERT };
+  else if (env.TLS_KEY_FILE && env.TLS_CERT_FILE) config.tls = { keyFile: env.TLS_KEY_FILE, certFile: env.TLS_CERT_FILE };
   return config;
 }

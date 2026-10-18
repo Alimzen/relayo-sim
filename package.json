@@ -17,7 +17,7 @@
     "smoke": "tsx --env-file=.env scripts/smoke.ts"
   },
   "dependencies": {
-    "@alimzen/core": "^0.2.0",
+    "@alimzen/core": "^0.2.1",
     "@nestjs/common": "^12",
     "@nestjs/core": "^12",
     "@nestjs/platform-express": "^12",
@@ -32,8 +32,8 @@
   },
   "devDependencies": {
     "@alimzen/bounces": "^0.1.0",
-    "@alimzen/simulator": "link:../relayo/packages/simulator",
-    "@alimzen/smtp": "^0.2.0",
+    "@alimzen/simulator": "^0.1.0",
+    "@alimzen/smtp": "^0.2.1",
     "@nestjs/testing": "^12",
     "@types/express": "^5.0.6",
     "@types/mailparser": "^3.9.0",
@@ -43,12 +43,5 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9",
     "vitest": "^2.1"
-  },
-  "pnpm": {
-    "overrides": {
-      "@alimzen/core": "link:../relayo/packages/core",
-      "@alimzen/smtp": "link:../relayo/packages/smtp",
-      "@alimzen/simulator": "link:../relayo/packages/simulator"
-    }
   }
 }
