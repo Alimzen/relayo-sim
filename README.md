@@ -54,6 +54,8 @@ sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
 | `POST /v1/messages` | API key | Envío (202, `{ id, status: 'queued' }`) |
 | `GET /v1/messages?limit=&before=&q=&status=` | API key | Últimos mensajes, con búsqueda y filtro por tipo de evento |
 | `GET /v1/messages/:id` | API key | Mensaje con su línea de tiempo |
+| `GET /v1/messages/:id/content` | API key | Correo capturado: cuerpos, cabeceras y adjuntos (imágenes `cid:` incrustadas) |
+| `GET /v1/messages/:id/raw` · `/attachments/:index` | API key | Original (`.eml`) y adjuntos, como descarga |
 | `GET /v1/messages/:id/events/:eventId/report` | API key | DSN o ARF del evento (`message/rfc822`) |
 | `GET`, `PATCH /v1/project` | API key | Proyecto, `name`, `webhookUrl` y `reportsSmtpUrl` |
 | `GET /v1/project/stats?days=` | API key | Totales y serie diaria (1–90 días) |
@@ -63,6 +65,14 @@ sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
 
 Webhooks: `POST` con un evento Relayo en JSON y `Relayo-Signature: t=<unix>,v1=<hex HMAC-SHA256 de "t.cuerpo">`
 (secreto del proyecto). 8 reintentos con backoff exponencial.
+
+## Bandeja de captura
+
+El simulador guarda cada correo completo (el MIME tal cual llega por SMTP; por la API, el que habría enviado un
+proveedor, con , , ,  y ).
+El panel lo muestra en pestañas: vista previa (escritorio o móvil), texto, HTML y cabeceras, con los adjuntos y la
+descarga del original. La vista previa corre en un iframe sin scripts y con origen opaco, y los adjuntos se sirven
+siempre como descarga: el contenido capturado no se ejecuta nunca en el origen del simulador.
 
 ## Informes por correo (DSN y ARF)
 

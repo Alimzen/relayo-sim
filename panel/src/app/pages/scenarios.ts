@@ -165,6 +165,7 @@ export class ScenariosPage {
         to: [this.address()],
         subject: this.subject.trim() || `Prueba de ${this.selected}`,
         text: 'Mensaje de prueba enviado desde el panel de Relayo Sim.',
+        html: '<p>Mensaje de prueba enviado desde el panel de <strong>Relayo Sim</strong>.</p>',
       });
       this.toasts.show('Mensaje enviado');
       await this.router.navigate(['/messages', id]);

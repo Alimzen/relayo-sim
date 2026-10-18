@@ -23,11 +23,12 @@
     "@nestjs/platform-express": "^12",
     "bullmq": "^6.3.16",
     "ioredis": "^6.0.0",
+    "mailparser": "^3.9.46",
+    "nodemailer": "^10.1.6",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "smtp-server": "^3.20.1",
-    "nodemailer": "^10.1.6"
+    "smtp-server": "^3.20.1"
   },
   "devDependencies": {
     "@alimzen/bounces": "^0.1.0",
@@ -35,6 +36,7 @@
     "@alimzen/smtp": "^0.2.0",
     "@nestjs/testing": "^12",
     "@types/express": "^5.0.6",
+    "@types/mailparser": "^3.9.0",
     "@types/node": "^22",
     "@types/pg": "^8.23.1",
     "@types/smtp-server": "^3.5.13",

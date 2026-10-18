@@ -11,6 +11,8 @@ import { configFromEnv } from './config.js';
 const config = configFromEnv();
 const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(config));
 app.enableShutdownHooks();
+// API sends carry attachments in base64: room for a 25 MB message.
+app.useBodyParser('json', { limit: '35mb' });
 // Behind a proxy (load balancer, Fly, Render...), take the client IP from X-Forwarded-For for login limits.
 if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
 

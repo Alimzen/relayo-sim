@@ -8,6 +8,7 @@ import { panelInterceptor } from './core/api';
 import { detailOf, lookOf } from './core/events';
 import { percent } from './core/format';
 import { safeNext } from './pages/auth/login';
+import { withHead } from './ui/email-preview';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -75,5 +76,18 @@ describe('event looks', () => {
     expect(percent(0, 0)).toBe('—');
     expect(percent(3, 3)).toBe('100 %');
     expect(percent(1, 3)).toBe('33.3 %');
+  });
+});
+
+describe('email preview', () => {
+  it('puts the CSP before anything the email loads', () => {
+    const csp = 'Content-Security-Policy';
+    const full = withHead('<html><head><link rel="stylesheet" href="https://x"></head><body>Hola</body></html>');
+    expect(full.indexOf(csp)).toBeLessThan(full.indexOf('<link'));
+    const fragment = withHead('<p>Hola</p>');
+    expect(fragment.startsWith('<!doctype html><html><head>')).toBe(true);
+    expect(fragment.indexOf(csp)).toBeLessThan(fragment.indexOf('<p>Hola</p>'));
+    const noHead = withHead('<html><body>x</body></html>');
+    expect(noHead.indexOf(csp)).toBeLessThan(noHead.indexOf('<body>'));
   });
 });

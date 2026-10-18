@@ -31,6 +31,8 @@ export interface IncomingMessage {
   envelopeFrom?: string;
   /** Original headers to quote back in reports. */
   headers?: Record<string, string>;
+  /** The whole message (MIME), captured for the inbox. */
+  raw?: Uint8Array;
 }
 
 /** Ties scenarios, storage, scheduling and webhooks together. */
@@ -175,8 +177,9 @@ export class SimulationService {
       ...(input.tags?.length && { tags: input.tags }),
       ...(input.envelopeFrom && input.envelopeFrom !== input.from && { envelopeFrom: input.envelopeFrom }),
       ...(input.headers && Object.keys(input.headers).length && { headers: input.headers }),
+      ...(input.raw && { size: input.raw.length }),
     };
-    await this.store.saveMessage(message);
+    await this.store.saveMessage(message, input.raw);
     return message;
   }
 

@@ -12,8 +12,11 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { composeMessage, quotedHeaders, readAttachment, readContent, readHeaders, type ApiAttachment, type MailAddress } from '../capture/capture.js';
 import type { Project, SimEvent } from '../domain.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { SimulationService } from '../simulation/simulation.service.js';
@@ -32,7 +35,10 @@ export interface SendBody {
   subject: string;
   html?: string;
   text?: string;
+  replyTo?: Address;
   headers?: Record<string, string>;
+  /** Content in base64. */
+  attachments?: ApiAttachment[];
   metadata?: Record<string, string>;
   tags?: string[];
   /** Relayo's message id, so events come back with it. */
@@ -44,6 +50,22 @@ const EVENT_TYPES: ReadonlySet<string> = new Set<SimEvent['type']>([
   'accepted', 'delivered', 'deferred', 'bounced', 'complained', 'rejected', 'opened', 'clicked', 'unsubscribed', 'failed',
 ]);
 const addressOf = (value: Address) => (typeof value === 'string' ? value : value?.address);
+/** The address with its display name, for the captured message's headers. */
+const display = (value: Address): MailAddress =>
+  typeof value === 'string' || !value.name ? addressOf(value) : { name: value.name, address: value.address };
+
+function checkAttachments(value: unknown): ApiAttachment[] | undefined {
+  if (value === undefined) return undefined;
+  const ok =
+    Array.isArray(value) &&
+    value.every(
+      (a: Partial<ApiAttachment>) =>
+        a && typeof a.filename === 'string' && a.filename && typeof a.content === 'string' &&
+        (a.contentType === undefined || typeof a.contentType === 'string') && (a.cid === undefined || typeof a.cid === 'string'),
+    );
+  if (!ok) throw new BadRequestException('"attachments" must be a list of { filename, content (base64), contentType?, cid? }');
+  return value as ApiAttachment[];
+}
 
 @Controller('v1')
 export class ScenariosController {
@@ -71,7 +93,32 @@ export class MessagesController {
     if (typeof body.subject !== 'string') throw new BadRequestException('"subject" is required');
 
     const scenarioHeader = Object.entries(body.headers ?? {}).find(([k]) => k.toLowerCase() === 'x-sim-scenario')?.[1];
+    const attachments = checkAttachments(body.attachments);
+    if (body.headers !== undefined && (typeof body.headers !== 'object' || Object.values(body.headers).some((v) => typeof v !== 'string'))) {
+      throw new BadRequestException('"headers" must map names to strings');
+    }
+
+    // Capture the email the provider would have sent, as SMTP mail is captured.
+    const toList = Array.isArray(body.to) ? body.to : [body.to];
+    const raw = await composeMessage({
+      from: display(body.from),
+      to: toList.map((a) => display(a)),
+      ...(body.cc?.length && { cc: body.cc.map((a) => display(a)) }),
+      ...(body.replyTo && { replyTo: display(body.replyTo) }),
+      subject: body.subject,
+      ...(typeof body.text === 'string' && { text: body.text }),
+      ...(typeof body.html === 'string' && { html: body.html }),
+      headers: {
+        ...body.headers,
+        ...(body.relayoMessageId && { 'X-Relayo-Message-ID': body.relayoMessageId }),
+        ...(body.metadata && { 'X-Relayo-Metadata': Buffer.from(JSON.stringify(body.metadata)).toString('base64url') }),
+      },
+      ...(attachments && { attachments }),
+    });
+
     const message = await this.sim.acceptFromApi(project, {
+      raw,
+      headers: quotedHeaders(readHeaders(raw.toString('utf8'))),
       from,
       to: to as string[],
       subject: body.subject,
@@ -102,6 +149,38 @@ export class MessagesController {
       ...(status && { status: status as SimEvent['type'] }),
     });
     return { data: messages.map(publicMessage) };
+  }
+
+  /** The captured email, read for display: bodies, headers and attachments. */
+  @Get(':id/content')
+  async content(@CurrentProject() project: Project, @Param('id') id: string) {
+    return readContent(await this.raw(project, id));
+  }
+
+  /** The captured email as it arrived (`.eml`). */
+  @Get(':id/raw')
+  async original(@CurrentProject() project: Project, @Param('id') id: string, @Res() res: Response) {
+    const raw = await this.raw(project, id);
+    res.setHeader('Content-Type', 'message/rfc822');
+    res.setHeader('Content-Disposition', `attachment; filename="${id}.eml"`);
+    res.send(raw);
+  }
+
+  @Get(':id/attachments/:index')
+  async attachment(@CurrentProject() project: Project, @Param('id') id: string, @Param('index') index: string, @Res() res: Response) {
+    const found = /^\d+$/.test(index) ? await readAttachment(await this.raw(project, id), Number(index)) : undefined;
+    if (!found) throw new NotFoundException('Attachment not found');
+    // Always a download: captured content is untrusted and must not render on the simulator's origin.
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(found.filename)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(found.content);
+  }
+
+  private async raw(project: Project, id: string): Promise<Buffer> {
+    const raw = await this.store.getContent(project.id, id);
+    if (!raw) throw new NotFoundException('This message has no captured content');
+    return raw;
   }
 
   /** The bounce (DSN) or complaint (ARF) report an event produced, as a raw email. */

@@ -130,6 +130,19 @@ describe.each(stores)('%s store', (_, open) => {
     expect(stored!.events[0]!.timestamp).toEqual(new Date('2026-10-18T10:00:01Z'));
   });
 
+  it('keeps the captured source of a message, only for its project', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const raw = Buffer.from('Subject: Hola\r\n\r\nCuerpo\r\n');
+    await store.saveMessage(message('sim_raw', '2026-10-18T10:00:00Z', { size: raw.length }), raw);
+    await store.saveMessage(message('sim_none', '2026-10-18T10:00:00Z'));
+
+    expect((await store.getContent('prj_1', 'sim_raw'))?.toString()).toBe(raw.toString());
+    expect((await store.getMessage('prj_1', 'sim_raw'))?.size).toBe(raw.length);
+    expect(await store.getContent('prj_other', 'sim_raw')).toBeUndefined();
+    expect(await store.getContent('prj_1', 'sim_none')).toBeUndefined();
+  });
+
   it('only shows a project its own messages', async () => {
     const store = await open();
     await store.createProject(project());

@@ -49,6 +49,15 @@ const message = (to: string, extra: Partial<EmailMessage> = {}): EmailMessage =>
 const typesFor = (events: RelayoEvent[], recipient: string) => events.filter((e) => e.recipient === recipient).map((e) => e.type);
 
 describe('Relayo Sim over SMTP, driven by @alimzen/smtp', () => {
+  it('captures the whole message for the inbox', async () => {
+    await ctx.relayo.email.send(message('ana@sim.relayo.dev', { html: '<p>Hola</p>', attachments: [{ filename: 'a.txt', content: 'adjunto' }] }));
+    const [stored] = await ctx.store.listMessages(ctx.project.id, { limit: 1 });
+    const raw = await ctx.store.getContent(ctx.project.id, stored!.id);
+    expect(stored!.size).toBe(raw!.length);
+    expect(raw!.toString()).toContain('Subject: Tu factura');
+    expect(raw!.toString()).toContain('filename=a.txt');
+  });
+
   it('delivers a normal message and reports it with Relayo\'s id and metadata', async () => {
     const result = await ctx.relayo.email.send(message('ana@sim.relayo.dev'));
     expect(result).toMatchObject({ messageId: 'msg_1', status: 'sent' });

@@ -1,5 +1,6 @@
 import type { AddressInfo } from 'node:net';
-import { SMTPServer, type SMTPServerSession } from 'smtp-server';
+import { SMTPServer } from 'smtp-server';
+import { quotedHeaders, readHeaders } from '../capture/capture.js';
 import type { Project } from '../domain.js';
 import type { SmtpReply } from '../scenarios/catalog.js';
 import type { ResolvedScenario } from '../scenarios/resolve.js';
@@ -25,8 +26,6 @@ interface SessionState {
 const MESSAGE_ID_HEADER = 'x-relayo-message-id';
 const METADATA_HEADER = 'x-relayo-metadata';
 const SCENARIO_HEADER = 'x-sim-scenario';
-/** Original headers kept to quote back in bounce and complaint reports. */
-const QUOTED = ['from', 'to', 'subject', 'date', 'message-id', MESSAGE_ID_HEADER, METADATA_HEADER];
 
 /** The SMTP front door of the simulator: answers every command the way the chosen scenario says. */
 export class SmtpSimServer {
@@ -92,8 +91,9 @@ export class SmtpSimServer {
           if ((stream as { sizeExceeded?: boolean }).sizeExceeded) {
             return callback(smtpError(552, '5.3.4', 'Message size exceeds fixed maximum message size'));
           }
-          const headers = readHeaders(Buffer.concat(chunks).toString('utf8'));
-          void this.handleData(state, headers, session).then(
+          const raw = Buffer.concat(chunks);
+          const headers = readHeaders(raw.toString('utf8'));
+          void this.handleData(state, headers, raw).then(
             (reply) => this.answer(reply, callback),
             (error: Error) => callback(error),
           );
@@ -106,11 +106,11 @@ export class SmtpSimServer {
     });
   }
 
-  private async handleData(state: SessionState, headers: Map<string, string>, _session: SMTPServerSession) {
+  private async handleData(state: SessionState, headers: Map<string, string>, raw: Buffer) {
     const metadata = decodeMetadata(headers.get(METADATA_HEADER));
     const relayoMessageId = headers.get(MESSAGE_ID_HEADER);
     const scenarioHeader = headers.get(SCENARIO_HEADER);
-    const quoted = Object.fromEntries(QUOTED.filter((name) => headers.has(name)).map((name) => [name, headers.get(name)!]));
+    const quoted = quotedHeaders(headers);
     const { reply } = await this.sim.smtpData(
       state.project,
       {
@@ -122,6 +122,7 @@ export class SmtpSimServer {
         ...(relayoMessageId && { relayoMessageId }),
         ...(metadata && { metadata }),
         ...(scenarioHeader && { scenarioHeader }),
+        raw,
       },
       state.accepted,
     );
@@ -158,25 +159,6 @@ function smtpError(code: number, enhancedCode: string, text: string): Error {
 
 function toError(reply: SmtpReply): Error {
   return smtpError(reply.code, reply.enhancedCode, reply.text);
-}
-
-/** Top-level headers of a raw message, lowercased names, folded lines joined. */
-export function readHeaders(raw: string): Map<string, string> {
-  const end = raw.search(/\r?\n\r?\n/);
-  const block = end === -1 ? raw : raw.slice(0, end);
-  const headers = new Map<string, string>();
-  let current: [string, string] | undefined;
-  for (const line of block.split(/\r?\n/)) {
-    if (/^[ \t]/.test(line) && current) {
-      current[1] += ` ${line.trim()}`;
-      continue;
-    }
-    if (current && !headers.has(current[0])) headers.set(current[0], current[1].trim());
-    const colon = line.indexOf(':');
-    current = colon > 0 ? [line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1)] : undefined;
-  }
-  if (current && !headers.has(current[0])) headers.set(current[0], current[1].trim());
-  return headers;
 }
 
 /** `Name <a@b.c>` → `a@b.c`. */

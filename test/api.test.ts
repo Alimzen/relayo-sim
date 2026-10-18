@@ -151,6 +151,69 @@ describe('HTTP API', () => {
     expect((await get(`/v1/messages/${id}/events/${encodeURIComponent(`${id}:no-mx@sim.relayo.dev:000`)}/report`)).status).toBe(404);
   });
 
+  it('captures API sends as the email a provider would send, with bodies, headers and attachments', async () => {
+    const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC', 'base64');
+    const { id } = (await (
+      await post('/v1/messages', {
+        from: { address: 'facturas@empresa.com', name: 'Empresa, S.A.' },
+        to: ['ana@sim.relayo.dev'],
+        cc: [{ address: 'copia@sim.relayo.dev' }],
+        bcc: ['oculta@sim.relayo.dev'],
+        replyTo: 'soporte@empresa.com',
+        subject: 'Tu factura de octubre',
+        text: 'Hola Ana',
+        html: '<p>Hola <b>Ana</b></p><img src="cid:logo@empresa">',
+        headers: { 'X-Campaign': 'octubre' },
+        attachments: [
+          { filename: 'factura.pdf', content: Buffer.from('%PDF-1.4 fake').toString('base64'), contentType: 'application/pdf' },
+          { filename: 'logo.png', content: pixel.toString('base64'), contentType: 'image/png', cid: 'logo@empresa' },
+        ],
+        metadata: { facturaId: '123' },
+        relayoMessageId: 'msg_capture',
+      })
+    ).json()) as { id: string };
+
+    const detail = (await (await get(`/v1/messages/${id}`)).json()) as { size: number; headers: Record<string, string> };
+    expect(detail.size).toBeGreaterThan(0);
+    expect(detail.headers['x-relayo-message-id']).toBe('msg_capture');
+
+    const content = (await (await get(`/v1/messages/${id}/content`)).json()) as {
+      from: string; to: string; cc: string; replyTo: string; subject: string; text: string; html: string;
+      headers: Array<{ name: string; value: string }>;
+      attachments: Array<{ index: number; filename: string; contentType: string; size: number; inline: boolean }>;
+    };
+    expect(content).toMatchObject({
+      from: '"Empresa, S.A." <facturas@empresa.com>',
+      to: 'ana@sim.relayo.dev',
+      cc: 'copia@sim.relayo.dev',
+      replyTo: 'soporte@empresa.com',
+      subject: 'Tu factura de octubre',
+      text: 'Hola Ana',
+    });
+    expect(content.html).toContain('<b>Ana</b>');
+    expect(content.html).toContain(`src="data:image/png;base64,${pixel.toString('base64')}"`);
+    expect(content.headers).toContainEqual({ name: 'X-Campaign', value: 'octubre' });
+    expect(content.headers.map((h) => h.name.toLowerCase())).not.toContain('bcc');
+    const pdf = content.attachments.find((a) => a.filename === 'factura.pdf');
+    expect(pdf).toMatchObject({ contentType: 'application/pdf', size: 13, inline: false });
+    expect(content.attachments.find((a) => a.filename === 'logo.png')).toMatchObject({ contentType: 'image/png', size: pixel.length, inline: true });
+
+    const file = await get(`/v1/messages/${id}/attachments/${pdf!.index}`);
+    expect(file.headers.get('content-type')).toBe('application/octet-stream');
+    expect(file.headers.get('content-disposition')).toContain('factura.pdf');
+    expect(Buffer.from(await file.arrayBuffer()).toString()).toBe('%PDF-1.4 fake');
+    expect((await get(`/v1/messages/${id}/attachments/9`)).status).toBe(404);
+
+    const raw = await get(`/v1/messages/${id}/raw`);
+    expect(raw.headers.get('content-type')).toContain('message/rfc822');
+    expect(await raw.text()).toContain('Subject: Tu factura de octubre');
+  });
+
+  it('refuses malformed attachments', async () => {
+    const response = await post('/v1/messages', { from: 'a@b.co', to: ['ana@sim.relayo.dev'], subject: 's', attachments: [{ filename: 'x' }] });
+    expect(response.status).toBe(400);
+  });
+
   it('starts the SMTP server with the app', () => {
     expect(app.get(Lifecycle).smtpPort).toBeGreaterThan(0);
   });

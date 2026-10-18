@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_project_created ON messages (project_id, created_at DESC);
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS envelope_from text;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS headers jsonb;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS size integer;
+CREATE TABLE IF NOT EXISTS message_contents (
+  message_id text PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+  raw bytea NOT NULL
+);
 CREATE TABLE IF NOT EXISTS events (
   id text PRIMARY KEY,
   message_id text NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -121,6 +126,7 @@ interface MessageRow {
   tags: string[] | null;
   envelope_from: string | null;
   headers: Record<string, string> | null;
+  size: number | null;
   created_at: Date;
 }
 
@@ -272,10 +278,10 @@ export class PostgresStore implements SimStore {
 
   // --- Messages ---------------------------------------------------------------------------------
 
-  async saveMessage(m: SimMessage): Promise<void> {
+  async saveMessage(m: SimMessage, raw?: Uint8Array): Promise<void> {
     await this.pool.query(
-      `INSERT INTO messages (id, project_id, via, relayo_message_id, from_address, recipients, subject, metadata, tags, envelope_from, headers, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO messages (id, project_id, via, relayo_message_id, from_address, recipients, subject, metadata, tags, envelope_from, headers, created_at, size)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (id) DO NOTHING`,
       [
         m.id,
         m.projectId,
@@ -289,8 +295,23 @@ export class PostgresStore implements SimStore {
         m.envelopeFrom ?? null,
         m.headers ? JSON.stringify(m.headers) : null,
         m.createdAt,
+        m.size ?? null,
       ],
     );
+    if (raw) {
+      await this.pool.query('INSERT INTO message_contents (message_id, raw) VALUES ($1, $2) ON CONFLICT (message_id) DO NOTHING', [
+        m.id,
+        Buffer.from(raw),
+      ]);
+    }
+  }
+
+  async getContent(projectId: string, id: string): Promise<Buffer | undefined> {
+    const { rows } = await this.pool.query<{ raw: Buffer }>(
+      'SELECT c.raw FROM message_contents c JOIN messages m ON m.id = c.message_id WHERE c.message_id = $1 AND m.project_id = $2',
+      [id, projectId],
+    );
+    return rows[0]?.raw;
   }
 
   async getMessage(projectId: string, id: string): Promise<MessageWithEvents | undefined> {
@@ -388,7 +409,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE events, messages, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE events, message_contents, messages, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
@@ -439,5 +460,6 @@ function toMessage(row: MessageRow): SimMessage {
     ...(row.tags && { tags: row.tags }),
     ...(row.envelope_from && { envelopeFrom: row.envelope_from }),
     ...(row.headers && { headers: row.headers }),
+    ...(row.size !== null && row.size !== undefined && { size: row.size }),
   };
 }

@@ -48,7 +48,10 @@ export interface SimStore {
   touchApiKey(id: string, at: Date): Promise<void>;
 
   // Messages
-  saveMessage(message: SimMessage): Promise<void>;
+  /** Stores a message and, when given, its raw MIME source (the captured email). */
+  saveMessage(message: SimMessage, raw?: Uint8Array): Promise<void>;
+  /** The raw MIME source of a captured message. */
+  getContent(projectId: string, id: string): Promise<Buffer | undefined>;
   getMessage(projectId: string, id: string): Promise<MessageWithEvents | undefined>;
   /** Newest first, each with the latest event of its first recipient. */
   listMessages(projectId: string, query: MessageQuery): Promise<MessageListItem[]>;

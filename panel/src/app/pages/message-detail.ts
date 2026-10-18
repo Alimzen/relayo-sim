@@ -1,19 +1,24 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   LucideArrowLeft,
   LucideCheck,
   LucideCircleAlert,
   LucideClock,
+  LucideDownload,
   LucideFileText,
+  LucidePaperclip,
   LucideMail,
   LucideRefreshCw,
 } from '@lucide/angular';
 import { Api } from '../core/api';
 import { detailOf, lookOf, reportOf, scenarioLabel, type Tone } from '../core/events';
-import { fullDate, timeAgo } from '../core/format';
-import type { MessageDetail, Recipient, SimEvent } from '../core/types';
+import { fileSize, fullDate, timeAgo } from '../core/format';
+import type { MessageContent, MessageDetail, Recipient, SimEvent } from '../core/types';
+import { EmailPreview } from '../ui/email-preview';
 import { Badge, CopyButton, EmptyState, Toasts } from '../ui/ui';
+
+type Tab = 'events' | 'preview' | 'text' | 'html' | 'headers';
 
 interface Track {
   recipient: Recipient;
@@ -31,7 +36,10 @@ interface Track {
     LucideCheck,
     LucideCircleAlert,
     LucideClock,
+    LucideDownload,
     LucideFileText,
+    LucidePaperclip,
+    EmailPreview,
     LucideMail,
     LucideRefreshCw,
   ],
@@ -52,11 +60,93 @@ interface Track {
             <h1 class="truncate">{{ m.subject || '(sin asunto)' }}</h1>
             <p>De {{ m.from }} · {{ full(m.createdAt) }}</p>
           </div>
-          <button type="button" class="btn" (click)="load()"><svg lucideRefreshCw [size]="14"></svg>Actualizar</button>
+          <div class="row">
+            @if (m.size) {
+              <button type="button" class="btn" (click)="downloadRaw(m.id)"><svg lucideDownload [size]="14"></svg>Original</button>
+            }
+            <button type="button" class="btn" (click)="load()"><svg lucideRefreshCw [size]="14"></svg>Actualizar</button>
+          </div>
         </header>
+
+        <nav class="tabs" aria-label="Secciones del mensaje">
+          @for (t of tabs(); track t.id) {
+            <a
+              class="tab"
+              [routerLink]="[]"
+              [queryParams]="{ tab: t.id === 'events' ? null : t.id }"
+              replaceUrl
+              [attr.aria-current]="current() === t.id ? 'page' : null"
+              >{{ t.label }}</a
+            >
+          }
+        </nav>
 
         <div class="detail-grid">
           <div class="stack">
+            @if (current() !== 'events') {
+              @if (content(); as c) {
+                <section class="card">
+                  <dl class="envelope">
+                    @if (c.from) {
+                      <div><dt>De</dt><dd>{{ c.from }}</dd></div>
+                    }
+                    @if (c.to) {
+                      <div><dt>Para</dt><dd>{{ c.to }}</dd></div>
+                    }
+                    @if (c.cc) {
+                      <div><dt>Cc</dt><dd>{{ c.cc }}</dd></div>
+                    }
+                    @if (c.replyTo) {
+                      <div><dt>Responder a</dt><dd>{{ c.replyTo }}</dd></div>
+                    }
+                    <div><dt>Asunto</dt><dd>{{ c.subject || '(sin asunto)' }}</dd></div>
+                  </dl>
+                  @switch (current()) {
+                    @case ('preview') {
+                      @if (c.html) {
+                        <app-email-preview [html]="c.html" />
+                      } @else {
+                        <pre class="body-text">{{ c.text || '(sin cuerpo)' }}</pre>
+                      }
+                    }
+                    @case ('text') {
+                      @if (c.text) {
+                        <pre class="body-text">{{ c.text }}</pre>
+                      } @else {
+                        <p class="card-body muted">Este correo no tiene versión de texto: los clientes que no muestran HTML no verán nada.</p>
+                      }
+                    }
+                    @case ('html') {
+                      <div class="code-head">
+                        <span class="muted small">{{ size(c.html?.length ?? 0) }}</span>
+                        @if (c.html) {
+                          <app-copy [value]="c.html" label="Copiar HTML" />
+                        }
+                      </div>
+                      <pre class="body-code">{{ c.html || '(sin HTML)' }}</pre>
+                    }
+                    @case ('headers') {
+                      <div class="table-wrap">
+                        <table class="table headers-table">
+                          <tbody>
+                            @for (h of c.headers; track $index) {
+                              <tr>
+                                <th scope="row" class="mono">{{ h.name }}</th>
+                                <td class="mono">{{ h.value }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                    }
+                  }
+                </section>
+              } @else if (contentError()) {
+                <div class="card"><p class="card-body muted">{{ contentError() }}</p></div>
+              } @else {
+                <div class="card card-pad stack"><div class="skeleton"></div><div class="skeleton"></div></div>
+              }
+            } @else {
             @for (track of tracks(); track track.recipient.address) {
               <section class="card">
                 <header class="card-head">
@@ -121,9 +211,36 @@ interface Track {
                 </div>
               </section>
             }
+            }
           </div>
 
-          <aside class="card card-pad">
+          <aside class="stack">
+          @if (files().length) {
+            <section class="card card-pad">
+              <h2 class="aside-title">Adjuntos</h2>
+              <ul class="files">
+                @for (f of files(); track f.index) {
+                  <li>
+                    <svg lucidePaperclip [size]="15" class="muted"></svg>
+                    <span class="file-name">
+                      <span class="truncate">{{ f.filename }}</span>
+                      <small class="muted">{{ f.contentType }} · {{ size(f.size) }}</small>
+                    </span>
+                    <button
+                      type="button"
+                      class="icon-button"
+                      (click)="downloadAttachment(m.id, f.index, f.filename)"
+                      [attr.aria-label]="'Descargar ' + f.filename"
+                      title="Descargar"
+                    >
+                      <svg lucideDownload [size]="15"></svg>
+                    </button>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+          <section class="card card-pad">
             <h2 class="aside-title">Detalles</h2>
             <dl class="props">
               <div>
@@ -174,7 +291,14 @@ interface Track {
                   </dd>
                 </div>
               }
+              @if (m.size) {
+                <div>
+                  <dt>Tamaño</dt>
+                  <dd>{{ size(m.size) }}</dd>
+                </div>
+              }
             </dl>
+          </section>
           </aside>
         </div>
       } @else {
@@ -188,6 +312,8 @@ interface Track {
 })
 export class MessageDetailPage {
   readonly id = input.required<string>();
+  /** Query param `?tab=`; the timeline when absent. */
+  readonly tab = input<string>();
   private readonly api = inject(Api);
   private readonly toasts = inject(Toasts);
   protected readonly message = signal<MessageDetail | null>(null);
@@ -211,9 +337,62 @@ export class MessageDetailPage {
   });
 
   protected readonly metadata = computed(() => Object.entries(this.message()?.metadata ?? {}));
+  protected readonly content = signal<MessageContent | null>(null);
+  protected readonly contentError = signal('');
+  protected readonly size = fileSize;
+
+  protected readonly tabs = computed(() => {
+    const tabs: Array<{ id: Tab; label: string }> = [{ id: 'events', label: 'Eventos' }];
+    if (this.message()?.size) {
+      tabs.push(
+        { id: 'preview', label: 'Vista previa' },
+        { id: 'text', label: 'Texto' },
+        { id: 'html', label: 'HTML' },
+        { id: 'headers', label: 'Cabeceras' },
+      );
+    }
+    return tabs;
+  });
+  protected readonly current = computed<Tab>(() => {
+    const wanted = this.tab();
+    return this.tabs().some((t) => t.id === wanted) ? (wanted as Tab) : 'events';
+  });
+  /** Attachments shown as files; inline images are part of the preview. */
+  protected readonly files = computed(() => (this.content()?.attachments ?? []).filter((a) => !a.inline));
+
+  constructor() {
+    // The captured content is loaded once, as soon as the message says there is one.
+    effect(() => {
+      if (this.message()?.size && untracked(() => !this.content() && !this.contentError())) void this.loadContent();
+    });
+  }
 
   ngOnInit(): void {
     void this.load();
+  }
+
+  private async loadContent(): Promise<void> {
+    try {
+      this.content.set(await this.api.content(this.id()));
+    } catch (error) {
+      this.contentError.set(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  protected async downloadRaw(id: string): Promise<void> {
+    try {
+      await this.api.download(`/v1/messages/${encodeURIComponent(id)}/raw`, `${id}.eml`);
+    } catch (error) {
+      this.toasts.error(error);
+    }
+  }
+
+  protected async downloadAttachment(id: string, index: number, filename: string): Promise<void> {
+    try {
+      await this.api.download(`/v1/messages/${encodeURIComponent(id)}/attachments/${index}`, filename);
+    } catch (error) {
+      this.toasts.error(error);
+    }
   }
 
   protected async load(): Promise<void> {

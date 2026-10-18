@@ -10,6 +10,7 @@ export class MemoryStore implements SimStore {
   private readonly keys = new Map<string, ApiKey>();
   private readonly messages = new Map<string, SimMessage>();
   private readonly events = new Map<string, SimEvent[]>();
+  private readonly contents = new Map<string, Buffer>();
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
   // --- Accounts ---------------------------------------------------------------------------------
@@ -112,8 +113,13 @@ export class MemoryStore implements SimStore {
 
   // --- Messages ---------------------------------------------------------------------------------
 
-  async saveMessage(message: SimMessage): Promise<void> {
+  async saveMessage(message: SimMessage, raw?: Uint8Array): Promise<void> {
     this.messages.set(message.id, message);
+    if (raw) this.contents.set(message.id, Buffer.from(raw));
+  }
+
+  async getContent(projectId: string, id: string): Promise<Buffer | undefined> {
+    return this.messages.get(id)?.projectId === projectId ? this.contents.get(id) : undefined;
   }
 
   async getMessage(projectId: string, id: string): Promise<MessageWithEvents | undefined> {

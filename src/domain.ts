@@ -69,6 +69,8 @@ export interface SimMessage {
   tags?: string[];
   /** Headers of the original message quoted back in reports (From, To, Subject, Message-ID, X-Relayo-*). */
   headers?: Record<string, string>;
+  /** Size in bytes of the captured message (the raw MIME), when there is one. */
+  size?: number;
   createdAt: Date;
 }
 

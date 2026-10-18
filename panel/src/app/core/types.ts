@@ -76,7 +76,24 @@ export interface SimMessage {
   metadata?: Record<string, string>;
   tags?: string[];
   createdAt: string;
+  /** Bytes of the captured email; absent when there is none (e.g. refused at RCPT). */
+  size?: number;
   latest?: { type: EventType; bounceType?: BounceType };
+}
+
+export interface MessageContent {
+  subject: string;
+  from?: string;
+  to?: string;
+  cc?: string;
+  replyTo?: string;
+  date?: string;
+  messageId?: string;
+  text?: string;
+  html?: string;
+  headers: Array<{ name: string; value: string }>;
+  attachments: Array<{ index: number; filename: string; contentType: string; size: number; inline: boolean }>;
+  size: number;
 }
 
 export interface MessageDetail extends SimMessage {

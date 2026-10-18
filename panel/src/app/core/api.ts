@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { ApiKey, MessageDetail, Project, ProjectStats, Scenario, SimMessage, User } from './types';
+import type { ApiKey, MessageContent, MessageDetail, Project, ProjectStats, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -77,7 +77,21 @@ export class Api {
     return this.call<{ data: SimMessage[] }>('GET', `/v1/messages?${params}`).then((r) => r.data);
   };
   message = (id: string) => this.call<MessageDetail>('GET', `/v1/messages/${encodeURIComponent(id)}`);
-  send = (body: { from: string; to: string[]; subject: string; text: string; headers?: Record<string, string> }) =>
+  content = (id: string) => this.call<MessageContent>('GET', `/v1/messages/${encodeURIComponent(id)}/content`);
+  /** A file of a message (the original `.eml` or an attachment), fetched with the session and saved by the browser. */
+  download = async (path: string, filename: string): Promise<void> => {
+    let blob: Blob;
+    try {
+      blob = await firstValueFrom(this.http.get(path, { responseType: 'blob' }));
+    } catch (error) {
+      throw toApiError(error);
+    }
+    const url = URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement('a'), { href: url, download: filename });
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  send = (body: { from: string; to: string[]; subject: string; text: string; html?: string; headers?: Record<string, string> }) =>
     this.call<{ id: string }>('POST', '/v1/messages', body);
   report = async (messageId: string, eventId: string): Promise<string> => {
     const url = `/v1/messages/${encodeURIComponent(messageId)}/events/${encodeURIComponent(eventId)}/report`;
