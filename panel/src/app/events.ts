@@ -57,6 +57,13 @@ export function detailOf(event: SimEvent): string | undefined {
   return undefined;
 }
 
+/** Which email report an event has: a DSN for bounces and deferrals, an ARF report for complaints. */
+export function reportOf(event: Pick<SimEvent, 'type'>): 'DSN' | 'ARF' | undefined {
+  if (event.type === 'bounced' || event.type === 'deferred') return 'DSN';
+  if (event.type === 'complained') return 'ARF';
+  return undefined;
+}
+
 export function scenarioLabel(recipient: SimMessage['recipients'][number]): string {
   const { name, param } = recipient.scenario;
   return param ? `${name}+${param}` : name;

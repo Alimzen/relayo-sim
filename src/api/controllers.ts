@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Header,
   Body,
   Controller,
   Get,
@@ -13,9 +14,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Project, SimMessage } from '../domain.js';
+import { maskSmtpUrl } from '../reports/sender.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { SimulationService } from '../simulation/simulation.service.js';
-import { SIM_STORE, type SimStore } from '../store/store.js';
+import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
 import { AdminGuard, ApiKeyGuard, CurrentProject } from './auth.js';
 
 type Address = string | { address: string; name?: string };
@@ -40,7 +42,13 @@ const EMAIL = /^[^\s@]+@[^\s@]+$/;
 const addressOf = (value: Address) => (typeof value === 'string' ? value : value?.address);
 
 function publicProject(project: Project) {
-  return { id: project.id, name: project.name, webhookUrl: project.webhookUrl ?? null, createdAt: project.createdAt };
+  return {
+    id: project.id,
+    name: project.name,
+    webhookUrl: project.webhookUrl ?? null,
+    reportsSmtpUrl: project.reportsSmtpUrl ? maskSmtpUrl(project.reportsSmtpUrl) : null,
+    createdAt: project.createdAt,
+  };
 }
 
 function publicMessage(message: SimMessage) {
@@ -97,6 +105,16 @@ export class MessagesController {
     return { data: messages.map(publicMessage) };
   }
 
+  /** The bounce (DSN) or complaint (ARF) report an event produced, as a raw email. */
+  @Get(':id/events/:eventId/report')
+  @Header('Content-Type', 'message/rfc822')
+  async report(@CurrentProject() project: Project, @Param('id') id: string, @Param('eventId') eventId: string) {
+    if (!eventId.startsWith(`${id}:`)) throw new NotFoundException('Event not found');
+    const report = await this.sim.report(project, eventId);
+    if (!report) throw new NotFoundException('This event has no report');
+    return report;
+  }
+
   @Get(':id')
   async get(@CurrentProject() project: Project, @Param('id') id: string) {
     const message = await this.store.getMessage(project.id, id);
@@ -116,17 +134,29 @@ export class ProjectController {
     return publicProject(project);
   }
 
+  /** `null` or `""` clears `webhookUrl` / `reportsSmtpUrl`; missing keys are left as they are. */
   @Patch()
-  async update(@CurrentProject() project: Project, @Body() body: { name?: string; webhookUrl?: string | null }) {
-    const changes: { name?: string; webhookUrl?: string } = {};
+  async update(
+    @CurrentProject() project: Project,
+    @Body() body: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null },
+  ) {
+    const changes: ProjectChanges = {};
     if (typeof body?.name === 'string' && body.name.trim()) changes.name = body.name.trim();
-    if (typeof body?.webhookUrl === 'string') {
-      if (!/^https?:\/\//.test(body.webhookUrl)) throw new BadRequestException('"webhookUrl" must be an http(s) url');
-      changes.webhookUrl = body.webhookUrl;
-    }
+    const webhookUrl = urlChange(body?.webhookUrl, /^https?:\/\//, '"webhookUrl" must be an http(s) url');
+    const reportsSmtpUrl = urlChange(body?.reportsSmtpUrl, /^smtps?:\/\//, '"reportsSmtpUrl" must be an smtp:// or smtps:// url');
+    if (webhookUrl !== undefined) changes.webhookUrl = webhookUrl;
+    if (reportsSmtpUrl !== undefined) changes.reportsSmtpUrl = reportsSmtpUrl;
     await this.store.updateProject(project.id, changes);
-    return publicProject({ ...project, ...changes });
+    return publicProject((await this.store.getProject(project.id))!);
   }
+}
+
+/** `undefined`: leave as is; `null`: clear; otherwise a validated url. */
+function urlChange(value: unknown, pattern: RegExp, error: string): string | null | undefined {
+  if (value === null || value === '') return null;
+  if (typeof value !== 'string') return undefined;
+  if (!pattern.test(value)) throw new BadRequestException(error);
+  return value;
 }
 
 @Controller('v1/projects')

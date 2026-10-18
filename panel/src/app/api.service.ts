@@ -50,6 +50,8 @@ export interface Project {
   id: string;
   name: string;
   webhookUrl: string | null;
+  /** Shown without its password. */
+  reportsSmtpUrl: string | null;
   createdAt: string;
 }
 
@@ -107,7 +109,20 @@ export class SimApi {
     return this.request<Project>('GET', '/v1/project');
   }
 
-  updateProject(changes: { name?: string; webhookUrl?: string }) {
+  /** The DSN or ARF report of an event, as raw email text. */
+  async report(messageId: string, eventId: string): Promise<string> {
+    const url = `/v1/messages/${encodeURIComponent(messageId)}/events/${encodeURIComponent(eventId)}/report`;
+    const key = this.key();
+    try {
+      return await firstValueFrom(
+        this.http.get(url, { responseType: 'text', headers: key ? { Authorization: `Bearer ${key}` } : {} }),
+      );
+    } catch (error) {
+      throw new Error(errorMessage(error));
+    }
+  }
+
+  updateProject(changes: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null }) {
     return this.request<Project>('PATCH', '/v1/project', changes);
   }
 

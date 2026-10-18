@@ -38,6 +38,11 @@ export interface ResolvedScenario extends ScenarioOutcome {
 export function resolveScenario(selection: ScenarioSelection, attempt = 1): ResolvedScenario {
   const definition = SCENARIOS_BY_NAME.get(selection.name) ?? SCENARIOS_BY_NAME.get('delivered')!;
   const outcome = definition.resolve({ attempt, ...(selection.param !== undefined && { param: selection.param }) });
+  // `+async`: accept over SMTP and fail later, like a relay that bounces after taking the message.
+  // The problem then comes back as a report (DSN) to the envelope sender, and as events.
+  if (selection.param === 'async' && outcome.smtp !== undefined && outcome.smtp !== 'hang') {
+    return { timeline: outcome.timeline, smtpTimeline: outcome.timeline, selection };
+  }
   return { ...outcome, selection };
 }
 

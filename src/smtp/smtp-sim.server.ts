@@ -25,6 +25,8 @@ interface SessionState {
 const MESSAGE_ID_HEADER = 'x-relayo-message-id';
 const METADATA_HEADER = 'x-relayo-metadata';
 const SCENARIO_HEADER = 'x-sim-scenario';
+/** Original headers kept to quote back in bounce and complaint reports. */
+const QUOTED = ['from', 'to', 'subject', 'date', 'message-id', MESSAGE_ID_HEADER, METADATA_HEADER];
 
 /** The SMTP front door of the simulator: answers every command the way the chosen scenario says. */
 export class SmtpSimServer {
@@ -108,10 +110,13 @@ export class SmtpSimServer {
     const metadata = decodeMetadata(headers.get(METADATA_HEADER));
     const relayoMessageId = headers.get(MESSAGE_ID_HEADER);
     const scenarioHeader = headers.get(SCENARIO_HEADER);
+    const quoted = Object.fromEntries(QUOTED.filter((name) => headers.has(name)).map((name) => [name, headers.get(name)!]));
     const { reply } = await this.sim.smtpData(
       state.project,
       {
-        from: state.from,
+        from: headerAddress(headers.get('from')) ?? state.from,
+        envelopeFrom: state.from,
+        headers: quoted,
         to: state.accepted.map((a) => a.address),
         subject: headers.get('subject') ?? '',
         ...(relayoMessageId && { relayoMessageId }),
@@ -172,6 +177,13 @@ export function readHeaders(raw: string): Map<string, string> {
   }
   if (current && !headers.has(current[0])) headers.set(current[0], current[1].trim());
   return headers;
+}
+
+/** `Name <a@b.c>` → `a@b.c`. */
+function headerAddress(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const address = (/<([^>]+)>/.exec(value)?.[1] ?? value).trim();
+  return address.includes('@') ? address : undefined;
 }
 
 function decodeMetadata(value: string | undefined): Record<string, string> | undefined {

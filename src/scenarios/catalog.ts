@@ -14,6 +14,8 @@ export interface TimelineStep {
   after: number;
   type: EventType;
   bounce?: { bounceType: BounceType; reason: BounceReason; smtpCode: number; enhancedCode: string; diagnostic: string };
+  /** For deferrals: the temporary SMTP answer behind them. */
+  smtp?: { code: number; enhancedCode: string; diagnostic: string };
   reject?: { reason: RejectReason; diagnostic: string };
   url?: string;
 }
@@ -62,7 +64,7 @@ function refusal(stage: SmtpReply['stage'], code: number, enhancedCode: string, 
     type: 'bounced',
     bounce: { bounceType, reason, smtpCode: code, enhancedCode, diagnostic },
   });
-  const deferred = (after: number): TimelineStep => ({ after, type: 'deferred' });
+  const deferred = (after: number): TimelineStep => ({ after, type: 'deferred', smtp: { code, enhancedCode, diagnostic } });
   return { reply, bounce, deferred, diagnostic };
 }
 

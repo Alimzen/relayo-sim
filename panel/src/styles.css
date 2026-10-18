@@ -464,3 +464,28 @@ details summary {
     grid-template-columns: 1fr;
   }
 }
+
+.entry-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.entry-actions details {
+  flex: 1;
+  min-width: 0;
+}
+
+button.ghost.small {
+  font-size: 12px;
+  padding: 3px 10px;
+  margin-top: 4px;
+}
+
+pre.report {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow-y: auto;
+}

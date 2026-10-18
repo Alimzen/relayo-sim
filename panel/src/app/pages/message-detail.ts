@@ -2,7 +2,7 @@ import { DatePipe, JsonPipe } from '@angular/common';
 import { Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { SimApi, type MessageDetail, type SimEvent } from '../api.service';
-import { detailOf, lookOf, scenarioLabel } from '../events';
+import { detailOf, lookOf, reportOf, scenarioLabel } from '../events';
 
 const REFRESH_MS = 2000;
 
@@ -58,10 +58,24 @@ const REFRESH_MS = 2000;
                     @if (event.diagnostic) {
                       <p class="diagnostic"><code>{{ event.diagnostic }}</code></p>
                     }
-                    <details>
-                      <summary>Evento JSON</summary>
-                      <pre>{{ event | json }}</pre>
-                    </details>
+                    <div class="entry-actions">
+                      <details>
+                        <summary>Evento JSON</summary>
+                        <pre>{{ event | json }}</pre>
+                      </details>
+                      @if (reportOf(event); as kind) {
+                        <button type="button" class="ghost small" (click)="toggleReport(event.id)">
+                          {{ openReport() === event.id ? 'Ocultar ' + kind : 'Ver ' + kind }}
+                        </button>
+                      }
+                    </div>
+                    @if (openReport() === event.id) {
+                      @if (reportText(); as text) {
+                        <pre class="report" [attr.aria-label]="reportOf(event) + ' del evento'">{{ text }}</pre>
+                      } @else {
+                        <p class="muted">Cargando…</p>
+                      }
+                    }
                   </div>
                 </li>
               }
@@ -92,6 +106,23 @@ export class MessageDetailPage {
 
   protected readonly look = lookOf;
   protected readonly detail = detailOf;
+  protected readonly reportOf = reportOf;
+  protected readonly openReport = signal<string | null>(null);
+  protected readonly reportText = signal<string | null>(null);
+
+  protected async toggleReport(eventId: string): Promise<void> {
+    if (this.openReport() === eventId) {
+      this.openReport.set(null);
+      return;
+    }
+    this.openReport.set(eventId);
+    this.reportText.set(null);
+    try {
+      this.reportText.set(await this.api.report(this.id(), eventId));
+    } catch (error) {
+      this.reportText.set(`No se pudo cargar el informe: ${(error as Error).message}`);
+    }
+  }
 
   constructor() {
     queueMicrotask(() => void this.load());

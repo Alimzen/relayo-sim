@@ -72,18 +72,40 @@ describe.each(stores)('%s store', (_, open) => {
 
     await store.updateProject('prj_1', { webhookUrl: 'https://app.example.com/hooks' });
     expect(await store.getProject('prj_1')).toMatchObject({ webhookUrl: 'https://app.example.com/hooks', name: 'Tests' });
+    await store.updateProject('prj_1', { reportsSmtpUrl: 'smtp://u:p@mail.example.com:25' });
+    expect(await store.getProject('prj_1')).toMatchObject({ reportsSmtpUrl: 'smtp://u:p@mail.example.com:25', webhookUrl: 'https://app.example.com/hooks' });
+    await store.updateProject('prj_1', { reportsSmtpUrl: null });
+    const cleared = await store.getProject('prj_1');
+    expect(cleared?.reportsSmtpUrl).toBeUndefined();
+    expect(cleared?.webhookUrl).toBe('https://app.example.com/hooks');
   });
 
   it('keeps messages with their timeline, ignoring duplicate events', async () => {
     const store = await open();
     await store.createProject(project());
-    await store.saveMessage(message('sim_1', '2026-10-18T10:00:00Z', { relayoMessageId: 'msg_1', metadata: { k: 'v' }, tags: ['t'] }));
+    await store.saveMessage(
+      message('sim_1', '2026-10-18T10:00:00Z', {
+        relayoMessageId: 'msg_1',
+        metadata: { k: 'v' },
+        tags: ['t'],
+        envelopeFrom: 'bounces@empresa.com',
+        headers: { subject: 'Hola', 'message-id': '<msg_1@empresa.com>' },
+      }),
+    );
     await store.addEvent(event('e2', 'sim_1', 'delivered', '2026-10-18T10:00:02Z'));
     await store.addEvent(event('e1', 'sim_1', 'accepted', '2026-10-18T10:00:01Z'));
     await store.addEvent(event('e1', 'sim_1', 'accepted', '2026-10-18T10:00:01Z'));
 
     const stored = await store.getMessage('prj_1', 'sim_1');
-    expect(stored).toMatchObject({ id: 'sim_1', relayoMessageId: 'msg_1', metadata: { k: 'v' }, tags: ['t'], via: 'api' });
+    expect(stored).toMatchObject({
+      id: 'sim_1',
+      relayoMessageId: 'msg_1',
+      metadata: { k: 'v' },
+      tags: ['t'],
+      via: 'api',
+      envelopeFrom: 'bounces@empresa.com',
+      headers: { subject: 'Hola', 'message-id': '<msg_1@empresa.com>' },
+    });
     expect(stored!.recipients).toEqual([{ address: 'ana@sim.relayo.dev', scenario: { name: 'delivered', source: 'default' } }]);
     expect(stored!.events.map((e) => [e.id, e.type])).toEqual([
       ['e1', 'accepted'],

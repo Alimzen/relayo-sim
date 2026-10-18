@@ -36,11 +36,27 @@ App ──HTTP /v1────▶ API (NestJS) ──┼─▶ SimulationService
 | `POST /v1/messages` | API key | Envío (202, `{ id, status: 'queued' }`) |
 | `GET /v1/messages?limit=&before=` | API key | Últimos mensajes |
 | `GET /v1/messages/:id` | API key | Mensaje con su línea de tiempo |
-| `GET`, `PATCH /v1/project` | API key | Proyecto y `webhookUrl` |
+| `GET /v1/messages/:id/events/:eventId/report` | API key | DSN o ARF del evento (`message/rfc822`) |
+| `GET`, `PATCH /v1/project` | API key | Proyecto, `webhookUrl` y `reportsSmtpUrl` |
 | `POST /v1/projects` | `ADMIN_TOKEN` | Crea un proyecto; devuelve `apiKey` y `webhookSecret` una sola vez |
 
 Webhooks: `POST` con un evento Relayo en JSON y `Relayo-Signature: t=<unix>,v1=<hex HMAC-SHA256 de "t.cuerpo">`
 (secreto del proyecto). 8 reintentos con backoff exponencial.
+
+## Informes por correo (DSN y ARF)
+
+Como un servidor de correo real, el simulador avisa por correo al remitente del sobre (`MAIL FROM`, o `from` en
+la API): un **DSN** (RFC 3464, `multipart/report`) por cada rebote (`Action: failed`) o aplazamiento
+(`Action: delayed`), y un **informe ARF** (RFC 5965) por cada queja. Se envían con remitente nulo (`MAIL FROM:<>`)
+a través del servidor SMTP que el proyecto configure en `reportsSmtpUrl` (`PATCH /v1/project`; `null` o `""` lo
+quita; la API lo devuelve sin contraseña). Citan las cabeceras originales (`Message-ID`, `X-Relayo-Message-ID`,
+`X-Relayo-Metadata`), así que `@alimzen/bounces` / `@alimzen/imap` los convierten en el evento con el
+`messageId` y la `metadata` del envío: está probado así, de punta a punta.
+
+- Por SMTP, los escenarios de rechazo responden al momento. Con `+async` (`hard-bounce+async@`, `blocked+async@`…)
+  el simulador **acepta** y rebota después, como un relay: así se prueba la lectura del buzón de rebotes.
+- `GET /v1/messages/:id/events/:eventId/report` devuelve el informe de un evento (`message/rfc822`), sin necesidad
+  de servidor SMTP. El panel lo muestra con «Ver DSN» / «Ver ARF».
 
 ## Panel
 
@@ -82,5 +98,5 @@ enlaza los paquetes locales de `../relayo` (`pnpm.overrides`). Quitar los overri
 ## Pendiente (fase 2)
 
 - ~~PostgreSQL y BullMQ~~: probados (`test/store.test.ts`, `test/bullmq.test.ts`) contra `DATABASE_URL` y `REDIS_URL` del `.env`, con esquema y prefijo de colas temporales.
-- Rebotes asíncronos también como correo DSN (RFC 3464) para quien los lee por buzón.
+- ~~Informes por correo~~: hechos (ver «Informes por correo»).
 - ~~Panel Angular~~: hecho (`panel/`).

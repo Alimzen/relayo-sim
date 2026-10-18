@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { RelayoEvent } from '@alimzen/core';
+import type { ReportSender } from '../src/reports/sender.js';
 import { MemoryScheduler } from '../src/scheduler/scheduler.js';
 import { SimulationService } from '../src/simulation/simulation.service.js';
 import { MemoryStore } from '../src/store/memory-store.js';
@@ -36,10 +37,10 @@ export async function webhookReceiver() {
 }
 
 /** A simulator wired with in-memory pieces and instant timelines. */
-export function memorySimulation(timeScale = 0) {
+export function memorySimulation(timeScale = 0, reports?: ReportSender) {
   const store = new MemoryStore();
   const scheduler = new MemoryScheduler();
   const dispatcher = new MemoryDispatcher({ attempts: 3, delayMs: () => 10 });
-  const sim = new SimulationService(store, scheduler, dispatcher, { timeScale });
+  const sim = new SimulationService(store, scheduler, dispatcher, { timeScale, ...(reports && { reports }) });
   return { sim, store, scheduler, dispatcher };
 }

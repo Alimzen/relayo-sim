@@ -1,6 +1,8 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { BounceEvent, ClickEvent, RejectEvent, RelayoEvent } from '@alimzen/core';
 import type { Project, SimEvent, SimMessage, SimRecipient } from '../domain.js';
+import { buildReport, reportRecipient } from '../reports/reports.js';
+import type { ReportSender } from '../reports/sender.js';
 import type { SmtpReply, TimelineStep } from '../scenarios/catalog.js';
 import { resolveScenario, selectScenario, smtpTimeline, type ResolvedScenario } from '../scenarios/resolve.js';
 import type { EventScheduler, ScheduledStep } from '../scheduler/scheduler.js';
@@ -12,6 +14,8 @@ export interface SimulationOptions {
   timeScale?: number;
   /** How long greylisting remembers an attempt. Default 1 hour. */
   greylistTtlMs?: number;
+  /** Sends bounce (DSN) and complaint (ARF) reports to projects that set `reportsSmtpUrl`. */
+  reports?: ReportSender;
 }
 
 export interface IncomingMessage {
@@ -23,12 +27,17 @@ export interface IncomingMessage {
   tags?: string[];
   /** Value of `X-Sim-Scenario`, applied to every recipient. */
   scenarioHeader?: string;
+  /** SMTP envelope sender, when different from `from`. */
+  envelopeFrom?: string;
+  /** Original headers to quote back in reports. */
+  headers?: Record<string, string>;
 }
 
 /** Ties scenarios, storage, scheduling and webhooks together. */
 export class SimulationService {
   private readonly timeScale: number;
   private readonly greylistTtlMs: number;
+  private readonly reports: ReportSender | undefined;
 
   constructor(
     private readonly store: SimStore,
@@ -38,6 +47,7 @@ export class SimulationService {
   ) {
     this.timeScale = options.timeScale ?? 1;
     this.greylistTtlMs = options.greylistTtlMs ?? 60 * 60_000;
+    this.reports = options.reports;
     scheduler.start((job) => this.runStep(job));
   }
 
@@ -134,6 +144,8 @@ export class SimulationService {
       ...(input.relayoMessageId && { relayoMessageId: input.relayoMessageId }),
       ...(input.metadata && { metadata: input.metadata }),
       ...(input.tags?.length && { tags: input.tags }),
+      ...(input.envelopeFrom && input.envelopeFrom !== input.from && { envelopeFrom: input.envelopeFrom }),
+      ...(input.headers && Object.keys(input.headers).length && { headers: input.headers }),
     };
     await this.store.saveMessage(message);
     return message;
@@ -156,6 +168,21 @@ export class SimulationService {
     const event = toEvent(message, job);
     await this.store.addEvent(event);
     if (project.webhookUrl) await this.webhooks.dispatch(event, { url: project.webhookUrl, secret: project.webhookSecret });
+
+    // Like a receiving server, mail the report to the envelope sender. A failure throws so the step is
+    // retried; the event and webhook above are idempotent.
+    if (project.reportsSmtpUrl && this.reports) {
+      const report = buildReport(message, event);
+      if (report) await this.reports.send(project.reportsSmtpUrl, reportRecipient(message), report);
+    }
+  }
+
+  /** The report (DSN or ARF) an event produced, rebuilt on demand. */
+  async report(project: Project, eventId: string): Promise<string | undefined> {
+    const messageId = eventId.slice(0, eventId.indexOf(':'));
+    const message = await this.store.getMessage(project.id, messageId);
+    const event = message?.events.find((e) => e.id === eventId);
+    return message && event ? buildReport(message, event) : undefined;
   }
 }
 

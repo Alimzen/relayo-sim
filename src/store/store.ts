@@ -1,5 +1,11 @@
 import type { MessageWithEvents, Project, SimEvent, SimMessage } from '../domain.js';
 
+export interface ProjectChanges {
+  name?: string;
+  webhookUrl?: string | null;
+  reportsSmtpUrl?: string | null;
+}
+
 export const SIM_STORE = Symbol.for('relayo-sim:store');
 
 /** Persistence for projects, messages and their event timelines. */
@@ -7,7 +13,8 @@ export interface SimStore {
   createProject(project: Project): Promise<void>;
   findProjectByApiKeyHash(hash: string): Promise<Project | undefined>;
   getProject(id: string): Promise<Project | undefined>;
-  updateProject(id: string, changes: Partial<Pick<Project, 'name' | 'webhookUrl'>>): Promise<void>;
+  /** `null` clears an optional field; missing keys are left as they are. */
+  updateProject(id: string, changes: ProjectChanges): Promise<void>;
 
   saveMessage(message: SimMessage): Promise<void>;
   getMessage(projectId: string, id: string): Promise<MessageWithEvents | undefined>;

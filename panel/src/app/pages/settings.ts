@@ -29,6 +29,23 @@ import { SimApi, type Project } from '../api.service';
         }
       </form>
 
+      <form class="card" (submit)="saveReports($event)">
+        <h2>Informes por correo</h2>
+        <p class="muted">
+          Como un servidor real, el simulador envía un DSN por cada rebote o aplazamiento y un informe ARF por cada queja
+          al remitente del sobre de cada mensaje, a través de este servidor SMTP (tu buzón de rebotes, Mailpit…).
+          Escenarios con <code>+async</code> (p. ej. <code>hard-bounce+async&#64;</code>) aceptan por SMTP y rebotan después.
+        </p>
+        <label>
+          Servidor SMTP
+          <input [value]="reportsSmtpUrl()" (input)="reportsSmtpUrl.set($any($event.target).value)" placeholder="smtp://usuario:clave@mail.tu-dominio.com:587" />
+        </label>
+        @if (p.reportsSmtpUrl) {
+          <p class="hint">Configurado: <code>{{ p.reportsSmtpUrl }}</code>. Déjalo vacío y guarda para desactivarlo.</p>
+        }
+        <button type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </form>
+
       <section class="card">
         <h2>Conexión</h2>
         <dl class="facts">
@@ -45,6 +62,7 @@ export class SettingsPage {
   private readonly api = inject(SimApi);
   protected readonly project = signal<Project | null>(null);
   protected readonly webhookUrl = signal('');
+  protected readonly reportsSmtpUrl = signal('');
   protected readonly error = signal<string | null>(null);
   protected readonly saving = signal(false);
   protected readonly saved = signal(false);
@@ -61,13 +79,24 @@ export class SettingsPage {
     );
   }
 
-  protected async save(event: Event): Promise<void> {
+  protected save(event: Event): Promise<void> {
     event.preventDefault();
+    return this.update({ webhookUrl: this.webhookUrl().trim() || null });
+  }
+
+  protected async saveReports(event: Event): Promise<void> {
+    event.preventDefault();
+    await this.update({ reportsSmtpUrl: this.reportsSmtpUrl().trim() || null });
+    // The stored URL is shown masked; keep the field empty rather than echoing the password back.
+    this.reportsSmtpUrl.set('');
+  }
+
+  private async update(changes: { webhookUrl?: string | null; reportsSmtpUrl?: string | null }): Promise<void> {
     this.saving.set(true);
     this.saved.set(false);
     this.error.set(null);
     try {
-      this.project.set(await this.api.updateProject({ webhookUrl: this.webhookUrl().trim() }));
+      this.project.set(await this.api.updateProject(changes));
       this.saved.set(true);
     } catch (error) {
       this.error.set((error as Error).message);

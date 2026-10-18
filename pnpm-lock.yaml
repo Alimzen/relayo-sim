@@ -28,6 +28,9 @@ dependencies:
   ioredis:
     specifier: ^6.0.0
     version: 6.0.0
+  nodemailer:
+    specifier: ^10.1.6
+    version: 10.1.6
   pg:
     specifier: ^8.23.1
     version: 8.23.1
@@ -42,6 +45,9 @@ dependencies:
     version: 3.20.1
 
 devDependencies:
+  '@alimzen/bounces':
+    specifier: ^0.1.0
+    version: 0.1.0(@alimzen/core@relayo+packages+core)
   '@alimzen/simulator':
     specifier: link:../relayo/packages/simulator
     version: link:../relayo/packages/simulator
@@ -63,9 +69,6 @@ devDependencies:
   '@types/smtp-server':
     specifier: ^3.5.13
     version: 3.5.13
-  nodemailer:
-    specifier: ^10.1.6
-    version: 10.1.6
   tsx:
     specifier: ^4.23.15
     version: 4.23.15
@@ -77,6 +80,15 @@ devDependencies:
     version: 2.1.9(@types/node@22.20.5)
 
 packages:
+
+  /@alimzen/bounces@0.1.0(@alimzen/core@relayo+packages+core):
+    resolution: {integrity: sha512-uXMTR6B2+arBoQX1hAp9B7EbLO13GO8o545LTzV6hLEts8EiVGzGyKEBgdvHsZZJx8C7DJdr4X9znVuLrPRjGg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@alimzen/core': link:../relayo/packages/core
+    dependencies:
+      '@alimzen/core': link:../relayo/packages/core
+    dev: true
 
   /@borewit/text-codec@0.2.2:
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
@@ -1614,6 +1626,7 @@ packages:
   /nodemailer@10.1.6:
     resolution: {integrity: sha512-8j/UEmA4AXr51URr3Ob0h+RCBtr0NKJ76Y2P9wJT6Eu3dRyruj2ULh2e6aiKrGg8nlUj1oX6N5h8dHA82EouaQ==}
     engines: {node: '>=20.0.0'}
+    dev: false
 
   /object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}

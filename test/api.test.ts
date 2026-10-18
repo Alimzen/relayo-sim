@@ -120,6 +120,37 @@ describe('HTTP API', () => {
     expect(project.webhookUrl).toBe(hooks.url);
   });
 
+  it('stores the reports SMTP server, showing it without its password', async () => {
+    const patch = (body: unknown) =>
+      fetch(`${base}/v1/project`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(body),
+      });
+    expect((await patch({ reportsSmtpUrl: 'http://nope' })).status).toBe(400);
+    const project = (await (await patch({ reportsSmtpUrl: 'smtp://user:secret@127.0.0.1:1' })).json()) as { reportsSmtpUrl: string };
+    expect(project.reportsSmtpUrl).toBe('smtp://user:****@127.0.0.1:1');
+    const cleared = (await (await patch({ reportsSmtpUrl: '' })).json()) as { reportsSmtpUrl: string | null };
+    expect(cleared.reportsSmtpUrl).toBeNull();
+  });
+
+  it('serves the DSN of a bounce as message/rfc822', async () => {
+    const { id } = (await (
+      await post('/v1/messages', { from: 'a@empresa.com', to: ['no-mx@sim.relayo.dev'], subject: 's', relayoMessageId: 'msg_dsn' })
+    ).json()) as { id: string };
+    await vi.waitFor(async () => {
+      const detail = (await (await get(`/v1/messages/${id}`)).json()) as { events: Array<{ type: string }> };
+      expect(detail.events.map((e) => e.type)).toContain('bounced');
+    });
+    const report = await get(`/v1/messages/${id}/events/${encodeURIComponent(`${id}:no-mx@sim.relayo.dev:001`)}/report`);
+    expect(report.status).toBe(200);
+    expect(report.headers.get('content-type')).toContain('message/rfc822');
+    const text = await report.text();
+    expect(text).toContain('Status: 5.1.2');
+    expect(text).toContain('X-Relayo-Message-ID: msg_dsn');
+    expect((await get(`/v1/messages/${id}/events/${encodeURIComponent(`${id}:no-mx@sim.relayo.dev:000`)}/report`)).status).toBe(404);
+  });
+
   it('starts the SMTP server with the app', () => {
     expect(app.get(Lifecycle).smtpPort).toBeGreaterThan(0);
   });

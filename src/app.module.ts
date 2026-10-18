@@ -12,6 +12,7 @@ import { AdminController, HealthController, MessagesController, ProjectControlle
 import { SIM_CONFIG, type SimConfig } from './config.js';
 import { infrastructure, type Infrastructure } from './infrastructure.js';
 import { EVENT_SCHEDULER, type EventScheduler } from './scheduler/scheduler.js';
+import { SmtpReportSender } from './reports/sender.js';
 import { SimulationService } from './simulation/simulation.service.js';
 import { SmtpSimServer } from './smtp/smtp-sim.server.js';
 import { SIM_STORE, type SimStore } from './store/store.js';
@@ -68,7 +69,7 @@ export class AppModule {
         {
           provide: SimulationService,
           useFactory: (store: SimStore, scheduler: EventScheduler, dispatcher: WebhookDispatcher) =>
-            new SimulationService(store, scheduler, dispatcher, { timeScale: config.timeScale }),
+            new SimulationService(store, scheduler, dispatcher, { timeScale: config.timeScale, reports: new SmtpReportSender() }),
           inject: [SIM_STORE, EVENT_SCHEDULER, WEBHOOK_DISPATCHER],
         },
         ApiKeyGuard,

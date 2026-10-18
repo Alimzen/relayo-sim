@@ -20,6 +20,7 @@ const created = await fetch(`${simUrl}/v1/projects`, {
 if (!created.ok) throw new Error(`Could not create a project: ${created.status} ${await created.text()}`);
 const project = (await created.json()) as { id: string; apiKey: string };
 console.log(`Project ${project.id}`);
+console.log(`API key (para entrar al panel): ${project.apiKey}`);
 
 const driver = smtp({ host: '127.0.0.1', port: smtpPort, secure: false, ignoreTLS: true, auth: { user: 'smoke', pass: project.apiKey } });
 const relayo = createRelayo({ email: driver });

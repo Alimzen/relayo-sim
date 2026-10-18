@@ -1,5 +1,5 @@
 import type { MessageWithEvents, Project, SimEvent, SimMessage } from '../domain.js';
-import type { SimStore } from './store.js';
+import type { ProjectChanges, SimStore } from './store.js';
 
 /** In-process store for tests and local runs without a database. Nothing survives a restart. */
 export class MemoryStore implements SimStore {
@@ -20,9 +20,17 @@ export class MemoryStore implements SimStore {
     return this.projects.get(id);
   }
 
-  async updateProject(id: string, changes: Partial<Pick<Project, 'name' | 'webhookUrl'>>): Promise<void> {
+  async updateProject(id: string, changes: ProjectChanges): Promise<void> {
     const project = this.projects.get(id);
-    if (project) this.projects.set(id, { ...project, ...changes });
+    if (!project) return;
+    const next: Project = { ...project };
+    if (changes.name !== undefined) next.name = changes.name;
+    for (const key of ['webhookUrl', 'reportsSmtpUrl'] as const) {
+      const value = changes[key];
+      if (value === null) delete next[key];
+      else if (value !== undefined) next[key] = value;
+    }
+    this.projects.set(id, next);
   }
 
   async saveMessage(message: SimMessage): Promise<void> {
