@@ -2,7 +2,8 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Api } from '../core/api';
-import { fullDate } from '../core/format';
+import { formatNumber, fullDate } from '../core/format';
+import type { ProjectUsage } from '../core/types';
 import { Session } from '../core/session';
 import { CopyButton, Toasts } from '../ui/ui';
 
@@ -44,6 +45,49 @@ import { CopyButton, Toasts } from '../ui/ui';
             </button>
           </footer>
         </form>
+
+        @if (usage(); as u) {
+          <section class="card">
+            <header class="card-head">
+              <div>
+                <h2>Uso del plan</h2>
+                <p class="muted small">Gratis durante la beta.</p>
+              </div>
+            </header>
+            <div class="card-body">
+              <div class="usage">
+                <div class="usage-row">
+                  <span>Mensajes este mes</span>
+                  <strong>{{ format(u.messages) }}{{ u.limits.monthlyMessages ? ' / ' + format(u.limits.monthlyMessages) : '' }}</strong>
+                </div>
+                @if (u.limits.monthlyMessages) {
+                  <div
+                    class="meter"
+                    role="meter"
+                    aria-label="Mensajes usados este mes"
+                    [attr.aria-valuenow]="u.messages"
+                    aria-valuemin="0"
+                    [attr.aria-valuemax]="u.limits.monthlyMessages"
+                    [attr.data-level]="level(u)"
+                  >
+                    <span [style.width.%]="share(u)"></span>
+                  </div>
+                  <p class="muted small">Se reinicia el día 1 de cada mes. Al llegar al límite, los envíos se rechazan (HTTP 429; SMTP 452).</p>
+                }
+              </div>
+              <dl class="props props-inline usage-props">
+                <div>
+                  <dt>Envíos por minuto</dt>
+                  <dd>{{ u.limits.messagesPerMinute ? 'hasta ' + format(u.limits.messagesPerMinute) : 'sin límite' }}</dd>
+                </div>
+                <div>
+                  <dt>Se guardan</dt>
+                  <dd>{{ u.retentionDays ? u.retentionDays + ' días' : 'siempre' }}</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+        }
 
         <section class="card">
           <header class="card-head">
@@ -95,6 +139,24 @@ export class SettingsPage {
   protected readonly origin = location.origin;
   protected readonly host = location.hostname;
   protected name = this.project().name;
+  protected readonly usage = signal<ProjectUsage | null>(null);
+  protected readonly format = formatNumber;
+
+  constructor() {
+    this.api.usage().then(
+      (u) => this.usage.set(u),
+      () => undefined,
+    );
+  }
+
+  protected share(u: ProjectUsage): number {
+    return Math.min(100, (u.messages / u.limits.monthlyMessages) * 100);
+  }
+
+  protected level(u: ProjectUsage): 'ok' | 'high' | 'full' {
+    const share = this.share(u);
+    return share >= 100 ? 'full' : share >= 80 ? 'high' : 'ok';
+  }
 
   protected readonly snippet = computed(
     () => `import { createRelayo } from '@alimzen/core';

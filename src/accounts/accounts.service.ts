@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Project, User } from '../domain.js';
 import type { SimulationService } from '../simulation/simulation.service.js';
 import type { SimStore } from '../store/store.js';
+import { LogMailer, type Mailer, type MailToSend } from './mailer.js';
 import { hashPassword, verifyPassword } from './password.js';
 
 export const SESSION_COOKIE = 'relayo_session';
@@ -28,15 +29,20 @@ export interface PublicUser {
 export const publicUser = ({ id, email, name, createdAt }: User): PublicUser => ({ id, email, name, createdAt });
 
 /**
- * Counts failed logins to slow down password guessing: per account (10 in 15 minutes) and per IP, with a
- * higher limit (50) because offices and VPNs put many people behind one address.
+ * Counts attempts in a time window, per account and per IP. Logins: 10 failures per account and 50 per IP
+ * (offices and VPNs put many people behind one address) in 15 minutes, to slow down password guessing.
  */
-class LoginLimiter {
+class AttemptLimiter {
   private readonly failures = new Map<string, number[]>();
-  private readonly windowMs = 15 * 60_000;
+
+  constructor(
+    private readonly perAccount = 10,
+    private readonly perIp = 50,
+    private readonly windowMs = 15 * 60_000,
+  ) {}
 
   private limit(key: string): number {
-    return key.startsWith('ip:') ? 50 : 10;
+    return key.startsWith('ip:') ? this.perIp : this.perAccount;
   }
 
   check(...keys: string[]): void {
@@ -60,17 +66,30 @@ class LoginLimiter {
 export interface AccountsOptions {
   /** Whether anyone can create an account. Default true. */
   signup?: boolean;
+  /** Sends password reset emails. Default: the log. */
+  mailer?: Mailer;
+  /** Public address of the panel, for the link in reset emails. */
+  publicUrl?: string;
 }
+
+export const RESET_MINUTES = 60;
 
 /** Users, passwords and browser sessions for the panel. API keys keep working for the API and SMTP. */
 export class AccountsService {
-  private readonly limiter = new LoginLimiter();
+  private readonly limiter = new AttemptLimiter();
+  /** Reset emails: 3 per account and 20 per IP an hour, so the form cannot be used to flood someone's inbox. */
+  private readonly resetLimiter = new AttemptLimiter(3, 20, 60 * 60_000);
+  private readonly mailer: Mailer;
+
+
 
   constructor(
     private readonly store: SimStore,
     private readonly sim: SimulationService,
     private readonly options: AccountsOptions = {},
-  ) {}
+  ) {
+    this.mailer = options.mailer ?? new LogMailer();
+  }
 
   get signupOpen(): boolean {
     return this.options.signup ?? true;
@@ -139,6 +158,44 @@ export class AccountsService {
     await this.store.deleteUserSessions(user.id, sessionHash);
   }
 
+  /**
+   * Emails a single-use link to set a new password. Answers the same whether the account exists or not, so
+   * the form cannot be used to find out who has an account.
+   */
+  async requestPasswordReset(input: { email?: unknown }, ip: string): Promise<void> {
+    const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
+    if (!EMAIL.test(email)) throw new AccountError('Introduce un email válido.', 400);
+    const keys = [`email:${email}`, `ip:${ip}`];
+    this.resetLimiter.check(...keys);
+    this.resetLimiter.fail(...keys);
+
+    const user = await this.store.findUserByEmail(email);
+    if (!user) return;
+    const token = randomBytes(32).toString('base64url');
+    await this.store.createPasswordReset({
+      tokenHash: hashToken(token),
+      userId: user.id,
+      expiresAt: new Date(Date.now() + RESET_MINUTES * 60_000),
+    });
+    const link = `${this.options.publicUrl ?? ''}/reset-password?token=${token}`;
+    await this.mailer.send(resetEmail(user, link));
+  }
+
+  /** Sets a new password with a reset token, signs out every session and signs in this one. */
+  async resetPassword(input: { token?: unknown; password?: unknown }): Promise<{ user: User; token: string }> {
+    const token = typeof input.token === 'string' ? input.token : '';
+    const password = typeof input.password === 'string' ? input.password : '';
+    // Check the password first: a weak one should not use up the link.
+    checkPassword(password);
+    const userId = token ? await this.store.usePasswordReset(hashToken(token)) : undefined;
+    const user = userId && (await this.store.getUser(userId));
+    if (!user) throw new AccountError('El enlace no es válido o ha caducado. Pide uno nuevo.', 400);
+    await this.store.updateUser(user.id, { passwordHash: await hashPassword(password) });
+    await this.store.deleteUserSessions(user.id);
+    this.limiter.reset(`email:${user.email}`);
+    return { user, token: await this.startSession(user.id) };
+  }
+
   /** The user's project with this id, if they own it. */
   async ownedProject(user: User, projectId: string | undefined): Promise<Project | undefined> {
     if (!projectId) return undefined;
@@ -162,6 +219,29 @@ export class AccountsService {
 function checkPassword(password: string): void {
   if (password.length < MIN_PASSWORD) throw new AccountError(`La contraseña debe tener al menos ${MIN_PASSWORD} caracteres.`, 400);
   if (password.length > 256) throw new AccountError('La contraseña es demasiado larga.', 400);
+}
+
+function resetEmail(user: User, link: string): MailToSend {
+  const escape = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  return {
+    to: user.email,
+    subject: 'Restablece tu contraseña de Relayo Sim',
+    text: [
+      `Hola, ${user.name}:`,
+      '',
+      'Alguien (esperamos que tú) pidió restablecer la contraseña de tu cuenta de Relayo Sim. Ábrelo aquí:',
+      '',
+      link,
+      '',
+      `El enlace sirve una sola vez y caduca en ${RESET_MINUTES} minutos. Si no lo pediste, ignora este correo: tu contraseña no cambia.`,
+    ].join('\n'),
+    html: `<div style="font-family:system-ui,sans-serif;max-width:480px;color:#18181b;line-height:1.5">
+<p>Hola, ${escape(user.name)}:</p>
+<p>Alguien (esperamos que tú) pidió restablecer la contraseña de tu cuenta de Relayo Sim.</p>
+<p><a href="${escape(link)}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Elegir una contraseña nueva</a></p>
+<p style="color:#71717a;font-size:13px">El enlace sirve una sola vez y caduca en ${RESET_MINUTES} minutos. Si no lo pediste, ignora este correo: tu contraseña no cambia.</p>
+</div>`,
+  };
 }
 
 export function hashToken(token: string): string {

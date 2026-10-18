@@ -269,3 +269,14 @@ describe('closed sign-up', () => {
     }
   });
 });
+
+describe('password reset over HTTP', () => {
+  it('always answers 204 to "forgot", and refuses bad tokens', async () => {
+    const b = browser();
+    expect((await b.request('POST', '/v1/auth/forgot', { email: 'nadie@empresa.com' })).status).toBe(204);
+    expect((await b.request('POST', '/v1/auth/forgot', { email: 'no-es-un-email' })).status).toBe(400);
+    const bad = await b.request('POST', '/v1/auth/reset', { token: 'nope', password: 'una-clave-larga-2' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { message: string }).message).toContain('caducado');
+  });
+});

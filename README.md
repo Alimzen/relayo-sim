@@ -130,6 +130,10 @@ ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim 
 | `SMTP_MAX_HANG_MS` | 120000 | Límite del escenario `timeout` |
 | `TLS_KEY` / `TLS_CERT` | — | PEM para STARTTLS |
 | `TLS_KEY_FILE` / `TLS_CERT_FILE` | — | Rutas a los PEM; se releen dos veces al día (certificados que se renuevan) |
+| `RETENTION_DAYS` | 7 | Días que se guardan los mensajes y su contenido; se purgan cada hora. `0` = siempre |
+| `MONTHLY_MESSAGE_LIMIT` / `MESSAGES_PER_MINUTE` | 0 / 0 | Límites por proyecto (`0` = sin límite). Al pasarlos: HTTP 429; SMTP 452 (mes) o 421 (ritmo) |
+| `PUBLIC_URL` | `http://localhost:PORT` | Dirección pública, para el enlace del correo de recuperación de contraseña |
+| `MAIL_URL` / `MAIL_FROM` | — | SMTP para los correos del propio simulador (recuperar contraseña). Sin él, el enlace sale en el log |
 
 ## Despliegue
 
@@ -141,17 +145,29 @@ Una imagen (`Dockerfile`) con API, SMTP, panel y landing. `deploy/` trae lo nece
   STARTTLS usando el mismo certificado. El servicio `certs` lo copia con permisos legibles para el simulador, que
   corre sin privilegios.
 - **PostgreSQL y Redis** con volúmenes persistentes.
+- **Copia diaria** de la base de datos (03:00 UTC) en `deploy/backups/`, con las 14 últimas.
+
+Producción: **relayo.alimzen.com**.
+
+1. **DNS**: registro `A` de `relayo.alimzen.com` a la IP del servidor (y `AAAA` si tiene IPv6).
+2. **Cortafuegos**: abrir 80 y 443 (web y certificado) y 587 y 2525 (SMTP del simulador).
+3. **Correo del simulador** (recuperar contraseña): credenciales SMTP de un proveedor (SES, Resend, Postmark,
+   Brevo…) con el dominio del remitente verificado (SPF y DKIM de `alimzen.com`).
+4. En el servidor (Docker y el plugin compose instalados):
 
 ```sh
-# En el servidor, con el registro DNS A/AAAA de SIM_DOMAIN apuntando a él y los puertos 80, 443, 587 y 2525 abiertos
 git clone https://github.com/Alimzen/relayo-sim.git && cd relayo-sim/deploy
-cp .env.example .env            # SIM_DOMAIN, POSTGRES_PASSWORD, ADMIN_TOKEN, SIGNUP
+cp .env.example .env            # rellenar: POSTGRES_PASSWORD, ADMIN_TOKEN, MAIL_URL, MAIL_FROM
 docker compose up -d --build
 docker compose logs -f sim      # la primera vez reinicia hasta que Caddy tiene el certificado (1–2 min)
 ```
 
+5. Comprobar: `https://relayo.alimzen.com` (landing), crear cuenta, "¿La olvidaste?" (debe llegar el correo), y un
+   envío por SMTP con STARTTLS a `relayo.alimzen.com:587`.
+
 Para actualizar: `git pull && docker compose up -d --build`. Las migraciones de PostgreSQL se aplican solas al
-arrancar. Copias de seguridad: `docker compose exec postgres pg_dump -U relayo relayo_sim > backup.sql`.
+arrancar. Restaurar una copia: `gunzip -c backups/<fichero>.sql.gz | docker compose exec -T postgres psql -U relayo relayo_sim`.
+Las copias están en el mismo servidor: sácalas también fuera (otro servidor, S3…).
 
 Las direcciones de escenario (`@sim.relayo.dev`) no necesitan DNS: los correos llegan al SMTP del simulador porque
 la aplicación lo usa como servidor de salida, no por MX.

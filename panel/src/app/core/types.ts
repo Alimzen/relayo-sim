@@ -100,6 +100,15 @@ export interface MessageDetail extends SimMessage {
   events: SimEvent[];
 }
 
+export interface ProjectUsage {
+  month: string;
+  messages: number;
+  /** 0 means no limit. */
+  limits: { monthlyMessages: number; messagesPerMinute: number };
+  /** 0 means messages are kept forever. */
+  retentionDays: number;
+}
+
 export interface ProjectStats {
   since: string;
   messages: number;

@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
 
@@ -78,6 +78,18 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_message ON events (message_id, occurred_at);
 CREATE INDEX IF NOT EXISTS events_project_time ON events (project_id, occurred_at);
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash text PRIMARY KEY,
+  user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS usage (
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  month text NOT NULL,
+  messages integer NOT NULL,
+  PRIMARY KEY (project_id, month)
+);
+CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
 CREATE TABLE IF NOT EXISTS smtp_attempts (
   key text PRIMARY KEY,
   count integer NOT NULL,
@@ -391,6 +403,49 @@ export class PostgresStore implements SimStore {
     return stats;
   }
 
+  async createPasswordReset(reset: PasswordReset): Promise<void> {
+    await this.pool.query('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES ($1, $2, $3)', [
+      reset.tokenHash,
+      reset.userId,
+      reset.expiresAt,
+    ]);
+  }
+
+  async usePasswordReset(tokenHash: string): Promise<string | undefined> {
+    const { rows } = await this.pool.query<{ user_id: string; expires_at: Date }>(
+      'DELETE FROM password_resets WHERE token_hash = $1 RETURNING user_id, expires_at',
+      [tokenHash],
+    );
+    return rows[0] && rows[0].expires_at > new Date() ? rows[0].user_id : undefined;
+  }
+
+  async incrementUsage(projectId: string, month: string): Promise<number> {
+    const { rows } = await this.pool.query<{ messages: number }>(
+      `INSERT INTO usage (project_id, month, messages) VALUES ($1, $2, 1)
+       ON CONFLICT (project_id, month) DO UPDATE SET messages = usage.messages + 1
+       RETURNING messages`,
+      [projectId, month],
+    );
+    return rows[0]!.messages;
+  }
+
+  async getUsage(projectId: string, month: string): Promise<number> {
+    const { rows } = await this.pool.query<{ messages: number }>('SELECT messages FROM usage WHERE project_id = $1 AND month = $2', [
+      projectId,
+      month,
+    ]);
+    return rows[0]?.messages ?? 0;
+  }
+
+  async purge(before: Date): Promise<{ messages: number }> {
+    // Events and captured content go with their message (ON DELETE CASCADE).
+    const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1', [before]);
+    await this.pool.query('DELETE FROM sessions WHERE expires_at <= now()');
+    await this.pool.query('DELETE FROM password_resets WHERE expires_at <= now()');
+    await this.pool.query('DELETE FROM smtp_attempts WHERE expires_at <= now()');
+    return { messages: deleted.rowCount ?? 0 };
+  }
+
   async nextAttempt(key: string, ttlMs: number): Promise<number> {
     const { rows } = await this.pool.query<{ count: number }>(
       `INSERT INTO smtp_attempts (key, count, expires_at) VALUES ($1, 1, now() + $2 * interval '1 millisecond')
@@ -409,7 +464,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE events, message_contents, messages, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE events, message_contents, messages, usage, password_resets, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 

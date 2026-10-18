@@ -1827,3 +1827,66 @@ pre {
 .file-name small {
   font-size: 12px;
 }
+
+/* ------------------------------------------------------------------------------------------------
+   Password recovery & usage
+   ------------------------------------------------------------------------------------------------ */
+
+.label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.auth-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--tone-good-bg);
+  color: var(--tone-good);
+  margin-bottom: 14px;
+}
+
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.usage-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-row strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--active);
+  overflow: hidden;
+}
+
+.meter span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--text);
+}
+
+.meter[data-level='high'] span {
+  background: var(--tone-warning);
+}
+
+.meter[data-level='full'] span {
+  background: var(--tone-critical);
+}
+
+.usage-props {
+  margin-top: 18px;
+}

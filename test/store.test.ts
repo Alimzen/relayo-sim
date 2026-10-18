@@ -194,6 +194,50 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listProjects('usr_1')).map((p) => p.id)).toEqual(['prj_a', 'prj_b']);
   });
 
+  it('uses each password reset token once, and only before it expires', async () => {
+    const store = await open();
+    await store.createUser(user);
+    await store.createPasswordReset({ tokenHash: 't1', userId: 'usr_1', expiresAt: new Date(Date.now() + 60_000) });
+    await store.createPasswordReset({ tokenHash: 'expired', userId: 'usr_1', expiresAt: new Date(Date.now() - 1) });
+
+    expect(await store.usePasswordReset('t1')).toBe('usr_1');
+    expect(await store.usePasswordReset('t1')).toBeUndefined();
+    expect(await store.usePasswordReset('expired')).toBeUndefined();
+    expect(await store.usePasswordReset('nope')).toBeUndefined();
+  });
+
+  it('counts usage per project and month', async () => {
+    const store = await open();
+    await store.createProject(project());
+    await store.createProject(project('prj_2'));
+    expect(await store.incrementUsage('prj_1', '2026-10')).toBe(1);
+    expect(await store.incrementUsage('prj_1', '2026-10')).toBe(2);
+    expect(await store.incrementUsage('prj_1', '2026-11')).toBe(1);
+    expect(await store.getUsage('prj_1', '2026-10')).toBe(2);
+    expect(await store.getUsage('prj_2', '2026-10')).toBe(0);
+  });
+
+  it('purges old messages with their events and content, and expired sessions', async () => {
+    const store = await open();
+    await store.createUser(user);
+    await store.createProject(project());
+    await store.saveMessage(message('sim_old', '2026-10-01T10:00:00Z'), Buffer.from('raw old'));
+    await store.saveMessage(message('sim_new', '2026-10-18T10:00:00Z'), Buffer.from('raw new'));
+    await store.addEvent(event('e_old', 'sim_old', 'delivered', '2026-10-01T10:00:01Z'));
+    await store.addEvent(event('e_new', 'sim_new', 'delivered', '2026-10-18T10:00:01Z'));
+    const now = Date.now();
+    await store.createSession({ idHash: 'live', userId: 'usr_1', createdAt: new Date(now), expiresAt: new Date(now + 60_000) });
+    await store.createSession({ idHash: 'dead', userId: 'usr_1', createdAt: new Date(now), expiresAt: new Date(now - 1) });
+
+    expect(await store.purge(new Date('2026-10-11T00:00:00Z'))).toEqual({ messages: 1 });
+    expect(await store.getMessage('prj_1', 'sim_old')).toBeUndefined();
+    expect(await store.getContent('prj_1', 'sim_old')).toBeUndefined();
+    expect((await store.getMessage('prj_1', 'sim_new'))?.events).toHaveLength(1);
+    expect((await store.getContent('prj_1', 'sim_new'))?.toString()).toBe('raw new');
+    expect((await store.stats('prj_1', new Date('2026-09-30T00:00:00Z'))).events.delivered).toBe(1);
+    expect(await store.getSession('live')).toBeDefined();
+  });
+
   it('keeps sessions until they expire or are deleted', async () => {
     const store = await open();
     await store.createUser(user);

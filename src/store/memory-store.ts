@@ -1,4 +1,4 @@
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
 
@@ -11,6 +11,8 @@ export class MemoryStore implements SimStore {
   private readonly messages = new Map<string, SimMessage>();
   private readonly events = new Map<string, SimEvent[]>();
   private readonly contents = new Map<string, Buffer>();
+  private readonly resets = new Map<string, PasswordReset>();
+  private readonly usage = new Map<string, number>();
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
   // --- Accounts ---------------------------------------------------------------------------------
@@ -112,6 +114,43 @@ export class MemoryStore implements SimStore {
   }
 
   // --- Messages ---------------------------------------------------------------------------------
+
+  async createPasswordReset(reset: PasswordReset): Promise<void> {
+    this.resets.set(reset.tokenHash, reset);
+  }
+
+  async usePasswordReset(tokenHash: string): Promise<string | undefined> {
+    const reset = this.resets.get(tokenHash);
+    this.resets.delete(tokenHash);
+    return reset && reset.expiresAt > new Date() ? reset.userId : undefined;
+  }
+
+  async incrementUsage(projectId: string, month: string): Promise<number> {
+    const key = `${projectId}|${month}`;
+    const count = (this.usage.get(key) ?? 0) + 1;
+    this.usage.set(key, count);
+    return count;
+  }
+
+  async getUsage(projectId: string, month: string): Promise<number> {
+    return this.usage.get(`${projectId}|${month}`) ?? 0;
+  }
+
+  async purge(before: Date): Promise<{ messages: number }> {
+    let messages = 0;
+    for (const [id, message] of this.messages) {
+      if (message.createdAt >= before) continue;
+      this.messages.delete(id);
+      this.events.delete(id);
+      this.contents.delete(id);
+      messages++;
+    }
+    const now = new Date();
+    for (const [hash, session] of this.sessions) if (session.expiresAt <= now) this.sessions.delete(hash);
+    for (const [hash, reset] of this.resets) if (reset.expiresAt <= now) this.resets.delete(hash);
+    for (const [key, attempt] of this.attempts) if (attempt.expires <= now.getTime()) this.attempts.delete(key);
+    return { messages };
+  }
 
   async saveMessage(message: SimMessage, raw?: Uint8Array): Promise<void> {
     this.messages.set(message.id, message);

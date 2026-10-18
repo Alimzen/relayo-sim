@@ -29,7 +29,10 @@ export function safeNext(next: string | undefined): string {
           <input id="email" class="input" type="email" name="email" autocomplete="email" required [(ngModel)]="email" />
         </div>
         <div class="field">
-          <label for="password">Contraseña</label>
+          <div class="label-row">
+            <label for="password">Contraseña</label>
+            <a routerLink="/forgot-password" class="small">¿La olvidaste?</a>
+          </div>
           <input
             id="password"
             class="input"

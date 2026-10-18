@@ -1,4 +1,4 @@
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ApiKey, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -32,6 +32,9 @@ export interface SimStore {
   deleteSession(idHash: string): Promise<void>;
   /** Ends every session of a user except, optionally, one (e.g. after a password change). */
   deleteUserSessions(userId: string, except?: string): Promise<void>;
+  createPasswordReset(reset: PasswordReset): Promise<void>;
+  /** Consumes a reset token: returns its user if it exists and has not expired, and deletes it either way. */
+  usePasswordReset(tokenHash: string): Promise<string | undefined>;
 
   // Projects and keys
   createProject(project: Project): Promise<void>;
@@ -57,6 +60,13 @@ export interface SimStore {
   listMessages(projectId: string, query: MessageQuery): Promise<MessageListItem[]>;
   addEvent(event: SimEvent): Promise<void>;
   stats(projectId: string, since: Date): Promise<ProjectStats>;
+
+  /** Adds one message to a project's usage for a month (`2026-10`) and returns the new total. */
+  incrementUsage(projectId: string, month: string): Promise<number>;
+  getUsage(projectId: string, month: string): Promise<number>;
+
+  /** Deletes messages created before a date (with their events and content) and expired sessions, tokens and counters. */
+  purge(before: Date): Promise<{ messages: number }>;
 
   /** Counts SMTP delivery attempts for a key (greylisting). Returns the attempt number, starting at 1. */
   nextAttempt(key: string, ttlMs: number): Promise<number>;

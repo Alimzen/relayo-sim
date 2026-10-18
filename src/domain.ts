@@ -19,6 +19,13 @@ export interface Session {
   expiresAt: Date;
 }
 
+export interface PasswordReset {
+  /** SHA-256 of the token sent by email. */
+  tokenHash: string;
+  userId: string;
+  expiresAt: Date;
+}
+
 export interface ApiKey {
   id: string;
   projectId: string;

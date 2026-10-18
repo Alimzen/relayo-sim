@@ -30,6 +30,17 @@ export const routes: Routes = [
     title: page('Crear cuenta'),
   },
   {
+    path: 'forgot-password',
+    canActivate: [signedOut],
+    loadComponent: () => import('./pages/auth/forgot-password').then((m) => m.ForgotPasswordPage),
+    title: page('Recuperar contraseña'),
+  },
+  {
+    path: 'reset-password',
+    loadComponent: () => import('./pages/auth/reset-password').then((m) => m.ResetPasswordPage),
+    title: page('Nueva contraseña'),
+  },
+  {
     path: '',
     canActivate: [signedIn],
     loadComponent: () => import('./layout/shell').then((m) => m.Shell),

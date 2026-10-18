@@ -6,6 +6,7 @@ import {
   Get,
   Header,
   HttpCode,
+  HttpException,
   Inject,
   NotFoundException,
   Param,
@@ -19,7 +20,8 @@ import type { Response } from 'express';
 import { composeMessage, quotedHeaders, readAttachment, readContent, readHeaders, type ApiAttachment, type MailAddress } from '../capture/capture.js';
 import type { Project, SimEvent } from '../domain.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
-import { SimulationService } from '../simulation/simulation.service.js';
+import { QuotaExceededError, SimulationService } from '../simulation/simulation.service.js';
+import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
 import { AdminGuard, CurrentProject, ProjectGuard, SessionOnly } from './auth.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
@@ -96,6 +98,13 @@ export class MessagesController {
     const attachments = checkAttachments(body.attachments);
     if (body.headers !== undefined && (typeof body.headers !== 'object' || Object.values(body.headers).some((v) => typeof v !== 'string'))) {
       throw new BadRequestException('"headers" must map names to strings');
+    }
+
+    try {
+      await this.sim.reserve(project);
+    } catch (error) {
+      if (error instanceof QuotaExceededError) throw new HttpException({ statusCode: 429, message: error.message }, 429);
+      throw error;
     }
 
     // Capture the email the provider would have sent, as SMTP mail is captured.
@@ -208,6 +217,7 @@ export class ProjectController {
   constructor(
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(SIM_STORE) private readonly store: SimStore,
+    @Inject(SIM_CONFIG) private readonly config: SimConfig,
   ) {}
 
   @Get()
@@ -233,6 +243,12 @@ export class ProjectController {
     if (reportsSmtpUrl !== undefined) changes.reportsSmtpUrl = reportsSmtpUrl;
     await this.store.updateProject(project.id, changes);
     return publicProject((await this.store.getProject(project.id))!);
+  }
+
+  /** This month's usage against the plan, and how long messages are kept. */
+  @Get('usage')
+  async usage(@CurrentProject() project: Project) {
+    return { ...(await this.sim.usage(project)), retentionDays: this.config.retentionDays ?? 7 };
   }
 
   /** Totals and a per-day series over the last `days` days (1–90, default 7). */

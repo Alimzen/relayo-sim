@@ -18,6 +18,14 @@ export interface SimConfig {
   secureCookies: boolean;
   /** STARTTLS for SMTP: PEM contents, or paths to PEM files re-read periodically (certificates that renew). */
   tls?: { key: string; cert: string } | { keyFile: string; certFile: string };
+  /** Days messages are kept; older ones are deleted. 0 keeps them forever. */
+  retentionDays?: number;
+  /** Per project. 0 means no limit. */
+  limits?: { monthlyMessages: number; messagesPerMinute: number };
+  /** Public address of the panel, for links in emails (password reset). */
+  publicUrl?: string;
+  /** How the simulator sends its own email (password reset). Without it, links are logged instead. */
+  mail?: { url: string; from: string };
 }
 
 export const SIM_CONFIG = Symbol.for('relayo-sim:config');
@@ -31,7 +39,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
     maxHangMs: number(env.SMTP_MAX_HANG_MS, 120_000),
     signup: env.SIGNUP !== 'closed',
     secureCookies: env.COOKIE_SECURE === 'true' || (env.COOKIE_SECURE !== 'false' && env.NODE_ENV === 'production'),
+    retentionDays: number(env.RETENTION_DAYS, 7),
+    limits: { monthlyMessages: number(env.MONTHLY_MESSAGE_LIMIT, 0), messagesPerMinute: number(env.MESSAGES_PER_MINUTE, 0) },
+    publicUrl: (env.PUBLIC_URL ?? `http://localhost:${number(env.PORT, 3000)}`).replace(/\/+$/, ''),
   };
+  if (env.MAIL_URL) config.mail = { url: env.MAIL_URL, from: env.MAIL_FROM ?? 'Relayo Sim <no-reply@localhost>' };
   if (env.SMTP_PORT !== 'off') config.smtpPort = number(env.SMTP_PORT, 2525);
   if (env.DATABASE_URL) config.databaseUrl = env.DATABASE_URL;
   if (env.REDIS_URL) config.redisUrl = env.REDIS_URL;

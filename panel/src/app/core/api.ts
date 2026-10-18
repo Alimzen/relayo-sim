@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { ApiKey, MessageContent, MessageDetail, Project, ProjectStats, Scenario, SimMessage, User } from './types';
+import type { ApiKey, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -53,6 +53,9 @@ export class Api {
   signup = (name: string, email: string, password: string) =>
     this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/signup', { name, email, password });
   logout = () => this.call<void>('POST', '/v1/auth/logout');
+  forgotPassword = (email: string) => this.call<void>('POST', '/v1/auth/forgot', { email });
+  resetPassword = (token: string, password: string) =>
+    this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/reset', { token, password });
   updateMe = (name: string) => this.call<{ user: User }>('PATCH', '/v1/auth/me', { name });
   changePassword = (current: string, next: string) => this.call<void>('POST', '/v1/auth/password', { current, next });
 
@@ -62,6 +65,7 @@ export class Api {
   claimProject = (apiKey: string) => this.call<Project>('POST', '/v1/projects/claim', { apiKey });
   updateProject = (changes: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null }) =>
     this.call<Project>('PATCH', '/v1/project', changes);
+  usage = () => this.call<ProjectUsage>('GET', '/v1/project/usage');
   stats = (days: number) => this.call<ProjectStats>('GET', `/v1/project/stats?days=${days}`);
   keys = () => this.call<{ data: ApiKey[] }>('GET', '/v1/project/keys').then((r) => r.data);
   createKey = (name: string) => this.call<ApiKey & { apiKey: string }>('POST', '/v1/project/keys', { name });

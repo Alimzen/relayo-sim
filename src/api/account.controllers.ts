@@ -100,6 +100,24 @@ export class AuthController {
     return { user: publicUser(await run(() => this.accounts.updateProfile(user, body ?? {}))) };
   }
 
+  /** Emails a reset link. Always 204, whether the account exists or not. */
+  @Post('forgot')
+  @HttpCode(204)
+  async forgot(@Req() req: AuthedRequest, @Body() body: { email?: unknown }) {
+    requireClientHeader(req);
+    await run(() => this.accounts.requestPasswordReset(body ?? {}, req.ip ?? 'unknown'));
+  }
+
+  /** Sets a new password with the emailed token and signs in. */
+  @Post('reset')
+  @HttpCode(200)
+  async reset(@Req() req: AuthedRequest, @Body() body: { token?: unknown; password?: unknown }, @Res({ passthrough: true }) res: CookieResponse) {
+    requireClientHeader(req);
+    const { user, token } = await run(() => this.accounts.resetPassword(body ?? {}));
+    res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
+    return { user: publicUser(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
+  }
+
   /** Changes the password; every other session is signed out. */
   @Post('password')
   @HttpCode(204)

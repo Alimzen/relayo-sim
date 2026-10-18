@@ -16,7 +16,27 @@ export interface SimulationOptions {
   greylistTtlMs?: number;
   /** Sends bounce (DSN) and complaint (ARF) reports to projects that set `reportsSmtpUrl`. */
   reports?: ReportSender;
+  /** Per project; 0 or missing means no limit. */
+  limits?: { monthlyMessages?: number; messagesPerMinute?: number };
 }
+
+/** A project went over its plan: too many messages this month, or too fast. */
+export class QuotaExceededError extends Error {
+  constructor(
+    readonly kind: 'monthly' | 'rate',
+    readonly limit: number,
+  ) {
+    super(
+      kind === 'monthly'
+        ? `Monthly limit of ${limit} messages reached for this project`
+        : `Too many messages: the limit is ${limit} per minute`,
+    );
+    this.name = 'QuotaExceededError';
+  }
+}
+
+/** `2026-10`, in UTC. */
+export const usageMonth = (date = new Date()) => date.toISOString().slice(0, 7);
 
 export interface IncomingMessage {
   from: string;
@@ -40,6 +60,7 @@ export class SimulationService {
   private readonly timeScale: number;
   private readonly greylistTtlMs: number;
   private readonly reports: ReportSender | undefined;
+  private readonly limits: { monthlyMessages: number; messagesPerMinute: number };
 
   constructor(
     private readonly store: SimStore,
@@ -50,6 +71,7 @@ export class SimulationService {
     this.timeScale = options.timeScale ?? 1;
     this.greylistTtlMs = options.greylistTtlMs ?? 60 * 60_000;
     this.reports = options.reports;
+    this.limits = { monthlyMessages: options.limits?.monthlyMessages ?? 0, messagesPerMinute: options.limits?.messagesPerMinute ?? 0 };
     scheduler.start((job) => this.runStep(job));
   }
 
@@ -101,6 +123,30 @@ export class SimulationService {
       void this.store.touchApiKey(found.key.id, now).catch(() => undefined);
     }
     return found.project;
+  }
+
+  // --- Quotas -----------------------------------------------------------------------------------
+
+  /**
+   * Counts one message against the project's plan, or throws `QuotaExceededError`. Called once per API send
+   * and once per SMTP transaction, before the message is accepted.
+   */
+  async reserve(project: Project): Promise<void> {
+    const { monthlyMessages, messagesPerMinute } = this.limits;
+    if (messagesPerMinute > 0) {
+      const minute = Math.floor(Date.now() / 60_000);
+      const count = await this.store.nextAttempt(`rate|${project.id}|${minute}`, 120_000);
+      if (count > messagesPerMinute) throw new QuotaExceededError('rate', messagesPerMinute);
+    }
+    if (monthlyMessages > 0 && (await this.store.getUsage(project.id, usageMonth())) >= monthlyMessages) {
+      throw new QuotaExceededError('monthly', monthlyMessages);
+    }
+    await this.store.incrementUsage(project.id, usageMonth());
+  }
+
+  async usage(project: Project): Promise<{ month: string; messages: number; limits: { monthlyMessages: number; messagesPerMinute: number } }> {
+    const month = usageMonth();
+    return { month, messages: await this.store.getUsage(project.id, month), limits: this.limits };
   }
 
   // --- Sending ----------------------------------------------------------------------------------

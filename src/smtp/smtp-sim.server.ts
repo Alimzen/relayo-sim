@@ -4,7 +4,7 @@ import { quotedHeaders, readHeaders } from '../capture/capture.js';
 import type { Project } from '../domain.js';
 import type { SmtpReply } from '../scenarios/catalog.js';
 import type { ResolvedScenario } from '../scenarios/resolve.js';
-import type { SimulationService } from '../simulation/simulation.service.js';
+import { QuotaExceededError, type SimulationService } from '../simulation/simulation.service.js';
 
 export interface SmtpSimOptions {
   port: number;
@@ -61,9 +61,22 @@ export class SmtpSimServer {
       onMailFrom: (address, session, callback) => {
         const state = this.sessions.get(session.id);
         if (!state) return callback(smtpError(530, '5.7.0', 'Authentication required'));
-        state.from = address.address;
-        state.accepted = [];
-        callback();
+        // Each transaction is one message against the project's plan.
+        void this.sim.reserve(state.project).then(
+          () => {
+            state.from = address.address;
+            state.accepted = [];
+            callback();
+          },
+          (error: Error) =>
+            callback(
+              error instanceof QuotaExceededError
+                ? error.kind === 'rate'
+                  ? smtpError(421, '4.7.0', error.message)
+                  : smtpError(452, '4.3.1', error.message)
+                : error,
+            ),
+        );
       },
 
       onRcptTo: (address, session, callback) => {

@@ -18,6 +18,7 @@ import { EVENT_SCHEDULER, type EventScheduler } from './scheduler/scheduler.js';
 import { SmtpReportSender } from './reports/sender.js';
 import { SimulationService } from './simulation/simulation.service.js';
 import { SmtpSimServer } from './smtp/smtp-sim.server.js';
+import { LogMailer, SmtpMailer } from './accounts/mailer.js';
 import { SIM_STORE, type SimStore } from './store/store.js';
 import { WEBHOOK_DISPATCHER, type WebhookDispatcher } from './webhooks/webhooks.js';
 
@@ -29,6 +30,7 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger('RelayoSim');
   private smtp: SmtpSimServer | undefined;
   private tlsReload: ReturnType<typeof setInterval> | undefined;
+  private purgeTimer: ReturnType<typeof setInterval> | undefined;
   /** Port the SMTP server listens on, once started (useful with port 0 in tests). */
   smtpPort: number | undefined;
 
@@ -36,9 +38,30 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
     @Inject(SIM_CONFIG) private readonly config: SimConfig,
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(INFRASTRUCTURE) private readonly infra: Infrastructure,
+    @Inject(SIM_STORE) private readonly store: SimStore,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    this.startRetention();
+    await this.startSmtp();
+  }
+
+  /** Deletes messages older than RETENTION_DAYS (and expired sessions and tokens): at start, then every hour. */
+  private startRetention(): void {
+    const days = this.config.retentionDays ?? 7;
+    const purge = () => {
+      const before = new Date(Date.now() - days * 86_400_000);
+      void this.store.purge(days > 0 ? before : new Date(0)).then(
+        ({ messages }) => messages && this.logger.log(`Retention: deleted ${messages} messages older than ${days} days`),
+        (error: Error) => this.logger.warn(`Retention purge failed: ${error.message}`),
+      );
+    };
+    purge();
+    this.purgeTimer = setInterval(purge, 60 * 60_000);
+    this.purgeTimer.unref();
+  }
+
+  private async startSmtp(): Promise<void> {
     if (this.config.smtpPort === undefined) return;
     const tls = this.config.tls;
     const loadTls = async () =>
@@ -69,6 +92,7 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
 
   async onApplicationShutdown(): Promise<void> {
     clearInterval(this.tlsReload);
+    clearInterval(this.purgeTimer);
     await this.smtp?.close();
     await this.infra.close();
   }
@@ -99,12 +123,21 @@ export class AppModule {
         {
           provide: SimulationService,
           useFactory: (store: SimStore, scheduler: EventScheduler, dispatcher: WebhookDispatcher) =>
-            new SimulationService(store, scheduler, dispatcher, { timeScale: config.timeScale, reports: new SmtpReportSender() }),
+            new SimulationService(store, scheduler, dispatcher, {
+              timeScale: config.timeScale,
+              reports: new SmtpReportSender(),
+              ...(config.limits && { limits: config.limits }),
+            }),
           inject: [SIM_STORE, EVENT_SCHEDULER, WEBHOOK_DISPATCHER],
         },
         {
           provide: AccountsService,
-          useFactory: (store: SimStore, sim: SimulationService) => new AccountsService(store, sim, { signup: config.signup }),
+          useFactory: (store: SimStore, sim: SimulationService) =>
+            new AccountsService(store, sim, {
+              signup: config.signup,
+              publicUrl: config.publicUrl ?? `http://localhost:${config.httpPort}`,
+              mailer: config.mail ? new SmtpMailer(config.mail.url, config.mail.from) : new LogMailer(),
+            }),
           inject: [SIM_STORE, SimulationService],
         },
         ProjectGuard,

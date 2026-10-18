@@ -10,6 +10,12 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       SIGNUP: ${SIGNUP:-open}
       TRUST_PROXY: "1"
+      PUBLIC_URL: https://${SIM_DOMAIN}
+      MONTHLY_MESSAGE_LIMIT: ${MONTHLY_MESSAGE_LIMIT:-1000}
+      MESSAGES_PER_MINUTE: ${MESSAGES_PER_MINUTE:-120}
+      RETENTION_DAYS: ${RETENTION_DAYS:-7}
+      MAIL_URL: ${MAIL_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
       # STARTTLS with Caddy's certificate for SIM_DOMAIN (copied by "certs"); re-read twice a day after renewals.
       TLS_CERT_FILE: /certs/smtp.crt
       TLS_KEY_FILE: /certs/smtp.key
@@ -66,6 +72,26 @@ services:
       POSTGRES_DB: relayo_sim
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  # Daily database dump at 03:00 UTC into deploy/backups, keeping the last 14. Copy them off the server too.
+  backup:
+    image: postgres:16
+    restart: unless-stopped
+    depends_on: [postgres]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        while true; do
+          sleep $$(( (86400 + 3 * 3600 - $$(date -u +%s) % 86400) % 86400 + 1 ))
+          file=/backups/relayo_sim-$$(date -u +%Y%m%d).sql.gz
+          pg_dump -h postgres -U relayo relayo_sim | gzip > "$$file.tmp" && mv "$$file.tmp" "$$file" && echo "backup $$file"
+          ls -1t /backups/*.sql.gz | tail -n +15 | xargs -r rm --
+        done
+    volumes:
+      - ./backups:/backups
 
   redis:
     image: redis:7
