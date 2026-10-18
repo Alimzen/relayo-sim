@@ -1,0 +1,46 @@
+{
+  "name": "relayo-sim",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Relayo Sim: a delivery scenario simulator for email. Send to it and it answers like the real world.",
+  "type": "module",
+  "packageManager": "pnpm@8.15.5",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@alimzen/core": "^0.2.0",
+    "@nestjs/common": "^12",
+    "@nestjs/core": "^12",
+    "@nestjs/platform-express": "^12",
+    "bullmq": "^6.3.16",
+    "pg": "^8.23.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "smtp-server": "^3.20.1"
+  },
+  "devDependencies": {
+    "@alimzen/smtp": "^0.2.0",
+    "@nestjs/testing": "^12",
+    "@types/node": "^22",
+    "@types/pg": "^8.23.1",
+    "@types/smtp-server": "^3.5.13",
+    "nodemailer": "^10.1.6",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9",
+    "vitest": "^2.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "@alimzen/core": "link:../relayo/packages/core",
+      "@alimzen/smtp": "link:../relayo/packages/smtp"
+    }
+  }
+}
