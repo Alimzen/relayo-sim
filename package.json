@@ -36,12 +36,14 @@
     "nodemailer": "^10.1.6",
     "tsx": "^4.23.15",
     "typescript": "^5.9",
-    "vitest": "^2.1"
+    "vitest": "^2.1",
+    "@alimzen/simulator": "link:../relayo/packages/simulator"
   },
   "pnpm": {
     "overrides": {
       "@alimzen/core": "link:../relayo/packages/core",
-      "@alimzen/smtp": "link:../relayo/packages/smtp"
+      "@alimzen/smtp": "link:../relayo/packages/smtp",
+      "@alimzen/simulator": "link:../relayo/packages/simulator"
     }
   }
 }

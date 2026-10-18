@@ -7,6 +7,7 @@ settings:
 overrides:
   '@alimzen/core': link:../relayo/packages/core
   '@alimzen/smtp': link:../relayo/packages/smtp
+  '@alimzen/simulator': link:../relayo/packages/simulator
 
 dependencies:
   '@alimzen/core':
@@ -41,6 +42,9 @@ dependencies:
     version: 3.20.1
 
 devDependencies:
+  '@alimzen/simulator':
+    specifier: link:../relayo/packages/simulator
+    version: link:../relayo/packages/simulator
   '@alimzen/smtp':
     specifier: link:../relayo/packages/smtp
     version: link:../relayo/packages/smtp
