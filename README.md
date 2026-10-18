@@ -69,7 +69,7 @@ Webhooks: `POST` con un evento Relayo en JSON y `Relayo-Signature: t=<unix>,v1=<
 ## Bandeja de captura
 
 El simulador guarda cada correo completo (el MIME tal cual llega por SMTP; por la API, el que habría enviado un
-proveedor, con , , ,  y ).
+proveedor, con `html`, `text`, `replyTo`, `headers` y `attachments: [{ filename, content (base64), contentType?, cid? }]`).
 El panel lo muestra en pestañas: vista previa (escritorio o móvil), texto, HTML y cabeceras, con los adjuntos y la
 descarga del original. La vista previa corre en un iframe sin scripts y con origen opaco, y los adjuntos se sirven
 siempre como descarga: el contenido capturado no se ejecuta nunca en el origen del simulador.
