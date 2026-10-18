@@ -180,7 +180,9 @@ paquete es privado), Traefik pone el HTTPS y hay que configurar:
 - Dominio `relayo.alimzen.com` al puerto 3000 del contenedor.
 - Puertos publicados 587 y 2525 → 2525 del contenedor (SMTP). Sin `TLS_KEY_FILE`/`TLS_CERT_FILE` el SMTP no ofrece
   STARTTLS (los certificados de Traefik no son accesibles desde el contenedor).
-- PostgreSQL y Redis como servicios de Dokploy, con sus copias de seguridad.
+- PostgreSQL y Redis como servicios de Dokploy, con sus copias de seguridad. En `DATABASE_URL` y `REDIS_URL` va la
+  **Internal Connection URL** de cada servicio (host = nombre del servicio, puertos 5432 y 6379), no la IP pública con
+  el puerto externo: desde el contenedor esa ruta suele estar cortada y la conexión caduca.
 
 Para actualizar: `git pull && docker compose up -d --build`. Las migraciones de PostgreSQL se aplican solas al
 arrancar. Restaurar una copia: `gunzip -c backups/<fichero>.sql.gz | docker compose exec -T postgres psql -U relayo relayo_sim`.

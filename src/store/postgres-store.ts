@@ -154,9 +154,20 @@ export class PostgresStore implements SimStore {
       throw new Error(`Invalid schema name: ${options.schema}`);
     }
     // search_path as a startup parameter: every pooled connection uses the schema from its first query.
-    const pool = new pg.Pool({ connectionString, max: 10, ...(options.schema && { options: `-c search_path=${options.schema}` }) });
-    if (options.schema) await pool.query(`CREATE SCHEMA IF NOT EXISTS ${options.schema}`);
-    await pool.query(SCHEMA);
+    const pool = new pg.Pool({
+      connectionString,
+      max: 10,
+      // Fail in seconds, not minutes, when the database cannot be reached (wrong host, firewall).
+      connectionTimeoutMillis: 10_000,
+      ...(options.schema && { options: `-c search_path=${options.schema}` }),
+    });
+    try {
+      if (options.schema) await pool.query(`CREATE SCHEMA IF NOT EXISTS ${options.schema}`);
+      await pool.query(SCHEMA);
+    } catch (error) {
+      await pool.end().catch(() => undefined);
+      throw new Error(`Cannot connect to PostgreSQL at ${describeTarget(connectionString)}: ${(error as Error).message}`, { cause: error });
+    }
     return new PostgresStore(pool);
   }
 
@@ -517,4 +528,14 @@ function toMessage(row: MessageRow): SimMessage {
     ...(row.headers && { headers: row.headers }),
     ...(row.size !== null && row.size !== undefined && { size: row.size }),
   };
+}
+
+/** `host:port/database` of a connection string, without the credentials, for error messages. */
+function describeTarget(connectionString: string): string {
+  try {
+    const url = new URL(connectionString);
+    return `${url.hostname}:${url.port || 5432}${url.pathname}`;
+  } catch {
+    return 'the configured DATABASE_URL';
+  }
 }
