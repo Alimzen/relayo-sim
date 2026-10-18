@@ -1,19 +1,10 @@
-import { Component, inject } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { SimApi } from './api.service';
+import { Component } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+import { ToastsHost } from './ui/ui';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
-  templateUrl: './app.html',
-  styleUrl: './app.css',
+  imports: [RouterOutlet, ToastsHost],
+  template: `<router-outlet /><app-toasts />`,
 })
-export class App {
-  protected readonly api = inject(SimApi);
-  private readonly router = inject(Router);
-
-  protected async signOut(): Promise<void> {
-    this.api.signOut();
-    await this.router.navigateByUrl('/login');
-  }
-}
+export class App {}

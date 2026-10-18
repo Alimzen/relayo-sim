@@ -1,143 +1,248 @@
-import { DatePipe, JsonPipe } from '@angular/common';
-import { Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { SimApi, type MessageDetail, type SimEvent } from '../api.service';
-import { detailOf, lookOf, reportOf, scenarioLabel } from '../events';
+import {
+  LucideArrowLeft,
+  LucideCheck,
+  LucideCircleAlert,
+  LucideClock,
+  LucideFileText,
+  LucideMail,
+  LucideRefreshCw,
+} from '@lucide/angular';
+import { Api } from '../core/api';
+import { detailOf, lookOf, reportOf, scenarioLabel, type Tone } from '../core/events';
+import { fullDate, timeAgo } from '../core/format';
+import type { MessageDetail, Recipient, SimEvent } from '../core/types';
+import { Badge, CopyButton, EmptyState, Toasts } from '../ui/ui';
 
-const REFRESH_MS = 2000;
+interface Track {
+  recipient: Recipient;
+  events: SimEvent[];
+}
 
 @Component({
   selector: 'app-message-detail',
-  imports: [RouterLink, DatePipe, JsonPipe],
+  imports: [
+    RouterLink,
+    Badge,
+    CopyButton,
+    EmptyState,
+    LucideArrowLeft,
+    LucideCheck,
+    LucideCircleAlert,
+    LucideClock,
+    LucideFileText,
+    LucideMail,
+    LucideRefreshCw,
+  ],
   template: `
-    <a class="back" routerLink="/messages">← Mensajes</a>
+    <div class="page">
+      <a class="breadcrumb" routerLink="/messages"><svg lucideArrowLeft [size]="14"></svg>Mensajes</a>
 
-    @if (error()) {
-      <p class="error" role="alert">{{ error() }}</p>
-    }
-
-    @if (message(); as m) {
-      <header class="page-head">
-        <div>
-          <h1 class="truncate">{{ m.subject || '(sin asunto)' }}</h1>
-          <p class="muted">
-            De <strong>{{ m.from }}</strong> · {{ m.createdAt | date: 'dd/MM/yyyy HH:mm:ss' }} · vía {{ m.via === 'smtp' ? 'SMTP' : 'API' }}
-          </p>
+      @if (missing()) {
+        <div class="card">
+          <app-empty heading="Mensaje no encontrado">
+            <svg icon lucideMail [size]="20"></svg>
+            No existe en este proyecto, o se ha borrado.
+          </app-empty>
         </div>
-      </header>
+      } @else if (message(); as m) {
+        <header class="page-head">
+          <div class="detail-title">
+            <h1 class="truncate">{{ m.subject || '(sin asunto)' }}</h1>
+            <p>De {{ m.from }} · {{ full(m.createdAt) }}</p>
+          </div>
+          <button type="button" class="btn" (click)="load()"><svg lucideRefreshCw [size]="14"></svg>Actualizar</button>
+        </header>
 
-      <dl class="facts card">
-        <div><dt>Id en el simulador</dt><dd><code>{{ m.id }}</code></dd></div>
-        <div><dt>Id de Relayo</dt><dd><code>{{ m.relayoMessageId ?? '—' }}</code></dd></div>
-        @if (m.metadata) {
-          <div><dt>Metadata</dt><dd><code>{{ m.metadata | json }}</code></dd></div>
-        }
-      </dl>
-
-      @for (lane of lanes(); track lane.address) {
-        <section class="card lane">
-          <header class="lane-head">
-            <h2>{{ lane.address }}</h2>
-            <code class="tag">{{ lane.scenario }}</code>
-          </header>
-          @if (lane.events.length === 0) {
-            <p class="muted">Sin eventos todavía.</p>
-          } @else {
-            <ol class="timeline">
-              @for (event of lane.events; track event.id) {
-                <li [class]="'tone-' + look(event).tone">
-                  <span class="dot" aria-hidden="true"></span>
-                  <div class="entry">
-                    <div class="entry-head">
-                      <span class="badge" [class]="'badge tone-' + look(event).tone">{{ look(event).label }}</span>
-                      <time [attr.datetime]="event.timestamp">{{ event.timestamp | date: 'HH:mm:ss.SSS' }}</time>
-                    </div>
-                    @if (detail(event); as text) {
-                      <p class="entry-detail">{{ text }}</p>
-                    }
-                    @if (event.diagnostic) {
-                      <p class="diagnostic"><code>{{ event.diagnostic }}</code></p>
-                    }
-                    <div class="entry-actions">
-                      <details>
-                        <summary>Evento JSON</summary>
-                        <pre>{{ event | json }}</pre>
-                      </details>
-                      @if (reportOf(event); as kind) {
-                        <button type="button" class="ghost small" (click)="toggleReport(event.id)">
-                          {{ openReport() === event.id ? 'Ocultar ' + kind : 'Ver ' + kind }}
-                        </button>
-                      }
-                    </div>
-                    @if (openReport() === event.id) {
-                      @if (reportText(); as text) {
-                        <pre class="report" [attr.aria-label]="reportOf(event) + ' del evento'">{{ text }}</pre>
-                      } @else {
-                        <p class="muted">Cargando…</p>
-                      }
-                    }
+        <div class="detail-grid">
+          <div class="stack">
+            @for (track of tracks(); track track.recipient.address) {
+              <section class="card">
+                <header class="card-head">
+                  <div class="track-head">
+                    <h2 class="truncate">{{ track.recipient.address }}</h2>
+                    <span class="chip mono">{{ scenario(track.recipient) }}</span>
                   </div>
-                </li>
+                  @if (track.events.at(-1); as last) {
+                    <app-badge [tone]="look(last).tone">{{ look(last).label }}</app-badge>
+                  }
+                </header>
+                <div class="card-body">
+                  @if (track.events.length === 0) {
+                    <p class="muted">Sin eventos todavía: el escenario aún no ha decidido qué pasa con este destinatario.</p>
+                  } @else {
+                    <ol class="timeline">
+                      @for (event of track.events; track event.id) {
+                        <li>
+                          <span class="timeline-dot" [attr.data-tone]="look(event).tone" aria-hidden="true">
+                            @switch (icon(look(event).tone)) {
+                              @case ('ok') {
+                                <svg lucideCheck [size]="12" [strokeWidth]="2.5"></svg>
+                              }
+                              @case ('wait') {
+                                <svg lucideClock [size]="12" [strokeWidth]="2.5"></svg>
+                              }
+                              @default {
+                                <svg lucideCircleAlert [size]="12" [strokeWidth]="2.5"></svg>
+                              }
+                            }
+                          </span>
+                          <div>
+                            <div class="timeline-head">
+                              <strong>{{ look(event).label }}</strong>
+                              <time [attr.datetime]="event.timestamp" [title]="full(event.timestamp)">{{ ago(event.timestamp) }}</time>
+                            </div>
+                            @if (detail(event); as text) {
+                              <p class="timeline-detail">{{ text }}</p>
+                            }
+                            @if (event.diagnostic) {
+                              <code class="timeline-diag">{{ event.diagnostic }}</code>
+                            }
+                            @if (reportOf(event); as kind) {
+                              <div class="timeline-actions">
+                                <button type="button" class="btn btn-sm btn-ghost" (click)="toggleReport(event)">
+                                  <svg lucideFileText [size]="14"></svg>
+                                  {{ reports()[event.id] !== undefined ? 'Ocultar ' + kind : 'Ver ' + kind }}
+                                </button>
+                                @if (reports()[event.id]; as raw) {
+                                  <app-copy [value]="raw" [label]="'Copiar ' + kind" />
+                                }
+                              </div>
+                              @if (reports()[event.id] !== undefined) {
+                                <pre>{{ reports()[event.id] || 'Cargando…' }}</pre>
+                              }
+                            }
+                          </div>
+                        </li>
+                      }
+                    </ol>
+                  }
+                </div>
+              </section>
+            }
+          </div>
+
+          <aside class="card card-pad">
+            <h2 class="aside-title">Detalles</h2>
+            <dl class="props">
+              <div>
+                <dt>Id del simulador</dt>
+                <dd><code class="truncate">{{ m.id }}</code><app-copy [value]="m.id" label="Copiar id" /></dd>
+              </div>
+              @if (m.relayoMessageId) {
+                <div>
+                  <dt>messageId de Relayo</dt>
+                  <dd><code class="truncate">{{ m.relayoMessageId }}</code><app-copy [value]="m.relayoMessageId" label="Copiar messageId" /></dd>
+                </div>
               }
-            </ol>
-          }
-        </section>
+              <div>
+                <dt>Recibido por</dt>
+                <dd>{{ m.via === 'smtp' ? 'SMTP' : 'API HTTP' }}</dd>
+              </div>
+              <div>
+                <dt>Remitente</dt>
+                <dd>{{ m.from }}</dd>
+              </div>
+              @if (m.envelopeFrom && m.envelopeFrom !== m.from) {
+                <div>
+                  <dt>MAIL FROM (sobre)</dt>
+                  <dd>{{ m.envelopeFrom }}</dd>
+                </div>
+              }
+              <div>
+                <dt>Destinatarios</dt>
+                <dd>{{ m.recipients.length }}</dd>
+              </div>
+              @if (m.tags?.length) {
+                <div>
+                  <dt>Tags</dt>
+                  <dd class="wrap">
+                    @for (tag of m.tags; track tag) {
+                      <span class="chip">{{ tag }}</span>
+                    }
+                  </dd>
+                </div>
+              }
+              @if (metadata().length) {
+                <div>
+                  <dt>Metadata</dt>
+                  <dd class="meta">
+                    @for (entry of metadata(); track entry[0]) {
+                      <span><span class="muted">{{ entry[0] }}</span> {{ entry[1] }}</span>
+                    }
+                  </dd>
+                </div>
+              }
+            </dl>
+          </aside>
+        </div>
+      } @else {
+        <div class="card card-pad stack">
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+        </div>
       }
-    } @else if (!error()) {
-      <p class="muted">Cargando…</p>
-    }
+    </div>
   `,
 })
 export class MessageDetailPage {
-  private readonly api = inject(SimApi);
   readonly id = input.required<string>();
+  private readonly api = inject(Api);
+  private readonly toasts = inject(Toasts);
   protected readonly message = signal<MessageDetail | null>(null);
-  protected readonly error = signal<string | null>(null);
+  protected readonly missing = signal(false);
+  /** Loaded reports by event id; '' while loading. */
+  protected readonly reports = signal<Record<string, string>>({});
+  protected readonly reportOf = reportOf;
+  protected readonly look = lookOf;
+  protected readonly detail = detailOf;
+  protected readonly scenario = scenarioLabel;
+  protected readonly full = fullDate;
+  protected readonly ago = (value: string) => timeAgo(value);
 
-  protected readonly lanes = computed(() => {
+  protected readonly tracks = computed<Track[]>(() => {
     const m = this.message();
     if (!m) return [];
-    return m.recipients.map((r) => ({
-      address: r.address,
-      scenario: scenarioLabel(r),
-      events: m.events.filter((e) => e.recipient === r.address),
+    return m.recipients.map((recipient) => ({
+      recipient,
+      events: m.events.filter((e) => e.recipient === recipient.address),
     }));
   });
 
-  protected readonly look = lookOf;
-  protected readonly detail = detailOf;
-  protected readonly reportOf = reportOf;
-  protected readonly openReport = signal<string | null>(null);
-  protected readonly reportText = signal<string | null>(null);
+  protected readonly metadata = computed(() => Object.entries(this.message()?.metadata ?? {}));
 
-  protected async toggleReport(eventId: string): Promise<void> {
-    if (this.openReport() === eventId) {
-      this.openReport.set(null);
-      return;
-    }
-    this.openReport.set(eventId);
-    this.reportText.set(null);
-    try {
-      this.reportText.set(await this.api.report(this.id(), eventId));
-    } catch (error) {
-      this.reportText.set(`No se pudo cargar el informe: ${(error as Error).message}`);
-    }
+  ngOnInit(): void {
+    void this.load();
   }
 
-  constructor() {
-    queueMicrotask(() => void this.load());
-    const timer = setInterval(() => void this.load(), REFRESH_MS);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
-  }
-
-  private async load(): Promise<void> {
+  protected async load(): Promise<void> {
     try {
       this.message.set(await this.api.message(this.id()));
-      this.error.set(null);
     } catch (error) {
-      this.error.set((error as Error).message);
+      if ((error as { status?: number }).status === 404) this.missing.set(true);
+      else this.toasts.error(error);
+    }
+  }
+
+  protected icon(tone: Tone): 'ok' | 'wait' | 'bad' {
+    if (tone === 'good' || tone === 'info' || tone === 'neutral') return 'ok';
+    if (tone === 'warning') return 'wait';
+    return 'bad';
+  }
+
+  protected async toggleReport(event: SimEvent): Promise<void> {
+    if (this.reports()[event.id] !== undefined) {
+      this.reports.update(({ [event.id]: _removed, ...rest }) => rest);
+      return;
+    }
+    this.reports.update((r) => ({ ...r, [event.id]: '' }));
+    try {
+      const raw = await this.api.report(this.id(), event.id);
+      this.reports.update((r) => ({ ...r, [event.id]: raw }));
+    } catch (error) {
+      this.reports.update(({ [event.id]: _removed, ...rest }) => rest);
+      this.toasts.error(error);
     }
   }
 }
-
-export type { SimEvent };

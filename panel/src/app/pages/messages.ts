@@ -1,91 +1,140 @@
-import { DatePipe } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { SimApi, type SimMessage } from '../api.service';
-import { scenarioLabel } from '../events';
+import { LucideInbox, LucideRefreshCw, LucideSearch } from '@lucide/angular';
+import { Api } from '../core/api';
+import { STATUS_FILTERS } from '../core/events';
+import type { SimMessage } from '../core/types';
+import { MessageTable } from '../ui/message-table';
+import { EmptyState, Toasts } from '../ui/ui';
 
-const REFRESH_MS = 3000;
+const PAGE = 50;
 
 @Component({
   selector: 'app-messages',
-  imports: [RouterLink, DatePipe],
+  imports: [FormsModule, RouterLink, MessageTable, EmptyState, LucideInbox, LucideRefreshCw, LucideSearch],
   template: `
-    <header class="page-head">
-      <div>
-        <h1>Mensajes</h1>
-        <p class="muted">Los últimos mensajes recibidos por SMTP o por la API. Se actualiza solo.</p>
-      </div>
-      <a class="button" routerLink="/scenarios">Enviar una prueba</a>
-    </header>
-
-    @if (error()) {
-      <p class="error" role="alert">{{ error() }}</p>
-    }
-
-    @if (messages(); as list) {
-      @if (list.length === 0) {
-        <div class="empty card">
-          <p>Todavía no hay mensajes.</p>
-          <p class="muted">Envía uno desde <a routerLink="/scenarios">Escenarios</a>, por SMTP o con el driver <code>simulator()</code>.</p>
+    <div class="page">
+      <header class="page-head">
+        <div>
+          <h1>Mensajes</h1>
+          <p>Todo lo que el simulador ha recibido en este proyecto, con su último evento.</p>
         </div>
-      } @else {
-        <div class="table-wrap card">
-          <table>
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Destinatario</th>
-                <th>Escenario</th>
-                <th>Asunto</th>
-                <th>Vía</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (message of list; track message.id) {
-                <tr>
-                  <td class="nowrap"><a [routerLink]="['/messages', message.id]">{{ message.createdAt | date: 'dd/MM HH:mm:ss' }}</a></td>
-                  <td>
-                    {{ message.recipients[0]?.address }}
-                    @if (message.recipients.length > 1) {
-                      <span class="muted">+{{ message.recipients.length - 1 }}</span>
-                    }
-                  </td>
-                  <td><code>{{ scenario(message) }}</code></td>
-                  <td class="truncate">{{ message.subject || '—' }}</td>
-                  <td><span class="tag">{{ message.via === 'smtp' ? 'SMTP' : 'API' }}</span></td>
-                </tr>
+        <button type="button" class="btn" (click)="reload()" [disabled]="loading()">
+          <svg lucideRefreshCw [size]="14"></svg>Actualizar
+        </button>
+      </header>
+
+      <section class="card">
+        <div class="toolbar">
+          <label class="input-icon">
+            <svg lucideSearch [size]="15"></svg>
+            <span class="sr-only">Buscar</span>
+            <input
+              class="input"
+              type="search"
+              placeholder="Buscar por destinatario, asunto o id"
+              [ngModel]="query()"
+              (ngModelChange)="search($event)"
+            />
+          </label>
+          <label>
+            <span class="sr-only">Estado</span>
+            <select class="select" [ngModel]="status()" (ngModelChange)="filter($event)">
+              @for (option of filters; track option.value) {
+                <option [value]="option.value">{{ option.label }}</option>
               }
-            </tbody>
-          </table>
+            </select>
+          </label>
         </div>
-      }
-    } @else {
-      <p class="muted">Cargando…</p>
-    }
+
+        @if (messages() === null) {
+          <div class="card-body stack">
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+          </div>
+        } @else if (messages()!.length === 0) {
+          @if (query() || status()) {
+            <app-empty heading="Sin resultados">
+              <svg icon lucideSearch [size]="20"></svg>
+              Ningún mensaje coincide con la búsqueda o el filtro.
+            </app-empty>
+          } @else {
+            <app-empty heading="Todavía no hay mensajes">
+              <svg icon lucideInbox [size]="20"></svg>
+              Envía uno desde <a routerLink="/scenarios">Escenarios</a>, por la API o por SMTP, y aparecerá aquí.
+            </app-empty>
+          }
+        } @else {
+          <app-message-table [messages]="messages()!" />
+          @if (more()) {
+            <footer class="card-foot">
+              <span class="muted small">{{ messages()!.length }} mensajes</span>
+              <button type="button" class="btn btn-sm" (click)="loadMore()" [disabled]="loading()">Cargar más</button>
+            </footer>
+          }
+        }
+      </section>
+    </div>
   `,
 })
 export class MessagesPage {
-  private readonly api = inject(SimApi);
+  private readonly api = inject(Api);
+  private readonly toasts = inject(Toasts);
+  protected readonly filters = STATUS_FILTERS;
+  protected readonly query = signal('');
+  protected readonly status = signal('');
   protected readonly messages = signal<SimMessage[] | null>(null);
-  protected readonly error = signal<string | null>(null);
+  protected readonly loading = signal(false);
+  protected readonly more = signal(false);
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private generation = 0;
 
   constructor() {
-    void this.load();
-    const timer = setInterval(() => void this.load(), REFRESH_MS);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.timer));
+    void this.load(false);
   }
 
-  protected scenario(message: SimMessage): string {
-    const first = message.recipients[0];
-    return first ? scenarioLabel(first) : '—';
+  protected search(value: string): void {
+    this.query.set(value);
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.load(false), 250);
   }
 
-  private async load(): Promise<void> {
+  protected filter(value: string): void {
+    this.status.set(value);
+    void this.load(false);
+  }
+
+  protected reload(): void {
+    void this.load(false);
+  }
+
+  protected loadMore(): void {
+    void this.load(true);
+  }
+
+  private async load(append: boolean): Promise<void> {
+    const generation = ++this.generation;
+    const current = append ? (this.messages() ?? []) : [];
+    this.loading.set(true);
     try {
-      this.messages.set(await this.api.messages());
-      this.error.set(null);
+      const page = await this.api.messages({
+        limit: PAGE,
+        before: append ? current.at(-1)?.createdAt : undefined,
+        q: this.query().trim(),
+        status: this.status(),
+      });
+      if (generation !== this.generation) return;
+      this.messages.set([...current, ...page]);
+      this.more.set(page.length === PAGE);
     } catch (error) {
-      this.error.set((error as Error).message);
+      if (generation !== this.generation) return;
+      this.messages.update((list) => list ?? []);
+      this.toasts.error(error);
+    } finally {
+      if (generation === this.generation) this.loading.set(false);
     }
   }
 }

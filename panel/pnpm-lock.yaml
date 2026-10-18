@@ -23,6 +23,12 @@ dependencies:
   '@angular/router':
     specifier: ^21.2.0
     version: 21.2.25(@angular/common@21.2.25)(@angular/core@21.2.25)(@angular/platform-browser@21.2.25)(rxjs@7.8.2)
+  '@fontsource-variable/inter':
+    specifier: ^5.3.0
+    version: 5.3.0
+  '@lucide/angular':
+    specifier: ^1.59.0
+    version: 1.59.0(@angular/common@21.2.25)(@angular/core@21.2.25)
   rxjs:
     specifier: ~7.8.0
     version: 7.8.2
@@ -992,6 +998,10 @@ packages:
         optional: true
     dev: true
 
+  /@fontsource-variable/inter@5.3.0:
+    resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
+    dev: false
+
   /@gar/promise-retry@1.0.3:
     resolution: {integrity: sha512-GmzA9ckNokPypTg10pgpeHNQe7ph+iIKKmhKu3Ob9ANkswreCx7R3cKmY781K8QK3AqVL3xVh9A42JvIAbkkSA==}
     engines: {node: ^20.17.0 || >=22.9.0}
@@ -1338,6 +1348,17 @@ packages:
     requiresBuild: true
     dev: true
     optional: true
+
+  /@lucide/angular@1.59.0(@angular/common@21.2.25)(@angular/core@21.2.25):
+    resolution: {integrity: sha512-DyCmxhMvneVI76fiP8JtBVW3tBh/UBWBPvl2YsqIboSsepZFk0mQIOhVdw+0oyQg+I8y6rZ5srWqA/mDdWJFQQ==}
+    peerDependencies:
+      '@angular/common': '>=17.0.0'
+      '@angular/core': '>=17.0.0'
+    dependencies:
+      '@angular/common': 21.2.25(@angular/core@21.2.25)(rxjs@7.8.2)
+      '@angular/core': 21.2.25(@angular/compiler@21.2.25)(rxjs@7.8.2)
+      tslib: 2.8.1
+    dev: false
 
   /@modelcontextprotocol/sdk@1.31.0(zod@4.6.6):
     resolution: {integrity: sha512-UvTMgnNlnIBO/22ob2RcVGDlcvOslQs8T59+FTGdA0L27a39fdGF/EDETNtDVK4DZGpwomlsYpRdA8UXcVL/pw==}

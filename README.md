@@ -27,17 +27,38 @@ App ──HTTP /v1────▶ API (NestJS) ──┼─▶ SimulationService
   (tests, local) y de producción (PostgreSQL, BullMQ).
 - `src/api/`: API HTTP.
 
+## Cuentas
+
+Usuarios con correo y contraseña (scrypt), sesión en una cookie `relayo_session` (HttpOnly, SameSite=Lax, 30 días;
+el servidor guarda solo su SHA-256). Cada usuario tiene proyectos y cada proyecto sus claves de API (se muestran una
+sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
+
+- Con sesión, el proyecto se elige con la cabecera `X-Relayo-Project`, y toda petición que cambie algo debe llevar
+  `X-Relayo-Client` (protección CSRF). Las claves y el secreto del webhook solo se gestionan con sesión.
+- Login limitado a 10 fallos por correo y 50 por IP cada 15 minutos.
+- Los proyectos creados antes de las cuentas (o con `ADMIN_TOKEN`) no tienen dueño: se vinculan a una cuenta con
+  `POST /v1/projects/claim` y una de sus claves («Vincular proyecto existente» en el panel).
+
 ## API
+
+«API key» = `Authorization: Bearer <clave>`, o sesión del panel con `X-Relayo-Project`.
 
 | Método y ruta | Auth | |
 | --- | --- | --- |
 | `GET /health` | — | |
+| `GET /v1/auth/config` | — | `{ signup, minPassword }` |
+| `POST /v1/auth/signup`, `/login`, `/logout` | — | Abre o cierra la sesión |
+| `GET`, `PATCH /v1/auth/me` · `POST /v1/auth/password` | Sesión | Perfil y contraseña (cierra las otras sesiones) |
+| `GET`, `POST /v1/projects` · `POST /v1/projects/claim` | Sesión | Proyectos del usuario |
 | `GET /v1/scenarios` | — | Catálogo |
 | `POST /v1/messages` | API key | Envío (202, `{ id, status: 'queued' }`) |
-| `GET /v1/messages?limit=&before=` | API key | Últimos mensajes |
+| `GET /v1/messages?limit=&before=&q=&status=` | API key | Últimos mensajes, con búsqueda y filtro por tipo de evento |
 | `GET /v1/messages/:id` | API key | Mensaje con su línea de tiempo |
 | `GET /v1/messages/:id/events/:eventId/report` | API key | DSN o ARF del evento (`message/rfc822`) |
-| `GET`, `PATCH /v1/project` | API key | Proyecto, `webhookUrl` y `reportsSmtpUrl` |
+| `GET`, `PATCH /v1/project` | API key | Proyecto, `name`, `webhookUrl` y `reportsSmtpUrl` |
+| `GET /v1/project/stats?days=` | API key | Totales y serie diaria (1–90 días) |
+| `GET`, `POST /v1/project/keys` · `DELETE /v1/project/keys/:id` | Sesión | Claves de API |
+| `GET /v1/project/webhook-secret` · `POST …/rotate` | Sesión | Secreto de firma |
 | `POST /v1/admin/projects` | `ADMIN_TOKEN` | Crea un proyecto sin dueño (scripts); devuelve `apiKey` y `webhookSecret` una sola vez |
 
 Webhooks: `POST` con un evento Relayo en JSON y `Relayo-Signature: t=<unix>,v1=<hex HMAC-SHA256 de "t.cuerpo">`
@@ -60,9 +81,10 @@ quita; la API lo devuelve sin contraseña). Citan las cabeceras originales (`Mes
 
 ## Panel
 
-Angular 21 (`panel/`): entrar con la API key del proyecto, lista de mensajes (se actualiza sola), línea de tiempo
-por destinatario con códigos SMTP y JSON de cada evento, catálogo de escenarios con envío de prueba, y ajustes
-del proyecto (URL del webhook, datos de conexión). Claro y oscuro, adaptado a móvil.
+Angular 21 (`panel/`), en español: registro y entrada, selector de proyectos, resumen con indicadores y gráfico de
+eventos por día, mensajes con búsqueda y filtro por estado, línea de tiempo por destinatario con códigos SMTP y
+DSN/ARF, escenarios con envío de prueba, claves de API, webhooks (URL, secreto, informes por correo), ajustes y
+cuenta. Claro y oscuro, adaptado a móvil.
 
 ```sh
 cd panel && pnpm install
@@ -87,7 +109,10 @@ ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim 
 | `PORT` / `SMTP_PORT` | 3000 / 2525 | `SMTP_PORT=off` desactiva SMTP |
 | `DATABASE_URL` | — | Sin ella, memoria |
 | `REDIS_URL` | — | Sin ella, timers en proceso |
-| `ADMIN_TOKEN` | — | Sin él no se pueden crear proyectos |
+| `ADMIN_TOKEN` | — | Para `/v1/admin/projects` (scripts y smoke) |
+| `SIGNUP` | abierto | `closed` cierra el registro |
+| `COOKIE_SECURE` | — | Cookie `Secure`; activa siempre con `NODE_ENV=production` |
+| `TRUST_PROXY` | — | Detrás de un proxy, para leer la IP real (límite de login) |
 | `TIME_SCALE` | 1 | Multiplica los retrasos; `0` = todo al instante |
 | `SMTP_MAX_HANG_MS` | 120000 | Límite del escenario `timeout` |
 | `TLS_KEY` / `TLS_CERT` | — | PEM para STARTTLS |

@@ -1,35 +1,53 @@
 import { inject } from '@angular/core';
-import { Router, type Routes } from '@angular/router';
-import { SimApi } from './api.service';
+import { Router, type CanActivateFn, type Routes } from '@angular/router';
+import { Session } from './core/session';
 
-const signedIn = () => inject(SimApi).signedIn() || inject(Router).parseUrl('/login');
+const signedIn: CanActivateFn = async (_route, state) => {
+  const router = inject(Router);
+  const ok = await inject(Session).ensure();
+  return ok || router.createUrlTree(['/login'], { queryParams: { next: state.url } });
+};
+
+const signedOut: CanActivateFn = async () => {
+  const router = inject(Router);
+  const ok = await inject(Session).ensure();
+  return !ok || router.createUrlTree(['/overview']);
+};
+
+const page = (title: string) => `${title} · Relayo Sim`;
 
 export const routes: Routes = [
-  { path: 'login', loadComponent: () => import('./pages/login').then((m) => m.LoginPage), title: 'Entrar · Relayo Sim' },
   {
-    path: 'messages',
-    canActivate: [signedIn],
-    loadComponent: () => import('./pages/messages').then((m) => m.MessagesPage),
-    title: 'Mensajes · Relayo Sim',
+    path: 'login',
+    canActivate: [signedOut],
+    loadComponent: () => import('./pages/auth/login').then((m) => m.LoginPage),
+    title: page('Entrar'),
   },
   {
-    path: 'messages/:id',
-    canActivate: [signedIn],
-    loadComponent: () => import('./pages/message-detail').then((m) => m.MessageDetailPage),
-    title: 'Mensaje · Relayo Sim',
+    path: 'signup',
+    canActivate: [signedOut],
+    loadComponent: () => import('./pages/auth/signup').then((m) => m.SignupPage),
+    title: page('Crear cuenta'),
   },
   {
-    path: 'scenarios',
+    path: '',
     canActivate: [signedIn],
-    loadComponent: () => import('./pages/scenarios').then((m) => m.ScenariosPage),
-    title: 'Escenarios · Relayo Sim',
+    loadComponent: () => import('./layout/shell').then((m) => m.Shell),
+    children: [
+      { path: 'overview', loadComponent: () => import('./pages/overview').then((m) => m.OverviewPage), title: page('Resumen') },
+      { path: 'messages', loadComponent: () => import('./pages/messages').then((m) => m.MessagesPage), title: page('Mensajes') },
+      {
+        path: 'messages/:id',
+        loadComponent: () => import('./pages/message-detail').then((m) => m.MessageDetailPage),
+        title: page('Mensaje'),
+      },
+      { path: 'scenarios', loadComponent: () => import('./pages/scenarios').then((m) => m.ScenariosPage), title: page('Escenarios') },
+      { path: 'keys', loadComponent: () => import('./pages/keys').then((m) => m.KeysPage), title: page('Claves de API') },
+      { path: 'webhooks', loadComponent: () => import('./pages/webhooks').then((m) => m.WebhooksPage), title: page('Webhooks') },
+      { path: 'settings', loadComponent: () => import('./pages/settings').then((m) => m.SettingsPage), title: page('Ajustes') },
+      { path: 'account', loadComponent: () => import('./pages/account').then((m) => m.AccountPage), title: page('Cuenta') },
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
+    ],
   },
-  {
-    path: 'settings',
-    canActivate: [signedIn],
-    loadComponent: () => import('./pages/settings').then((m) => m.SettingsPage),
-    title: 'Proyecto · Relayo Sim',
-  },
-  { path: '', pathMatch: 'full', redirectTo: 'messages' },
-  { path: '**', redirectTo: 'messages' },
+  { path: '**', redirectTo: 'overview' },
 ];
