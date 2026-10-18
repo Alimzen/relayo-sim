@@ -29,6 +29,7 @@ const step = (index: number, after = 0): ScheduledStep => ({
   messageId: 'sim_1',
   recipient: 'ana@sim.relayo.dev',
   index,
+  at: Date.now() + after,
   step: { after, type: index === 0 ? 'accepted' : 'delivered' },
 });
 
@@ -110,7 +111,8 @@ describe.runIf(REDIS_URL)('BullMQ adapters (Redis)', () => {
     const hooks = await webhookReceiver();
     closers.push(() => hooks.close());
 
-    const sim = new SimulationService(store, scheduler, dispatcher, { timeScale: 0.01 });
+    // timeScale 0: every step is due at once and workers run them concurrently, in any order.
+    const sim = new SimulationService(store, scheduler, dispatcher, { timeScale: 0 });
     const { project } = await sim.createProject('Redis e2e', hooks.url);
     hooks.setSecret(project.webhookSecret);
 
@@ -121,10 +123,13 @@ describe.runIf(REDIS_URL)('BullMQ adapters (Redis)', () => {
       relayoMessageId: 'msg_redis',
     });
 
-    await vi.waitFor(() => expect(hooks.events.map((e) => e.type)).toEqual(['accepted', 'deferred', 'deferred', 'bounced']), {
+    // Webhooks may arrive in any order; receivers order them by timestamp (then id).
+    const ordered = () =>
+      [...hooks.events].sort((a, b) => Date.parse(String(a.timestamp)) - Date.parse(String(b.timestamp)) || a.id.localeCompare(b.id));
+    await vi.waitFor(() => expect(ordered().map((e) => e.type)).toEqual(['accepted', 'deferred', 'deferred', 'bounced']), {
       timeout: 10_000,
     });
-    expect(hooks.events.at(-1)).toMatchObject({ bounceType: 'soft', reason: 'mailbox_full', messageId: 'msg_redis' });
+    expect(ordered().at(-1)).toMatchObject({ bounceType: 'soft', reason: 'mailbox_full', messageId: 'msg_redis' });
     expect(hooks.invalid).toEqual([]);
     const stored = await store.getMessage(project.id, message.id);
     expect(stored!.events.map((e) => e.type)).toEqual(['accepted', 'deferred', 'deferred', 'bounced']);

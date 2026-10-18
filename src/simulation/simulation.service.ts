@@ -141,8 +141,10 @@ export class SimulationService {
 
   private async play(message: SimMessage, recipient: string, steps: TimelineStep[]): Promise<void> {
     for (const [index, step] of steps.entries()) {
-      const job: ScheduledStep = { projectId: message.projectId, messageId: message.id, recipient, index, step };
-      await this.scheduler.schedule(job, step.after * this.timeScale);
+      const delay = step.after * this.timeScale;
+      const at = message.createdAt.getTime() + delay;
+      const job: ScheduledStep = { projectId: message.projectId, messageId: message.id, recipient, index, step, at };
+      await this.scheduler.schedule(job, delay);
     }
   }
 
@@ -161,14 +163,16 @@ function toEvent(message: SimMessage, job: ScheduledStep): SimEvent {
   const { step } = job;
   const scenario = message.recipients.find((r) => r.address === job.recipient)?.scenario;
   const base: RelayoEvent & { projectId: string } = {
-    id: `${message.id}:${job.recipient}:${job.index}`,
+    // Zero-padded so ids sort in timeline order when timestamps tie (e.g. TIME_SCALE=0).
+    id: `${message.id}:${job.recipient}:${String(job.index).padStart(3, '0')}`,
     type: step.type,
     channel: 'email',
     provider: 'simulator',
     messageId: message.relayoMessageId ?? message.id,
     providerMessageId: message.id,
     recipient: job.recipient,
-    timestamp: new Date(),
+    // The simulated time of the step, not when a worker got to it: queues may run steps out of order.
+    timestamp: new Date(job.at),
     raw: { scenario, step, via: message.via },
     projectId: message.projectId,
   };

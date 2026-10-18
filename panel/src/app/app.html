@@ -1,0 +1,16 @@
+@if (api.signedIn()) {
+  <header class="topbar">
+    <a class="brand" routerLink="/messages">Relayo <span>Sim</span></a>
+    <nav aria-label="Principal">
+      <a routerLink="/messages" routerLinkActive="active">Mensajes</a>
+      <a routerLink="/scenarios" routerLinkActive="active">Escenarios</a>
+      <a routerLink="/settings" routerLinkActive="active">Proyecto</a>
+    </nav>
+    <button type="button" class="ghost" (click)="signOut()">Salir</button>
+  </header>
+  <main class="content">
+    <router-outlet />
+  </main>
+} @else {
+  <router-outlet />
+}

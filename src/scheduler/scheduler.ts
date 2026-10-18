@@ -7,8 +7,10 @@ export interface ScheduledStep {
   projectId: string;
   messageId: string;
   recipient: string;
-  /** Position in the timeline, for stable event ids. */
+  /** Position in the timeline, for stable event ids and ordering. */
   index: number;
+  /** When the step happens in the simulation (epoch ms): send time plus its scaled delay. */
+  at: number;
   step: TimelineStep;
 }
 

@@ -32,7 +32,9 @@ export class MemoryStore implements SimStore {
   async getMessage(projectId: string, id: string): Promise<MessageWithEvents | undefined> {
     const message = this.messages.get(id);
     if (!message || message.projectId !== projectId) return undefined;
-    const events = [...(this.events.get(id) ?? [])].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    const events = [...(this.events.get(id) ?? [])].sort(
+      (a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.id.localeCompare(b.id),
+    );
     return { ...message, events };
   }
 

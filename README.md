@@ -42,6 +42,20 @@ App ──HTTP /v1────▶ API (NestJS) ──┼─▶ SimulationService
 Webhooks: `POST` con un evento Relayo en JSON y `Relayo-Signature: t=<unix>,v1=<hex HMAC-SHA256 de "t.cuerpo">`
 (secreto del proyecto). 8 reintentos con backoff exponencial.
 
+## Panel
+
+Angular 21 (`panel/`): entrar con la API key del proyecto, lista de mensajes (se actualiza sola), línea de tiempo
+por destinatario con códigos SMTP y JSON de cada evento, catálogo de escenarios con envío de prueba, y ajustes
+del proyecto (URL del webhook, datos de conexión). Claro y oscuro, adaptado a móvil.
+
+```sh
+cd panel && pnpm install
+pnpm start          # http://localhost:4200, con proxy de /v1 a :3000
+pnpm build          # el servidor sirve panel/dist en / (PANEL_DIR para otra ruta)
+```
+
+Angular 22 pide Node ≥ 22.22; se usa la 21 porque el entorno tiene Node 22.17. Subir de versión al actualizar Node.
+
 ## Desarrollo
 
 ```sh
@@ -69,4 +83,4 @@ enlaza los paquetes locales de `../relayo` (`pnpm.overrides`). Quitar los overri
 
 - ~~PostgreSQL y BullMQ~~: probados (`test/store.test.ts`, `test/bullmq.test.ts`) contra `DATABASE_URL` y `REDIS_URL` del `.env`, con esquema y prefijo de colas temporales.
 - Rebotes asíncronos también como correo DSN (RFC 3464) para quien los lee por buzón.
-- Panel Angular con la línea de tiempo por correo.
+- ~~Panel Angular~~: hecho (`panel/`).

@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 *.log
+panel/dist/
+panel/.angular/
