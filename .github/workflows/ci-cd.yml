@@ -1,0 +1,148 @@
+name: Relayo Sim CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    # The same PostgreSQL and Redis as production, so the store and queue tests run for real.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: relayo
+          POSTGRES_PASSWORD: relayo
+          POSTGRES_DB: relayo_sim
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U relayo" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://relayo:relayo@localhost:5432/relayo_sim
+      TEST_REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version from "packageManager" in package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            panel/pnpm-lock.yaml
+
+      - name: Server
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm test
+
+      - name: Panel
+        working-directory: panel
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm exec ng test --watch=false
+
+  deploy:
+    name: Build & deploy
+    needs: test
+    # Only main deploys; pull requests stop after the tests.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    # One deploy at a time, and never cancelled halfway: a newer push waits for the current one.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://relayo.alimzen.com
+    env:
+      IMAGE: ghcr.io/alimzen/relayo-sim
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Layers are cached between runs: unchanged dependencies and panel are not rebuilt.
+      - name: Build and push the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+          build-args: GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to Dokploy
+        env:
+          DEPLOY_URL: ${{ secrets.DOKPLOY_DEPLOY_URL }}
+        run: |
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "::error title=Dokploy::Set the DOKPLOY_DEPLOY_URL secret."
+            exit 1
+          fi
+          # Dokploy's /api/deploy/{token} is its GitHub webhook receiver: it expects a push event and checks
+          # "ref" against the branch configured for the app.
+          HTTP_CODE=$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+            -o response.txt -w "%{http_code}" \
+            -X POST "$DEPLOY_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: push" \
+            -d '{"ref":"refs/heads/main","repository":{"full_name":"alimzen/relayo-sim"}}')
+          cat response.txt; echo
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error title=Dokploy::Deploy request failed with HTTP $HTTP_CODE."
+            exit 1
+          fi
+
+      - name: Wait until the new version is live
+        run: |
+          # /health reports the commit it was built from: wait for this one, not the version being replaced.
+          commit=""
+          for _ in $(seq 1 40); do
+            commit=$(curl --silent --max-time 5 https://relayo.alimzen.com/health | jq -r '.commit // empty' 2>/dev/null || true)
+            if [ "$commit" = "$GITHUB_SHA" ]; then
+              echo "relayo.alimzen.com is running ${GITHUB_SHA::7}"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error title=Health check::relayo.alimzen.com is not running ${GITHUB_SHA::7} after 10 minutes (last seen: ${commit:-no answer})."
+          exit 1
+
+      - name: Summary
+        run: |
+          {
+            echo "### Relayo Sim deployed"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo "| Image | \`${IMAGE}:sha-${GITHUB_SHA}\` |"
+            echo "| URL | https://relayo.alimzen.com |"
+          } >> "$GITHUB_STEP_SUMMARY"

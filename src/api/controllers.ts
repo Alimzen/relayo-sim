@@ -324,8 +324,9 @@ export class AdminController {
 
 @Controller()
 export class HealthController {
+  /** `commit` is the build's git commit (GIT_SHA), so a deploy can tell when the new version is live. */
   @Get('health')
   health() {
-    return { ok: true };
+    return { ok: true, ...(process.env.GIT_SHA && { commit: process.env.GIT_SHA }) };
   }
 }

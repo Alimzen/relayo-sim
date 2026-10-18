@@ -24,7 +24,9 @@ COPY src ./src
 RUN pnpm build && pnpm prune --prod
 
 FROM node:22-slim
-ENV NODE_ENV=production PORT=3000 SMTP_PORT=2525
+# The git commit, reported by /health (the CI passes it).
+ARG GIT_SHA=
+ENV NODE_ENV=production PORT=3000 SMTP_PORT=2525 GIT_SHA=$GIT_SHA
 WORKDIR /app
 COPY package.json ./
 COPY --from=server /app/node_modules ./node_modules

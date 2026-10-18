@@ -165,6 +165,23 @@ docker compose logs -f sim      # la primera vez reinicia hasta que Caddy tiene 
 5. Comprobar: `https://relayo.alimzen.com` (landing), crear cuenta, "¿La olvidaste?" (debe llegar el correo), y un
    envío por SMTP con STARTTLS a `relayo.alimzen.com:587`.
 
+### Con Dokploy (CI/CD)
+
+`.github/workflows/ci-cd.yml`: en cada push y pull request ejecuta los tests (servidor contra PostgreSQL y Redis
+reales, y panel). En `main`, si pasan, construye la imagen, la sube a `ghcr.io/alimzen/relayo-sim` (`latest` y
+`sha-<commit>`), avisa a Dokploy (secreto `DOKPLOY_DEPLOY_URL`) y espera a que `https://relayo.alimzen.com/health`
+devuelva el commit nuevo.
+
+En Dokploy la aplicación usa la imagen `ghcr.io/alimzen/relayo-sim:latest` (con credenciales del registro si el
+paquete es privado), Traefik pone el HTTPS y hay que configurar:
+
+- Variables: `DATABASE_URL`, `REDIS_URL`, `PUBLIC_URL=https://relayo.alimzen.com`, `TRUST_PROXY=1`, `ADMIN_TOKEN`,
+  `MONTHLY_MESSAGE_LIMIT`, `MESSAGES_PER_MINUTE`, `RETENTION_DAYS`, `MAIL_URL`, `MAIL_FROM` (ver `deploy/.env.example`).
+- Dominio `relayo.alimzen.com` al puerto 3000 del contenedor.
+- Puertos publicados 587 y 2525 → 2525 del contenedor (SMTP). Sin `TLS_KEY_FILE`/`TLS_CERT_FILE` el SMTP no ofrece
+  STARTTLS (los certificados de Traefik no son accesibles desde el contenedor).
+- PostgreSQL y Redis como servicios de Dokploy, con sus copias de seguridad.
+
 Para actualizar: `git pull && docker compose up -d --build`. Las migraciones de PostgreSQL se aplican solas al
 arrancar. Restaurar una copia: `gunzip -c backups/<fichero>.sql.gz | docker compose exec -T postgres psql -U relayo relayo_sim`.
 Las copias están en el mismo servidor: sácalas también fuera (otro servidor, S3…).
