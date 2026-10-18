@@ -45,7 +45,9 @@ export class MemoryStore implements SimStore {
 
   async addEvent(event: SimEvent): Promise<void> {
     const key = event.providerMessageId ?? '';
-    this.events.set(key, [...(this.events.get(key) ?? []), event]);
+    const existing = this.events.get(key) ?? [];
+    if (existing.some((e) => e.id === event.id)) return; // idempotent, like the PostgreSQL store
+    this.events.set(key, [...existing, event]);
   }
 
   async nextAttempt(key: string, ttlMs: number): Promise<number> {
