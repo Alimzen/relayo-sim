@@ -392,7 +392,7 @@ relayo.on(<span class="s">'bounced'</span>, (e) =&gt; markInvalid(e.recipient));
       <div class="section-head">
         <p class="label">En tu CI</p>
         <h2>Que el build falle si un rebote no se maneja.</h2>
-        <p>La CLI <code>relayo</code> espera el evento que tu código tiene que tratar. La acción de GitHub deja en cada ejecución un resumen de todos los correos enviados.</p>
+        <p>La CLI <code>@alimzen/cli</code> espera el evento que tu código tiene que tratar. La acción de GitHub deja en cada ejecución un resumen de todos los correos enviados.</p>
       </div>
       <div class="ci">
         <figure class="window" style="margin:0">
@@ -404,7 +404,7 @@ relayo.on(<span class="s">'bounced'</span>, (e) =&gt; markInvalid(e.recipient));
 
 <span class="k">- run:</span> npm test
 
-<span class="k">- run:</span> npx relayo wait --search <span class="s">"Confirma tu cuenta"</span> \
+<span class="k">- run:</span> npx @alimzen/cli wait --search <span class="s">"Confirma tu cuenta"</span> \
          --for bounced:hard --timeout 1m
 
 <span class="k">- uses:</span> Alimzen/relayo/actions/sim@main
