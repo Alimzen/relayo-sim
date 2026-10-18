@@ -46,7 +46,8 @@ Webhooks: `POST` con un evento Relayo en JSON y `Relayo-Signature: t=<unix>,v1=<
 
 ```sh
 pnpm install
-pnpm test                      # todo en memoria, sin Docker
+pnpm test                      # en memoria; con DATABASE_URL en .env también contra PostgreSQL (esquema temporal)
+pnpm smoke                     # contra una instancia en marcha (TIME_SCALE=0): crea un proyecto y envía escenarios por SMTP
 docker compose up -d           # PostgreSQL (5433) y Redis (6379)
 ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim REDIS_URL=redis://localhost:6379 pnpm dev
 ```
@@ -66,6 +67,6 @@ enlaza los paquetes locales de `../relayo` (`pnpm.overrides`). Quitar los overri
 
 ## Pendiente (fase 2)
 
-- Probar los adaptadores de PostgreSQL y BullMQ con Docker.
+- Probar el adaptador de BullMQ con Redis (Docker). PostgreSQL ya está probado: `test/store.test.ts` corre contra `DATABASE_URL` en un esquema temporal, y `pnpm smoke` contra una instancia en marcha.
 - Rebotes asíncronos también como correo DSN (RFC 3464) para quien los lee por buzón.
 - Panel Angular con la línea de tiempo por correo.

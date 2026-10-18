@@ -66,11 +66,25 @@ interface MessageRow {
 export class PostgresStore implements SimStore {
   private constructor(private readonly pool: pg.Pool) {}
 
-  /** Connects and creates the tables if they do not exist yet. */
-  static async connect(connectionString: string): Promise<PostgresStore> {
-    const pool = new pg.Pool({ connectionString, max: 10 });
+  /**
+   * Connects and creates the tables if they do not exist yet. `schema` puts everything in its own
+   * PostgreSQL schema (created if missing), e.g. to keep tests away from real data.
+   */
+  static async connect(connectionString: string, options: { schema?: string } = {}): Promise<PostgresStore> {
+    if (options.schema && !/^[a-z_][a-z0-9_]*$/.test(options.schema)) {
+      throw new Error(`Invalid schema name: ${options.schema}`);
+    }
+    // search_path as a startup parameter: every pooled connection uses the schema from its first query.
+    const pool = new pg.Pool({ connectionString, max: 10, ...(options.schema && { options: `-c search_path=${options.schema}` }) });
+    if (options.schema) await pool.query(`CREATE SCHEMA IF NOT EXISTS ${options.schema}`);
     await pool.query(SCHEMA);
     return new PostgresStore(pool);
+  }
+
+  /** Drops a schema created with `connect(..., { schema })`. */
+  async dropSchema(schema: string): Promise<void> {
+    if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error(`Invalid schema name: ${schema}`);
+    await this.pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
   }
 
   async createProject(p: Project): Promise<void> {
