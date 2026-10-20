@@ -4,7 +4,7 @@ Simulador de escenarios de entrega de correo (producto de pago de Relayo). La ap
 SMTP o por la API HTTP— y este responde como el mundo real: rebotes, greylisting, bloqueos, buzón lleno,
 quejas, retrasos… y emite los eventos correspondientes como webhooks firmados con el formato de Relayo.
 
-Repositorio privado. La librería y el driver `@alimzen/simulator` son open source: https://github.com/Alimzen/relayo
+Repositorio privado. La librería y el driver `@alimzen/relayo-simulator` son open source: https://github.com/Alimzen/relayo
 
 ## Arquitectura
 
@@ -18,7 +18,7 @@ App ──HTTP /v1────▶ API (NestJS) ──┼─▶ SimulationService
 
 - `src/scenarios/`: catálogo de escenarios y selección (dirección mágica o cabecera `X-Sim-Scenario`). Cada
   escenario define la respuesta SMTP en vivo y la línea de tiempo de eventos; los rebotes se clasifican con
-  `classifyBounce` de `@alimzen/core`, así el simulador coincide con lo que reportan los drivers.
+  `classifyBounce` de `@alimzen/relayo`, así el simulador coincide con lo que reportan los drivers.
 - `src/smtp/`: servidor SMTP (`smtp-server`). Autenticación con la API key del proyecto. Responde en
   `RCPT TO` (dirección) o tras `DATA` (contenido, cabecera de escenario). `timeout` deja la conexión colgada
   hasta `SMTP_MAX_HANG_MS`.
@@ -81,7 +81,7 @@ la API): un **DSN** (RFC 3464, `multipart/report`) por cada rebote (`Action: fai
 (`Action: delayed`), y un **informe ARF** (RFC 5965) por cada queja. Se envían con remitente nulo (`MAIL FROM:<>`)
 a través del servidor SMTP que el proyecto configure en `reportsSmtpUrl` (`PATCH /v1/project`; `null` o `""` lo
 quita; la API lo devuelve sin contraseña). Citan las cabeceras originales (`Message-ID`, `X-Relayo-Message-ID`,
-`X-Relayo-Metadata`), así que `@alimzen/bounces` / `@alimzen/imap` los convierten en el evento con el
+`X-Relayo-Metadata`), así que `@alimzen/relayo-bounces` / `@alimzen/relayo-imap` los convierten en el evento con el
 `messageId` y la `metadata` del envío: está probado así, de punta a punta.
 
 - Por SMTP, los escenarios de rechazo responden al momento. Con `+async` (`hard-bounce+async@`, `blocked+async@`…)

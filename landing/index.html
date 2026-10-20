@@ -392,7 +392,7 @@ relayo.on(<span class="s">'bounced'</span>, (e) =&gt; markInvalid(e.recipient));
       <div class="section-head">
         <p class="label">En tu CI</p>
         <h2>Que el build falle si un rebote no se maneja.</h2>
-        <p>La CLI <code>@alimzen/cli</code> espera el evento que tu código tiene que tratar. La acción de GitHub deja en cada ejecución un resumen de todos los correos enviados.</p>
+        <p>La CLI <code>@alimzen/relayo-cli</code> espera el evento que tu código tiene que tratar. La acción de GitHub deja en cada ejecución un resumen de todos los correos enviados.</p>
       </div>
       <div class="ci">
         <figure class="window" style="margin:0">
@@ -404,7 +404,7 @@ relayo.on(<span class="s">'bounced'</span>, (e) =&gt; markInvalid(e.recipient));
 
 <span class="k">- run:</span> npm test
 
-<span class="k">- run:</span> npx @alimzen/cli wait --search <span class="s">"Confirma tu cuenta"</span> \
+<span class="k">- run:</span> npx @alimzen/relayo-cli wait --search <span class="s">"Confirma tu cuenta"</span> \
          --for bounced:hard --timeout 1m
 
 <span class="k">- uses:</span> Alimzen/relayo/actions/sim@main
@@ -437,8 +437,8 @@ $ echo $?
       <div class="works">
         <div class="work"><h3>SMTP</h3><p>Nodemailer, Django, Rails, Laravel, Spring… Apunta el host al simulador y usa tu clave como contraseña.</p></div>
         <div class="work"><h3>API HTTP</h3><p>Un <code>POST /v1/messages</code> con el mismo cuerpo que la librería Relayo.</p></div>
-        <div class="work"><h3>Relayo</h3><p>El driver <code>@alimzen/simulator</code> en tests y CI; SES, SendGrid o Resend en producción.</p></div>
-        <div class="work"><h3>NestJS</h3><p><code>@alimzen/nestjs</code>: módulo, servicio y <code>@OnRelayoEvent()</code> para tus handlers.</p></div>
+        <div class="work"><h3>Relayo</h3><p>El driver <code>@alimzen/relayo-simulator</code> en tests y CI; SES, SendGrid o Resend en producción.</p></div>
+        <div class="work"><h3>NestJS</h3><p><code>@alimzen/relayo-nestjs</code>: módulo, servicio y <code>@OnRelayoEvent()</code> para tus handlers.</p></div>
       </div>
     </div>
   </section>

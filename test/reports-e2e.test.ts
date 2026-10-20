@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net';
-import { parseBounceEmail } from '@alimzen/bounces';
-import { createRelayo } from '@alimzen/core';
-import { smtp } from '@alimzen/smtp';
+import { parseBounceEmail } from '@alimzen/relayo-bounces';
+import { createRelayo } from '@alimzen/relayo';
+import { smtp } from '@alimzen/relayo-smtp';
 import { SMTPServer } from 'smtp-server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SmtpReportSender } from '../src/reports/sender.js';
@@ -51,7 +51,7 @@ async function setup() {
 }
 
 describe('bounce and complaint reports by email', () => {
-  it('accepts hard-bounce+async over SMTP and later mails a DSN that @alimzen/bounces reads back', async () => {
+  it('accepts hard-bounce+async over SMTP and later mails a DSN that @alimzen/relayo-bounces reads back', async () => {
     const { mailbox, apiKey, port } = await setup();
     const driver = smtp(
       { host: '127.0.0.1', port, secure: false, ignoreTLS: true, auth: { user: 'app', pass: apiKey } },

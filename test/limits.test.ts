@@ -1,5 +1,5 @@
-import { smtp } from '@alimzen/smtp';
-import { createRelayo, RateLimitError, ProviderUnavailableError, isRelayoError } from '@alimzen/core';
+import { smtp } from '@alimzen/relayo-smtp';
+import { createRelayo, RateLimitError, ProviderUnavailableError, isRelayoError } from '@alimzen/relayo';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SmtpSimServer } from '../src/smtp/smtp-sim.server.js';
 import { MemoryScheduler } from '../src/scheduler/scheduler.js';

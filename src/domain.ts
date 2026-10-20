@@ -1,4 +1,4 @@
-import type { RelayoEvent } from '@alimzen/core';
+import type { RelayoEvent } from '@alimzen/relayo';
 import type { ScenarioSelection } from './scenarios/resolve.js';
 
 export interface User {

@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { BounceEvent, ClickEvent, RejectEvent, RelayoEvent } from '@alimzen/core';
+import type { BounceEvent, ClickEvent, RejectEvent, RelayoEvent } from '@alimzen/relayo';
 import type { ApiKey, Project, SimEvent, SimMessage, SimRecipient } from '../domain.js';
 import { buildReport, reportRecipient } from '../reports/reports.js';
 import type { ReportSender } from '../reports/sender.js';

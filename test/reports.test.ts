@@ -1,4 +1,4 @@
-import { parseBounceEmail } from '@alimzen/bounces';
+import { parseBounceEmail } from '@alimzen/relayo-bounces';
 import { describe, expect, it } from 'vitest';
 import type { SimEvent, SimMessage } from '../src/domain.js';
 import { buildArf, buildDsn, buildReport, reportKind } from '../src/reports/reports.js';
@@ -37,7 +37,7 @@ function eventFor(address: string, type: SimEvent['type']): SimEvent {
   } as SimEvent;
 }
 
-describe('reports, read back with @alimzen/bounces', () => {
+describe('reports, read back with @alimzen/relayo-bounces', () => {
   it.each([
     ['hard-bounce@sim.relayo.dev', 'hard', 'user_unknown', '5.1.1'],
     ['blocklisted@sim.relayo.dev', 'block', 'reputation_block', '5.7.1'],

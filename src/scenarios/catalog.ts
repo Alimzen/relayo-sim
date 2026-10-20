@@ -1,4 +1,4 @@
-import { classifyBounce, type BounceReason, type BounceType, type EventType, type RejectReason } from '@alimzen/core';
+import { classifyBounce, type BounceReason, type BounceType, type EventType, type RejectReason } from '@alimzen/relayo';
 
 /** How the simulated receiving server answers over SMTP. */
 export interface SmtpReply {

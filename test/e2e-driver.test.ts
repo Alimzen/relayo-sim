@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { createRelayo, type BounceEvent, type RelayoEvent } from '@alimzen/core';
-import { scenarioAddress, simulator } from '@alimzen/simulator';
+import { createRelayo, type BounceEvent, type RelayoEvent } from '@alimzen/relayo';
+import { scenarioAddress, simulator } from '@alimzen/relayo-simulator';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';

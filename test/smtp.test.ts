@@ -6,8 +6,8 @@ import {
   RejectedError,
   type EmailMessage,
   type RelayoEvent,
-} from '@alimzen/core';
-import { smtp } from '@alimzen/smtp';
+} from '@alimzen/relayo';
+import { smtp } from '@alimzen/relayo-smtp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SmtpSimServer } from '../src/smtp/smtp-sim.server.js';
 import { memorySimulation, webhookReceiver } from './helpers.js';
@@ -48,7 +48,7 @@ const message = (to: string, extra: Partial<EmailMessage> = {}): EmailMessage =>
 
 const typesFor = (events: RelayoEvent[], recipient: string) => events.filter((e) => e.recipient === recipient).map((e) => e.type);
 
-describe('Relayo Sim over SMTP, driven by @alimzen/smtp', () => {
+describe('Relayo Sim over SMTP, driven by @alimzen/relayo-smtp', () => {
   it('captures the whole message for the inbox', async () => {
     await ctx.relayo.email.send(message('ana@sim.relayo.dev', { html: '<p>Hola</p>', attachments: [{ filename: 'a.txt', content: 'adjunto' }] }));
     const [stored] = await ctx.store.listMessages(ctx.project.id, { limit: 1 });

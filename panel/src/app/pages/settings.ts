@@ -159,8 +159,8 @@ export class SettingsPage {
   }
 
   protected readonly snippet = computed(
-    () => `import { createRelayo } from '@alimzen/core';
-import { simulator } from '@alimzen/simulator';
+    () => `import { createRelayo } from '@alimzen/relayo';
+import { simulator } from '@alimzen/relayo-simulator';
 
 const relayo = createRelayo({
   email: simulator({

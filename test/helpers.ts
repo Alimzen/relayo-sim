@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { RelayoEvent } from '@alimzen/core';
+import type { RelayoEvent } from '@alimzen/relayo';
 import type { ReportSender } from '../src/reports/sender.js';
 import { MemoryScheduler } from '../src/scheduler/scheduler.js';
 import { SimulationService } from '../src/simulation/simulation.service.js';

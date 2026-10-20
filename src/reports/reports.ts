@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { BounceEvent } from '@alimzen/core';
+import type { BounceEvent } from '@alimzen/relayo';
 import type { SimEvent, SimMessage } from '../domain.js';
 import type { TimelineStep } from '../scenarios/catalog.js';
 

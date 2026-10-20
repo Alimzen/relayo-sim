@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { createRelayo, type Relayo } from '@alimzen/core';
-import { smtp } from '@alimzen/smtp';
+import { createRelayo, type Relayo } from '@alimzen/relayo';
+import { smtp } from '@alimzen/relayo-smtp';
 
 export interface MailToSend {
   to: string;

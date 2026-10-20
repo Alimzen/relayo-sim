@@ -47,8 +47,10 @@ describe.runIf(REDIS_URL)('BullMQ adapters (Redis)', () => {
     await scheduler.schedule(step(0), 0);
     await scheduler.schedule(step(0), 0); // same step again: same job id, ignored
 
-    await vi.waitFor(() => expect(ran.map((r) => r.index)).toEqual([0, 1]), { timeout: 5000 });
-    expect(ran[1]!.at).toBeGreaterThanOrEqual(350);
+    // Order is not asserted: with a slow (remote) Redis the worker may connect after the delay has passed and
+    // run both at once. Events carry their own timestamps, so nothing depends on processing order.
+    await vi.waitFor(() => expect(ran.map((r) => r.index).sort()).toEqual([0, 1]), { timeout: 5000 });
+    expect(ran.find((r) => r.index === 1)!.at).toBeGreaterThanOrEqual(350);
     await new Promise((r) => setTimeout(r, 300));
     expect(ran).toHaveLength(2);
   });

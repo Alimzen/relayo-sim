@@ -17,8 +17,8 @@
     "smoke": "tsx --env-file=.env scripts/smoke.ts"
   },
   "dependencies": {
-    "@alimzen/core": "^0.2.1",
-    "@alimzen/smtp": "^0.2.1",
+    "@alimzen/relayo": "^0.2.1",
+    "@alimzen/relayo-smtp": "^0.2.1",
     "@nestjs/common": "^12",
     "@nestjs/core": "^12",
     "@nestjs/platform-express": "^12",
@@ -34,8 +34,8 @@
     "smtp-server": "^3.20.1"
   },
   "devDependencies": {
-    "@alimzen/bounces": "^0.1.0",
-    "@alimzen/simulator": "^0.1.0",
+    "@alimzen/relayo-bounces": "^0.1.0",
+    "@alimzen/relayo-simulator": "^0.1.1",
     "@nestjs/testing": "^12",
     "@types/express": "^5.0.6",
     "@types/mailparser": "^3.9.0",

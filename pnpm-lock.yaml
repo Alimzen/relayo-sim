@@ -5,12 +5,12 @@ settings:
   excludeLinksFromLockfile: false
 
 dependencies:
-  '@alimzen/core':
+  '@alimzen/relayo':
     specifier: ^0.2.1
     version: 0.2.1
-  '@alimzen/smtp':
+  '@alimzen/relayo-smtp':
     specifier: ^0.2.1
-    version: 0.2.1(@alimzen/core@0.2.1)
+    version: 0.2.1(@alimzen/relayo@0.2.1)
   '@nestjs/common':
     specifier: ^12
     version: 12.1.3(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -52,12 +52,12 @@ dependencies:
     version: 3.20.1
 
 devDependencies:
-  '@alimzen/bounces':
+  '@alimzen/relayo-bounces':
     specifier: ^0.1.0
-    version: 0.1.0(@alimzen/core@0.2.1)
-  '@alimzen/simulator':
-    specifier: ^0.1.0
-    version: 0.1.0(@alimzen/core@0.2.1)
+    version: 0.1.0(@alimzen/relayo@0.2.1)
+  '@alimzen/relayo-simulator':
+    specifier: ^0.1.1
+    version: 0.1.1(@alimzen/relayo@0.2.1)
   '@nestjs/testing':
     specifier: ^12
     version: 12.1.3(@nestjs/common@12.1.3)(@nestjs/core@12.1.3)(@nestjs/platform-express@12.1.3)
@@ -91,37 +91,37 @@ devDependencies:
 
 packages:
 
-  /@alimzen/bounces@0.1.0(@alimzen/core@0.2.1):
-    resolution: {integrity: sha512-uXMTR6B2+arBoQX1hAp9B7EbLO13GO8o545LTzV6hLEts8EiVGzGyKEBgdvHsZZJx8C7DJdr4X9znVuLrPRjGg==}
+  /@alimzen/relayo-bounces@0.1.0(@alimzen/relayo@0.2.1):
+    resolution: {integrity: sha512-i0e1+6wi7CJIESsguTkJgBGAoYRkujpHmSytvxgNVpHDONNRmrhIz43393yj1pXSe1parhcLJDl4IZAwr8iSxQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/core': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': '>=0.1.0 <1.0.0'
     dependencies:
-      '@alimzen/core': 0.2.1
+      '@alimzen/relayo': 0.2.1
     dev: true
 
-  /@alimzen/core@0.2.1:
-    resolution: {integrity: sha512-oH6rn4LqBDKKNGw7jBqVGFog/uXKbX7L4YjkfVW+F/0l0/68J4WhWquc4n6HwHmREghW3L5kDchsnfFml9RupQ==}
-    engines: {node: '>=20'}
-
-  /@alimzen/simulator@0.1.0(@alimzen/core@0.2.1):
-    resolution: {integrity: sha512-nwy2YWCPZnPFxcLTfA2ZgMAA3BTER64EQfOJ8+SbkccP7KgJPJDBn9OKB7/J+EQ/HSQQla05ZaJE9a1J1oI3Uw==}
+  /@alimzen/relayo-simulator@0.1.1(@alimzen/relayo@0.2.1):
+    resolution: {integrity: sha512-qVMJaKCeIGs3AGCVXmSc76VOUku05tDqtgGJSyq39DP3g0/HQYU/WUwLH8KJOT+hqlPis90GSZlllpQlhaYArw==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/core': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': '>=0.1.0 <1.0.0'
     dependencies:
-      '@alimzen/core': 0.2.1
+      '@alimzen/relayo': 0.2.1
     dev: true
 
-  /@alimzen/smtp@0.2.1(@alimzen/core@0.2.1):
-    resolution: {integrity: sha512-2YcYRmQnWgmAlS7N5VKcT8p7zIlVXzrVu5c+nhXjAdZq8DDzw/MywkClXtg0DrzXvayGDokRv19/NfnAOXRrXQ==}
+  /@alimzen/relayo-smtp@0.2.1(@alimzen/relayo@0.2.1):
+    resolution: {integrity: sha512-l/il/x5H5CS8aM7nto9/LOBGddV/oyrKWorCjoz5hHc6URgILW6RXB884GMkStw8lpcEmXk4pD9bR5YWdF6cPQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/core': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': '>=0.1.0 <1.0.0'
     dependencies:
-      '@alimzen/core': 0.2.1
+      '@alimzen/relayo': 0.2.1
       nodemailer: 10.1.7
     dev: false
+
+  /@alimzen/relayo@0.2.1:
+    resolution: {integrity: sha512-obouIHjFQLZYHfM2PdsyuOuH7R+eQDDXLv2pbtdT0SfeiUJLf6U58poU/mcNMh2bhDjLKhV1bisTKIrK06cwXg==}
+    engines: {node: '>=20'}
 
   /@borewit/text-codec@0.2.2:
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}

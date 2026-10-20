@@ -4,8 +4,8 @@
  *
  *   SIM_URL=http://127.0.0.1:3000 SIM_SMTP_PORT=2525 pnpm smoke
  */
-import { createRelayo, isRelayoError } from '@alimzen/core';
-import { smtp } from '@alimzen/smtp';
+import { createRelayo, isRelayoError } from '@alimzen/relayo';
+import { smtp } from '@alimzen/relayo-smtp';
 
 const simUrl = process.env.SIM_URL ?? 'http://127.0.0.1:3000';
 const smtpPort = Number(process.env.SIM_SMTP_PORT ?? 2525);
