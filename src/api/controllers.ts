@@ -13,18 +13,21 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { composeMessage, quotedHeaders, readAttachment, readContent, readHeaders, type ApiAttachment, type MailAddress } from '../capture/capture.js';
-import type { Project, SimEvent } from '../domain.js';
+import type { Mode, Project, SimEvent } from '../domain.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { isSmsScenario, PHONE, SMS_SCENARIOS } from '../scenarios/sms.js';
+import { PROVIDERS } from '../live/providers.js';
 import { QuotaExceededError, SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
-import { AdminGuard, CurrentProject, ProjectGuard, SessionOnly } from './auth.js';
+import { AdminGuard, CurrentMode, CurrentProject, ProjectGuard, SessionOnly } from './auth.js';
+import { LiveError, LiveService } from '../live/live.service.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
 
 type Address = string | { address: string; name?: string };
@@ -53,6 +56,24 @@ const EVENT_TYPES: ReadonlySet<string> = new Set<SimEvent['type']>([
   'accepted', 'delivered', 'deferred', 'bounced', 'complained', 'rejected', 'opened', 'clicked', 'unsubscribed', 'failed',
 ]);
 const addressOf = (value: Address) => (typeof value === 'string' ? value : value?.address);
+/** A Relayo recipient from an API address. */
+const recipientOf = (value: Address) =>
+  typeof value === 'string' ? { address: value } : { address: value.address, ...(value.name && { name: value.name }) };
+
+/** Simulator-only headers are not passed on to real providers. */
+const withoutSimHeaders = (headers: Record<string, string>) =>
+  Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'x-sim-scenario'));
+
+/** Runs a live operation, answering its errors with their status and message. */
+async function liveCall<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof LiveError) throw new HttpException({ statusCode: error.status, message: error.message }, error.status);
+    throw error;
+  }
+}
+
 /** The address with its display name, for the captured message's headers. */
 const display = (value: Address): MailAddress =>
   typeof value === 'string' || !value.name ? addressOf(value) : { name: value.name, address: value.address };
@@ -108,7 +129,8 @@ export class SmsController {
   /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
   @Post()
   @HttpCode(202)
-  async send(@CurrentProject() project: Project, @Body() body: SendSmsBody) {
+  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendSmsBody) {
+    if (mode === 'live') throw new BadRequestException('Live SMS needs an SMS connection, which is not available yet: use a test key');
     const to = (Array.isArray(body?.to) ? body.to : [body?.to]).map((a) => addressOf(a as Address)?.trim());
     if (!to.length || to.some((n) => !n || !PHONE.test(n))) {
       throw new BadRequestException('"to" must contain phone numbers in E.164 format, e.g. +12015550100');
@@ -147,11 +169,13 @@ export class MessagesController {
   constructor(
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(SIM_STORE) private readonly store: SimStore,
+    @Inject(LiveService) private readonly live: LiveService,
   ) {}
 
+  /** Test keys: the simulator plays the scenario. Live keys: real delivery through the project's connections. */
   @Post()
   @HttpCode(202)
-  async send(@CurrentProject() project: Project, @Body() body: SendBody) {
+  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendBody) {
     const from = addressOf(body?.from);
     const to = [...(Array.isArray(body?.to) ? body.to : [body?.to]), ...(body?.cc ?? []), ...(body?.bcc ?? [])].map(addressOf);
     if (!from || !EMAIL.test(from)) throw new BadRequestException('"from" must be an email address');
@@ -189,6 +213,39 @@ export class MessagesController {
       ...(attachments && { attachments }),
     });
 
+    if (mode === 'live') {
+      const message = await liveCall(() =>
+        this.live.sendEmail(project, {
+          via: 'api',
+          raw,
+          headers: quotedHeaders(readHeaders(raw.toString('utf8'))),
+          ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
+          message: {
+            from: recipientOf(body.from),
+            to: toList.map(recipientOf),
+            ...(body.cc?.length && { cc: body.cc.map(recipientOf) }),
+            ...(body.bcc?.length && { bcc: body.bcc.map(recipientOf) }),
+            ...(body.replyTo && { replyTo: recipientOf(body.replyTo) }),
+            subject: body.subject,
+            ...(typeof body.text === 'string' && { text: body.text }),
+            ...(typeof body.html === 'string' && { html: body.html }),
+            ...(body.headers && Object.keys(body.headers).length && { headers: withoutSimHeaders(body.headers) }),
+            ...(attachments?.length && {
+              attachments: attachments.map((a) => ({
+                filename: a.filename,
+                content: Buffer.from(a.content, 'base64'),
+                ...(a.contentType && { contentType: a.contentType }),
+                ...(a.cid && { cid: a.cid }),
+              })),
+            }),
+            ...(body.metadata && { metadata: body.metadata }),
+            ...(body.tags && { tags: body.tags }),
+          },
+        }),
+      );
+      return { id: message.id, status: 'queued', recipients: message.recipients };
+    }
+
     const message = await this.sim.acceptFromApi(project, {
       raw,
       headers: quotedHeaders(readHeaders(raw.toString('utf8'))),
@@ -207,6 +264,7 @@ export class MessagesController {
   @Get()
   async list(
     @CurrentProject() project: Project,
+    @CurrentMode() mode: Mode,
     @Query('limit') limit?: string,
     @Query('before') before?: string,
     @Query('q') q?: string,
@@ -223,6 +281,7 @@ export class MessagesController {
       ...(q?.trim() && { search: q.trim().slice(0, 200) }),
       ...(status && { status: status as SimEvent['type'] }),
       ...(channel && { channel: channel as 'email' | 'sms' }),
+      mode,
     });
     return { data: messages.map(publicMessage) };
   }
@@ -320,12 +379,12 @@ export class ProjectController {
 
   /** Totals and a per-day series over the last `days` days (1–90, default 7). */
   @Get('stats')
-  async stats(@CurrentProject() project: Project, @Query('days') days?: string) {
+  async stats(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Query('days') days?: string) {
     const span = Math.min(90, Math.max(1, Number(days) || 7));
     const since = new Date();
     since.setUTCHours(0, 0, 0, 0);
     since.setUTCDate(since.getUTCDate() - (span - 1));
-    return this.store.stats(project.id, since);
+    return this.store.stats(project.id, since, mode);
   }
 
   @Get('keys')
@@ -337,10 +396,11 @@ export class ProjectController {
   /** A new API key. The key itself is only in this response. */
   @Post('keys')
   @SessionOnly()
-  async createKey(@CurrentProject() project: Project, @Body() body: { name?: unknown }) {
+  async createKey(@CurrentProject() project: Project, @Body() body: { name?: unknown; mode?: unknown }) {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     if (!name || name.length > 60) throw new BadRequestException('El nombre de la clave debe tener entre 1 y 60 caracteres.');
-    const { key, apiKey } = await this.sim.createApiKey(project.id, name);
+    if (body.mode !== undefined && body.mode !== 'test' && body.mode !== 'live') throw new BadRequestException('"mode" must be test or live');
+    const { key, apiKey } = await this.sim.createApiKey(project.id, name, body.mode === 'live' ? 'live' : 'test');
     return { ...publicKey(key), apiKey };
   }
 
@@ -396,4 +456,106 @@ export class HealthController {
   health() {
     return { ok: true, ...(process.env.GIT_SHA && { commit: process.env.GIT_SHA }) };
   }
+}
+
+/** Live delivery: the project's provider connections. Managing them needs a signed-in person. */
+@Controller('v1/project')
+@UseGuards(ProjectGuard)
+export class ConnectionsController {
+  constructor(
+    @Inject(LiveService) private readonly live: LiveService,
+    @Inject(SIM_STORE) private readonly store: SimStore,
+  ) {}
+
+  @Get('providers')
+  providers() {
+    return { data: PROVIDERS };
+  }
+
+  @Get('connections')
+  async list(@CurrentProject() project: Project) {
+    return { data: (await this.store.listConnections(project.id)).map((c) => this.live.publicConnection(c)) };
+  }
+
+  @Post('connections')
+  @SessionOnly()
+  async create(@CurrentProject() project: Project, @Body() body: { name?: unknown; provider?: unknown; values?: unknown }) {
+    return this.live.publicConnection(await liveCall(() => this.live.createConnection(project, body ?? {})));
+  }
+
+  /** Sets the order: the first connection sends, the rest are failover. */
+  @Post('connections/order')
+  @SessionOnly()
+  @HttpCode(204)
+  async reorder(@CurrentProject() project: Project, @Body() body: { ids?: unknown }) {
+    if (!Array.isArray(body?.ids) || body.ids.some((id) => typeof id !== 'string')) throw new BadRequestException('"ids" must list connection ids');
+    await liveCall(() => this.live.reorder(project, body.ids as string[]));
+  }
+
+  @Patch('connections/:id')
+  @SessionOnly()
+  async update(@CurrentProject() project: Project, @Param('id') id: string, @Body() body: { name?: unknown; values?: unknown }) {
+    return this.live.publicConnection(await liveCall(() => this.live.updateConnection(project, id, body ?? {})));
+  }
+
+  @Delete('connections/:id')
+  @SessionOnly()
+  @HttpCode(204)
+  async remove(@CurrentProject() project: Project, @Param('id') id: string) {
+    if (!(await this.store.deleteConnection(project.id, id))) throw new NotFoundException('Conexión no encontrada');
+  }
+
+  /** Sends a real test email through one connection. */
+  @Post('connections/:id/test')
+  @SessionOnly()
+  async test(@CurrentProject() project: Project, @Param('id') id: string, @Body() body: { to?: unknown; from?: unknown }) {
+    const message = await liveCall(() => this.live.testConnection(project, id, body ?? {}));
+    return { id: message.id, delivery: message.delivery };
+  }
+
+  @Get('suppressions')
+  async suppressions(@CurrentProject() project: Project, @Query('limit') limit?: string) {
+    const max = Math.min(1000, Math.max(1, Number(limit) || 200));
+    return { data: await this.store.listSuppressions(project.id, max) };
+  }
+
+  @Post('suppressions')
+  @HttpCode(204)
+  async suppress(@CurrentProject() project: Project, @Body() body: { address?: unknown }) {
+    const address = typeof body?.address === 'string' ? body.address.trim() : '';
+    if (!address) throw new BadRequestException('"address" is required');
+    await this.store.suppress(project.id, address, 'manual');
+  }
+
+  @Delete('suppressions/:address')
+  @HttpCode(204)
+  async unsuppress(@CurrentProject() project: Project, @Param('address') address: string) {
+    if (!(await this.store.unsuppress(project.id, address))) throw new NotFoundException('That address is not suppressed');
+  }
+}
+
+/**
+ * Where providers post their delivery events for a connection. The secret token in the path identifies
+ * the connection; the provider's own signature is checked too when it signs them.
+ */
+@Controller('v1/inbound')
+export class InboundController {
+  constructor(@Inject(LiveService) private readonly live: LiveService) {}
+
+  @Post(':token')
+  @HttpCode(200)
+  async receive(@Param('token') token: string, @Req() req: InboundRequest) {
+    const rawBody = req.rawBody ?? (typeof req.body === 'string' ? req.body : undefined);
+    const body = typeof req.body === 'string' && req.body.trim().startsWith('{') ? JSON.parse(req.body) : req.body;
+    const received = await liveCall(() =>
+      this.live.handleInbound(token, { headers: req.headers, body, ...(rawBody !== undefined && { rawBody }) }),
+    );
+    return { received };
+  }
+}
+
+interface InboundRequest {
+  headers: Record<string, string | string[] | undefined>;
+  body?: unknown;
+  rawBody?: Buffer;
 }

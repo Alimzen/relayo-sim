@@ -26,6 +26,11 @@ export interface SimConfig {
   publicUrl?: string;
   /** How the simulator sends its own email (password reset). Without it, links are logged instead. */
   mail?: { url: string; from: string };
+  /**
+   * Key that encrypts provider credentials (live mode). Required in production; development falls back to a
+   * fixed, insecure key so live mode can be tried locally.
+   */
+  secretsKey?: string;
 }
 
 export const SIM_CONFIG = Symbol.for('relayo-sim:config');
@@ -43,6 +48,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
     limits: { monthlyMessages: number(env.MONTHLY_MESSAGE_LIMIT, 0), messagesPerMinute: number(env.MESSAGES_PER_MINUTE, 0) },
     publicUrl: (env.PUBLIC_URL ?? `http://localhost:${number(env.PORT, 3000)}`).replace(/\/+$/, ''),
   };
+  if (env.SECRETS_KEY) config.secretsKey = env.SECRETS_KEY;
+  else if (env.NODE_ENV !== 'production') config.secretsKey = 'relayo-development-only-insecure-key';
   if (env.MAIL_URL) config.mail = { url: env.MAIL_URL, from: env.MAIL_FROM ?? 'Relayo Sim <no-reply@localhost>' };
   if (env.SMTP_PORT !== 'off') config.smtpPort = number(env.SMTP_PORT, 2525);
   if (env.DATABASE_URL) config.databaseUrl = env.DATABASE_URL;

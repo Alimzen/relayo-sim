@@ -13,7 +13,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AccountsService, SESSION_COOKIE } from '../accounts/accounts.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
-import type { Project, User } from '../domain.js';
+import type { Mode, Project, User } from '../domain.js';
 import { SimulationService } from '../simulation/simulation.service.js';
 
 /** Header the panel sends with the project it is working on. */
@@ -23,6 +23,8 @@ export const PROJECT_HEADER = 'x-relayo-project';
  * origin after a CORS preflight, so a page on another site cannot forge these requests with the cookie.
  */
 export const CLIENT_HEADER = 'x-relayo-client';
+/** Header the panel sends with the mode it is looking at: `test` (default) or `live`. API keys carry their own. */
+export const MODE_HEADER = 'x-relayo-mode';
 
 export interface AuthedRequest {
   method: string;
@@ -32,6 +34,8 @@ export interface AuthedRequest {
   user?: User;
   sessionHash?: string;
   auth?: 'key' | 'session';
+  /** Test or live: from the API key, or from the panel's mode header. */
+  mode?: Mode;
 }
 
 const SESSION_ONLY = 'relayo:session-only';
@@ -104,9 +108,10 @@ export class ProjectGuard implements CanActivate {
 
     if (key) {
       if (sessionOnly) throw new ForbiddenException('Sign in to the panel to manage keys and secrets');
-      const project = await this.sim.authenticate(key);
-      if (!project) throw new UnauthorizedException('Missing or invalid API key');
-      req.project = project;
+      const found = await this.sim.authenticateKey(key);
+      if (!found) throw new UnauthorizedException('Missing or invalid API key');
+      req.project = found.project;
+      req.mode = found.mode;
       req.auth = 'key';
       return true;
     }
@@ -116,6 +121,7 @@ export class ProjectGuard implements CanActivate {
     const project = await this.accounts.ownedProject(req.user!, header(req, PROJECT_HEADER));
     if (!project) throw new NotFoundException('Project not found');
     req.project = project;
+    req.mode = header(req, MODE_HEADER) === 'live' ? 'live' : 'test';
     req.auth = 'session';
     return true;
   }
@@ -146,4 +152,9 @@ export const CurrentUser = createParamDecorator(
 
 export const SessionHash = createParamDecorator(
   (_: unknown, context: ExecutionContext) => context.switchToHttp().getRequest<AuthedRequest>().sessionHash!,
+);
+
+/** The mode of the request: test (simulated) or live (real delivery). */
+export const CurrentMode = createParamDecorator(
+  (_: unknown, context: ExecutionContext) => context.switchToHttp().getRequest<AuthedRequest>().mode ?? 'test',
 );

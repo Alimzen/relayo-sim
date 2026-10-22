@@ -11,7 +11,18 @@ import {
 import { AccountsService } from './accounts/accounts.service.js';
 import { AuthController, ProjectsController } from './api/account.controllers.js';
 import { AdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
-import { AdminController, HealthController, MessagesController, ProjectController, ScenariosController, SmsController } from './api/controllers.js';
+import {
+  AdminController,
+  ConnectionsController,
+  HealthController,
+  InboundController,
+  MessagesController,
+  ProjectController,
+  ScenariosController,
+  SmsController,
+} from './api/controllers.js';
+import { LiveService } from './live/live.service.js';
+import { SecretBox } from './live/secrets.js';
 import { SIM_CONFIG, type SimConfig } from './config.js';
 import { infrastructure, type Infrastructure } from './infrastructure.js';
 import { EVENT_SCHEDULER, type EventScheduler } from './scheduler/scheduler.js';
@@ -112,6 +123,8 @@ export class AppModule {
         ProjectsController,
         MessagesController,
         SmsController,
+        ConnectionsController,
+        InboundController,
         ProjectController,
         AdminController,
       ],
@@ -140,6 +153,12 @@ export class AppModule {
               mailer: config.mail ? new SmtpMailer(config.mail.url, config.mail.from) : new LogMailer(),
             }),
           inject: [SIM_STORE, SimulationService],
+        },
+        {
+          provide: LiveService,
+          useFactory: (store: SimStore, dispatcher: WebhookDispatcher) =>
+            new LiveService(store, dispatcher, config.secretsKey ? new SecretBox(config.secretsKey) : undefined),
+          inject: [SIM_STORE, WEBHOOK_DISPATCHER],
         },
         ProjectGuard,
         SessionGuard,

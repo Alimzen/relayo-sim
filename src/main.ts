@@ -17,6 +17,8 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(config), {
     // Colors only in a terminal: in Docker/Dokploy logs they show up as escape codes.
     logger: new ConsoleLogger({ colors: Boolean(process.stdout.isTTY) }),
+    // Provider webhooks (live mode) are signed over the exact bytes received.
+    rawBody: true,
   });
   // Closes the SMTP server, queues and database on SIGTERM/SIGINT (Lifecycle in app.module).
   app.enableShutdownHooks();
@@ -60,6 +62,8 @@ async function bootstrap(): Promise<void> {
 
   // API sends carry attachments in base64: room for a 25 MB message.
   app.useBodyParser('json', { limit: '35mb' });
+  // Amazon SNS posts its JSON as text/plain.
+  app.useBodyParser('text', { type: 'text/plain', limit: '1mb' });
 
   // --- Landing and panel --------------------------------------------------------------------------
 
