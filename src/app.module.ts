@@ -162,7 +162,7 @@ export class AppModule {
           useFactory: (store: SimStore, dispatcher: WebhookDispatcher) => {
             const box = config.secretsKey ? new SecretBox(config.secretsKey) : undefined;
             const managed = config.managed && box ? new ManagedSending(store, box, config.managed) : undefined;
-            return new LiveService(store, dispatcher, box, managed);
+            return new LiveService(store, dispatcher, box, managed, config.publicUrl);
           },
           inject: [SIM_STORE, WEBHOOK_DISPATCHER],
         },

@@ -4,28 +4,34 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@alimzen/relayo': link:../relayo/packages/core
+
 dependencies:
   '@alimzen/relayo':
-    specifier: ^0.2.1
-    version: 0.2.1
+    specifier: link:../relayo/packages/core
+    version: link:../relayo/packages/core
   '@alimzen/relayo-mailgun':
     specifier: ^0.1.0
-    version: 0.1.0(@alimzen/relayo@0.2.1)
+    version: 0.1.0(@alimzen/relayo@relayo+packages+core)
   '@alimzen/relayo-postmark':
     specifier: ^0.1.0
-    version: 0.1.0(@alimzen/relayo@0.2.1)
+    version: 0.1.0(@alimzen/relayo@relayo+packages+core)
   '@alimzen/relayo-resend':
     specifier: ^0.1.0
-    version: 0.1.0(@alimzen/relayo@0.2.1)
+    version: 0.1.0(@alimzen/relayo@relayo+packages+core)
   '@alimzen/relayo-sendgrid':
     specifier: ^0.1.0
-    version: 0.1.0(@alimzen/relayo@0.2.1)
+    version: 0.1.0(@alimzen/relayo@relayo+packages+core)
   '@alimzen/relayo-ses':
     specifier: ^0.1.0
-    version: 0.1.0(@alimzen/relayo@0.2.1)
+    version: 0.1.0(@alimzen/relayo@relayo+packages+core)
   '@alimzen/relayo-smtp':
     specifier: ^0.2.1
-    version: 0.2.1(@alimzen/relayo@0.2.1)
+    version: 0.2.1(@alimzen/relayo@relayo+packages+core)
+  '@alimzen/relayo-twilio':
+    specifier: link:../relayo/packages/twilio
+    version: link:../relayo/packages/twilio
   '@nestjs/common':
     specifier: ^12
     version: 12.1.3(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -69,10 +75,10 @@ dependencies:
 devDependencies:
   '@alimzen/relayo-bounces':
     specifier: ^0.1.0
-    version: 0.1.0(@alimzen/relayo@0.2.1)
+    version: 0.1.0(@alimzen/relayo@relayo+packages+core)
   '@alimzen/relayo-simulator':
     specifier: ^0.1.1
-    version: 0.1.1(@alimzen/relayo@0.2.1)
+    version: 0.1.1(@alimzen/relayo@relayo+packages+core)
   '@nestjs/testing':
     specifier: ^12
     version: 12.1.3(@nestjs/common@12.1.3)(@nestjs/core@12.1.3)(@nestjs/platform-express@12.1.3)
@@ -106,83 +112,79 @@ devDependencies:
 
 packages:
 
-  /@alimzen/relayo-bounces@0.1.0(@alimzen/relayo@0.2.1):
+  /@alimzen/relayo-bounces@0.1.0(@alimzen/relayo@relayo+packages+core):
     resolution: {integrity: sha512-i0e1+6wi7CJIESsguTkJgBGAoYRkujpHmSytvxgNVpHDONNRmrhIz43393yj1pXSe1parhcLJDl4IZAwr8iSxQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/relayo': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': link:../relayo/packages/core
     dependencies:
-      '@alimzen/relayo': 0.2.1
+      '@alimzen/relayo': link:../relayo/packages/core
     dev: true
 
-  /@alimzen/relayo-mailgun@0.1.0(@alimzen/relayo@0.2.1):
+  /@alimzen/relayo-mailgun@0.1.0(@alimzen/relayo@relayo+packages+core):
     resolution: {integrity: sha512-cjNUQ/PgR76/KlFvoEonBUyXXfKJKCtccfKmRrwsn4aIIZ9UPHXv3uNui1ClwsuCmrZFUTJFfQq2axTQcdQ/WQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/relayo': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': link:../relayo/packages/core
     dependencies:
-      '@alimzen/relayo': 0.2.1
+      '@alimzen/relayo': link:../relayo/packages/core
     dev: false
 
-  /@alimzen/relayo-postmark@0.1.0(@alimzen/relayo@0.2.1):
+  /@alimzen/relayo-postmark@0.1.0(@alimzen/relayo@relayo+packages+core):
     resolution: {integrity: sha512-6O+P3sDYsWFqCx+gKKiPRmvDHkrQEk3VKUvKPQPShkN0qlaTJRWDM/ql0vLZP1oYQ5kf8bAEbZ+fqt09T7J8Sw==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/relayo': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': link:../relayo/packages/core
     dependencies:
-      '@alimzen/relayo': 0.2.1
+      '@alimzen/relayo': link:../relayo/packages/core
     dev: false
 
-  /@alimzen/relayo-resend@0.1.0(@alimzen/relayo@0.2.1):
+  /@alimzen/relayo-resend@0.1.0(@alimzen/relayo@relayo+packages+core):
     resolution: {integrity: sha512-dH86sRXwCSfpT45ESaPXdSAYitW7oMnt358Y4Wb4F7BhY0V8FT/57dV2UVIMeUT6x2M2hg3TzKHCcTUtEMoybg==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/relayo': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': link:../relayo/packages/core
     dependencies:
-      '@alimzen/relayo': 0.2.1
+      '@alimzen/relayo': link:../relayo/packages/core
     dev: false
 
-  /@alimzen/relayo-sendgrid@0.1.0(@alimzen/relayo@0.2.1):
+  /@alimzen/relayo-sendgrid@0.1.0(@alimzen/relayo@relayo+packages+core):
     resolution: {integrity: sha512-e731YcgdKC347ENgmIx5Xzy/XxGfXM87guKDCKqemy+hHnqcayElqijBo+OF+3jKFrrDfGBD/di2os1NHx07Wg==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/relayo': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': link:../relayo/packages/core
     dependencies:
-      '@alimzen/relayo': 0.2.1
+      '@alimzen/relayo': link:../relayo/packages/core
     dev: false
 
-  /@alimzen/relayo-ses@0.1.0(@alimzen/relayo@0.2.1):
+  /@alimzen/relayo-ses@0.1.0(@alimzen/relayo@relayo+packages+core):
     resolution: {integrity: sha512-iM5M/MyNYcJzwBHuL0/uA0WcroduSDczXqYOmpGLI0Rq7ZglmmkItF2PnWFimwe+FhoeZd1IslEteTqMOmLbTQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/relayo': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': link:../relayo/packages/core
     dependencies:
-      '@alimzen/relayo': 0.2.1
+      '@alimzen/relayo': link:../relayo/packages/core
       '@aws-sdk/client-sesv2': 3.1155.0
     dev: false
 
-  /@alimzen/relayo-simulator@0.1.1(@alimzen/relayo@0.2.1):
+  /@alimzen/relayo-simulator@0.1.1(@alimzen/relayo@relayo+packages+core):
     resolution: {integrity: sha512-qVMJaKCeIGs3AGCVXmSc76VOUku05tDqtgGJSyq39DP3g0/HQYU/WUwLH8KJOT+hqlPis90GSZlllpQlhaYArw==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/relayo': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': link:../relayo/packages/core
     dependencies:
-      '@alimzen/relayo': 0.2.1
+      '@alimzen/relayo': link:../relayo/packages/core
     dev: true
 
-  /@alimzen/relayo-smtp@0.2.1(@alimzen/relayo@0.2.1):
+  /@alimzen/relayo-smtp@0.2.1(@alimzen/relayo@relayo+packages+core):
     resolution: {integrity: sha512-l/il/x5H5CS8aM7nto9/LOBGddV/oyrKWorCjoz5hHc6URgILW6RXB884GMkStw8lpcEmXk4pD9bR5YWdF6cPQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@alimzen/relayo': '>=0.1.0 <1.0.0'
+      '@alimzen/relayo': link:../relayo/packages/core
     dependencies:
-      '@alimzen/relayo': 0.2.1
+      '@alimzen/relayo': link:../relayo/packages/core
       nodemailer: 10.1.7
     dev: false
-
-  /@alimzen/relayo@0.2.1:
-    resolution: {integrity: sha512-obouIHjFQLZYHfM2PdsyuOuH7R+eQDDXLv2pbtdT0SfeiUJLf6U58poU/mcNMh2bhDjLKhV1bisTKIrK06cwXg==}
-    engines: {node: '>=20'}
 
   /@aws-sdk/client-sesv2@3.1155.0:
     resolution: {integrity: sha512-OwGWcqGFZR6fdjVD4JoSJIsaK/t00Ab8BsvaHT4dERGNJlzNDrUMTqBcjX3XMaAiHcNTIFKaHqloFUE3FxMV/g==}

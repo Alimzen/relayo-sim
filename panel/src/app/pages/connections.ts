@@ -30,8 +30,8 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
         <div>
           <h1>Conexiones</h1>
           <p>
-            Tus cuentas de proveedor para el modo en vivo. Las claves <code>rly_live_…</code> entregan por la primera; si falla,
-            prueban la siguiente. Las credenciales se guardan cifradas.
+            Tus cuentas de proveedor para el modo en vivo. Las claves <code>rly_live_…</code> entregan por la primera de cada canal
+            (email o SMS); si falla, prueban la siguiente. Las credenciales se guardan cifradas.
           </p>
         </div>
         <button type="button" class="btn btn-primary" (click)="openCreate()"><svg lucidePlus [size]="15"></svg>Añadir conexión</button>
@@ -43,16 +43,20 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
         } @else if (connections()!.length === 0) {
           <app-empty heading="Sin conexiones">
             <svg icon lucidePlug [size]="20"></svg>
-            Conecta SES, SendGrid, Resend, Postmark, Mailgun o un servidor SMTP para enviar de verdad con una clave
+            Conecta SES, SendGrid, Resend, Postmark, Mailgun, un servidor SMTP o Twilio para enviar de verdad con una clave
             <a routerLink="/keys">en vivo</a>. Mientras tanto, las claves de prueba siguen simulando.
           </app-empty>
         } @else {
-          @for (c of connections(); track c.id; let i = $index; let last = $last) {
+          @for (group of groups(); track group.channel) {
+            @if (groups().length > 1) {
+              <h2 class="connection-group">{{ group.label }}</h2>
+            }
+          @for (c of group.items; track c.id; let i = $index; let last = $last) {
             <article class="connection">
               <div class="connection-order">
-                <button type="button" class="icon-button" [disabled]="i === 0" (click)="move(i, -1)" aria-label="Subir"><svg lucideArrowUp [size]="14"></svg></button>
+                <button type="button" class="icon-button" [disabled]="i === 0" (click)="move(group.items, i, -1)" aria-label="Subir"><svg lucideArrowUp [size]="14"></svg></button>
                 <span class="connection-rank">{{ i + 1 }}</span>
-                <button type="button" class="icon-button" [disabled]="last" (click)="move(i, 1)" aria-label="Bajar"><svg lucideArrowDown [size]="14"></svg></button>
+                <button type="button" class="icon-button" [disabled]="last" (click)="move(group.items, i, 1)" aria-label="Bajar"><svg lucideArrowDown [size]="14"></svg></button>
               </div>
               <div>
                 <div class="connection-title">
@@ -77,6 +81,7 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
                 <button type="button" class="icon-button" (click)="removing.set(c)" title="Eliminar" [attr.aria-label]="'Eliminar ' + c.name"><svg lucideTrash [size]="15"></svg></button>
               </div>
             </article>
+          }
           }
         }
       </section>
@@ -140,15 +145,24 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
 
     <app-modal [heading]="'Probar «' + (testing()?.name ?? '') + '»'" [open]="!!testing()" (closed)="testing.set(null)">
       <form (ngSubmit)="test()">
-        <p class="text-2 modal-lede">Se envía un correo real por esta conexión. El remitente debe ser de un dominio verificado en el proveedor.</p>
-        <div class="field">
-          <label for="test-from">Remitente</label>
-          <input id="test-from" class="input" type="email" name="from" required [(ngModel)]="testFrom" placeholder="no-reply@tudominio.com" />
-        </div>
-        <div class="field">
-          <label for="test-to">Para</label>
-          <input id="test-to" class="input" type="email" name="to" required [(ngModel)]="testTo" />
-        </div>
+        @if (testing()?.channel === 'sms') {
+          <p class="text-2 modal-lede">Se envía un SMS real por esta conexión, desde el número configurado en ella.</p>
+          <div class="field">
+            <label for="test-phone">Para</label>
+            <input id="test-phone" class="input" type="tel" name="phone" required [(ngModel)]="testPhone" placeholder="+34600111222" />
+            <span class="hint">En formato internacional, con el prefijo del país.</span>
+          </div>
+        } @else {
+          <p class="text-2 modal-lede">Se envía un correo real por esta conexión. El remitente debe ser de un dominio verificado en el proveedor.</p>
+          <div class="field">
+            <label for="test-from">Remitente</label>
+            <input id="test-from" class="input" type="email" name="from" required [(ngModel)]="testFrom" placeholder="no-reply@tudominio.com" />
+          </div>
+          <div class="field">
+            <label for="test-to">Para</label>
+            <input id="test-to" class="input" type="email" name="to" required [(ngModel)]="testTo" />
+          </div>
+        }
         <div class="modal-actions">
           <button type="button" class="btn" (click)="testing.set(null)">Cancelar</button>
           <button type="submit" class="btn btn-primary" [disabled]="busy()"><svg lucideSend [size]="14"></svg>Enviar prueba</button>
@@ -174,6 +188,14 @@ export class ConnectionsPage {
   private readonly session = inject(Session);
   protected readonly origin = location.origin;
   protected readonly connections = signal<Connection[] | null>(null);
+  /** Each channel has its own failover order. */
+  protected readonly groups = computed(() => {
+    const all = this.connections() ?? [];
+    return [
+      { channel: 'email', label: 'Email', items: all.filter((c) => c.channel !== 'sms') },
+      { channel: 'sms', label: 'SMS', items: all.filter((c) => c.channel === 'sms') },
+    ].filter((g) => g.items.length);
+  });
   protected readonly providers = signal<Provider[]>([]);
   protected readonly providerName = signal('ses');
   protected readonly spec = computed(() =>
@@ -190,6 +212,7 @@ export class ConnectionsPage {
   protected values: Record<string, string> = {};
   protected testFrom = '';
   protected testTo = this.session.user()?.email ?? '';
+  protected testPhone = '';
 
   constructor() {
     void this.load();
@@ -212,6 +235,8 @@ export class ConnectionsPage {
         return `${s['region']} · ${s['accessKeyId']}${s['configurationSetName'] ? ` · ${s['configurationSetName']}` : ' · sin configuration set (sin eventos)'}`;
       case 'mailgun':
         return `${s['domain']} · región ${s['region'] ?? 'us'}`;
+      case 'twilio':
+        return `${s['accountSid']} · ${s['messagingServiceSid'] ? `Messaging Service ${s['messagingServiceSid']}` : s['from']}`;
       default:
         return Object.entries(s).map(([k, v]) => `${k}: ${v}`).join(' · ') || 'Credenciales guardadas';
     }
@@ -257,11 +282,12 @@ export class ConnectionsPage {
     });
   }
 
-  protected async move(index: number, step: -1 | 1): Promise<void> {
-    const list = [...(this.connections() ?? [])];
+  protected async move(group: Connection[], index: number, step: -1 | 1): Promise<void> {
+    const list = [...group];
     const [item] = list.splice(index, 1);
     list.splice(index + step, 0, item!);
-    this.connections.set(list);
+    const moved = new Set(list.map((c) => c.id));
+    this.connections.update((all) => [...(all ?? []).filter((c) => !moved.has(c.id)), ...list]);
     await this.run(() => this.api.reorderConnections(list.map((c) => c.id)));
   }
 
@@ -269,9 +295,10 @@ export class ConnectionsPage {
     const connection = this.testing();
     if (!connection) return;
     await this.run(async () => {
-      await this.api.testConnection(connection.id, { to: this.testTo.trim(), from: this.testFrom.trim() });
+      const sms = connection.channel === 'sms';
+      await this.api.testConnection(connection.id, sms ? { to: this.testPhone.trim() } : { to: this.testTo.trim(), from: this.testFrom.trim() });
       this.testing.set(null);
-      this.toasts.show('Prueba enviada: revisa la bandeja de entrada');
+      this.toasts.show(sms ? 'Prueba enviada: revisa el teléfono' : 'Prueba enviada: revisa la bandeja de entrada');
     });
   }
 

@@ -87,7 +87,7 @@ export class Api {
     this.call<Connection>('PATCH', `/v1/project/connections/${encodeURIComponent(id)}`, body);
   deleteConnection = (id: string) => this.call<void>('DELETE', `/v1/project/connections/${encodeURIComponent(id)}`);
   reorderConnections = (ids: string[]) => this.call<void>('POST', '/v1/project/connections/order', { ids });
-  testConnection = (id: string, body: { to: string; from: string }) =>
+  testConnection = (id: string, body: { to: string; from?: string }) =>
     this.call<{ id: string }>('POST', `/v1/project/connections/${encodeURIComponent(id)}/test`, body);
   domains = () => this.call<{ available: boolean; data: SendingDomain[] }>('GET', '/v1/project/domains');
   addDomain = (domain: string) => this.call<SendingDomain>('POST', '/v1/project/domains', { domain });

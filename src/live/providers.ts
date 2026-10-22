@@ -1,10 +1,11 @@
-import { ValidationError, type Driver, type EmailMessage } from '@alimzen/relayo';
+import { ValidationError, type Driver, type EmailMessage, type SmsMessage } from '@alimzen/relayo';
 import { mailgun } from '@alimzen/relayo-mailgun';
 import { postmark } from '@alimzen/relayo-postmark';
 import { resend } from '@alimzen/relayo-resend';
 import { sendgrid } from '@alimzen/relayo-sendgrid';
 import { ses } from '@alimzen/relayo-ses';
 import { smtp } from '@alimzen/relayo-smtp';
+import { twilio } from '@alimzen/relayo-twilio';
 import type { Connection, ProviderName } from '../domain.js';
 
 /** One field of a provider's connection form. Secret fields are encrypted and never sent back to the panel. */
@@ -105,6 +106,21 @@ export const PROVIDERS: readonly ProviderSpec[] = [
     ],
     webhooks: { supported: false, help: 'SMTP no envía eventos: los rebotes llegan por correo al remitente (puedes leerlos con @alimzen/relayo-imap).' },
   },
+  {
+    name: 'twilio',
+    label: 'Twilio (SMS)',
+    channel: 'sms',
+    fields: [
+      { key: 'accountSid', label: 'Account SID', required: true, placeholder: 'AC…' },
+      { key: 'authToken', label: 'Auth token', required: true, secret: true },
+      { key: 'from', label: 'Número o remitente', placeholder: '+15550001111', help: 'El número de Twilio que envía, o un remitente alfanumérico.' },
+      { key: 'messagingServiceSid', label: 'Messaging Service SID', placeholder: 'MG…', help: 'En lugar de un número: envía por un Messaging Service.' },
+    ],
+    webhooks: {
+      supported: true,
+      help: 'Relayo indica a Twilio esta URL en cada envío (StatusCallback). Para recibir las bajas (STOP), ponla también como webhook de mensajes entrantes de tu número.',
+    },
+  },
 ];
 
 export const PROVIDERS_BY_NAME = new Map(PROVIDERS.map((p) => [p.name, p]));
@@ -146,9 +162,24 @@ export function splitValues(
  * The library driver for a connection. Its name is the connection id, so a send result (or a failover
  * attempt) says exactly which connection delivered.
  */
-export function buildDriver(connection: Connection, values: Record<string, string>): Driver<EmailMessage> {
+export function buildDriver(
+  connection: Connection,
+  values: Record<string, string>,
+  /** Public URL of the connection's inbound endpoint, for providers told per message (Twilio). */
+  statusCallback?: string,
+): Driver<EmailMessage> | Driver<SmsMessage> {
   const name = connection.id;
   switch (connection.provider) {
+    case 'twilio':
+      if (!values.from && !values.messagingServiceSid) throw new ValidationError('Indica el número de envío o un Messaging Service SID');
+      return twilio({
+        name,
+        accountSid: values.accountSid!,
+        authToken: values.authToken!,
+        ...(values.from && { from: values.from }),
+        ...(values.messagingServiceSid && { messagingServiceSid: values.messagingServiceSid }),
+        ...(statusCallback && { statusCallback }),
+      });
     case 'ses':
       return ses({
         name,

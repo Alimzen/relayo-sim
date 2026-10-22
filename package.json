@@ -36,7 +36,8 @@
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "smtp-server": "^3.20.1"
+    "smtp-server": "^3.20.1",
+    "@alimzen/relayo-twilio": "link:../relayo/packages/twilio"
   },
   "devDependencies": {
     "@alimzen/relayo-bounces": "^0.1.0",
@@ -51,5 +52,10 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9",
     "vitest": "^2.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "@alimzen/relayo": "link:../relayo/packages/core"
+    }
   }
 }

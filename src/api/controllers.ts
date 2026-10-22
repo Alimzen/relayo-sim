@@ -123,13 +123,15 @@ const SENDER = /^(\+[1-9]\d{7,14}|[A-Za-z0-9 ]{1,11})$/;
 @Controller('v1/sms')
 @UseGuards(ProjectGuard)
 export class SmsController {
-  constructor(@Inject(SimulationService) private readonly sim: SimulationService) {}
+  constructor(
+    @Inject(SimulationService) private readonly sim: SimulationService,
+    @Inject(LiveService) private readonly live: LiveService,
+  ) {}
 
   /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
   @Post()
   @HttpCode(202)
   async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendSmsBody) {
-    if (mode === 'live') throw new BadRequestException('Live SMS needs an SMS connection, which is not available yet: use a test key');
     const to = (Array.isArray(body?.to) ? body.to : [body?.to]).map((a) => addressOf(a as Address)?.trim());
     if (!to.length || to.some((n) => !n || !PHONE.test(n))) {
       throw new BadRequestException('"to" must contain phone numbers in E.164 format, e.g. +12015550100');
@@ -147,6 +149,20 @@ export class SmsController {
     } catch (error) {
       if (error instanceof QuotaExceededError) throw new HttpException({ statusCode: 429, message: error.message }, 429);
       throw error;
+    }
+
+    if (mode === 'live') {
+      const live = await liveCall(() =>
+        this.live.sendSms(project, {
+          ...(body.from?.trim() && { from: body.from.trim() }),
+          to: to as string[],
+          body: body.body,
+          ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
+          ...(body.metadata && { metadata: body.metadata }),
+          ...(body.tags && { tags: body.tags }),
+        }),
+      );
+      return { id: live.id, status: 'queued', recipients: live.recipients };
     }
 
     const message = await this.sim.acceptSms(project, {
@@ -583,7 +599,13 @@ export class InboundController {
     const rawBody = req.rawBody ?? (typeof req.body === 'string' ? req.body : undefined);
     const body = typeof req.body === 'string' && req.body.trim().startsWith('{') ? JSON.parse(req.body) : req.body;
     const received = await liveCall(() =>
-      this.live.handleInbound(token, { headers: req.headers, body, ...(rawBody !== undefined && { rawBody }) }),
+      this.live.handleInbound(token, {
+        headers: req.headers,
+        body,
+        ...(rawBody !== undefined && { rawBody }),
+        // Twilio signs the URL it called, and carries the message id in its query.
+        ...(req.originalUrl && { url: req.originalUrl }),
+      }),
     );
     return { received };
   }
@@ -591,6 +613,7 @@ export class InboundController {
 
 interface InboundRequest {
   headers: Record<string, string | string[] | undefined>;
+  originalUrl?: string;
   body?: unknown;
   rawBody?: Buffer;
 }

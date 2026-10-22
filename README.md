@@ -88,6 +88,25 @@ El campo `scenario` elige el escenario para todos los destinatarios. En la libre
 `scenarioNumber()` de `@alimzen/relayo-simulator`. El panel muestra los SMS junto a los correos (filtro por canal) y
 tiene su pestaña en Escenarios para enviar pruebas.
 
+## Modo en vivo
+
+Relayo también es un proveedor: el mismo proyecto tiene claves de prueba (`rly_test_…`, simulan) y en vivo
+(`rly_live_…`, entregan de verdad), por la API, por SMTP y con `@alimzen/relayo-cloud`. El panel cambia entre los
+dos modos con el selector de la barra (cabecera `X-Relayo-Mode`); cada clave lleva el suyo.
+
+- **Conexiones**: las cuentas de proveedor del proyecto. Email: SES, SendGrid, Resend, Postmark, Mailgun o SMTP;
+  SMS: Twilio. Cada canal entrega por la primera conexión y, si falla, prueba la siguiente (orden editable). Las
+  credenciales se guardan cifradas (AES-256-GCM con `SECRETS_KEY`).
+- **Eventos**: cada conexión tiene su URL de eventos (`/v1/inbound/<token>`) para configurarla en el proveedor. Los
+  eventos se normalizan, llevan el `messageId` y la `metadata` del envío y llegan al webhook del proyecto como los
+  simulados. Con Twilio, Relayo pone esa URL como `StatusCallback` en cada SMS (por eso necesita `PUBLIC_URL`);
+  para recibir las bajas (STOP), configúrala también como webhook de mensajes entrantes del número.
+- **Supresiones**: los rebotes duros, las quejas y las bajas añaden la dirección o el número a la lista del
+  proyecto, y los envíos siguientes a ella se rechazan (`rejected` / `suppressed`) sin llegar al proveedor.
+- **Envío de Relayo** (opcional, `MANAGED_SMTP_URL`): Relayo entrega por su propio relay, firmando con DKIM el
+  dominio del remitente, que se verifica en Dominios (registros DKIM y SPF). Límite diario por proyecto, y pausa si
+  los rebotes duros pasan del 5 % o las quejas del 0,3 %.
+
 ## Bandeja de captura
 
 El simulador guarda cada correo completo (el MIME tal cual llega por SMTP; por la API, el que habría enviado un
@@ -156,6 +175,10 @@ ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim 
 | `MONTHLY_MESSAGE_LIMIT` / `MESSAGES_PER_MINUTE` | 0 / 0 | Límites por proyecto (`0` = sin límite). Al pasarlos: HTTP 429; SMTP 452 (mes) o 421 (ritmo) |
 | `PUBLIC_URL` | `http://localhost:PORT` | Dirección pública, para el enlace del correo de recuperación de contraseña |
 | `MAIL_URL` / `MAIL_FROM` | — | SMTP para los correos del propio simulador (recuperar contraseña). Sin él, el enlace sale en el log |
+| `SECRETS_KEY` | — | Clave para cifrar las credenciales de las conexiones. Sin ella no se pueden crear (en desarrollo, una clave fija). No cambiarla: las credenciales guardadas dejarían de leerse |
+| `MANAGED_SMTP_URL` | — | Relay del envío de Relayo (p. ej. SMTP de Amazon SES). Sin él, la opción no aparece |
+| `MANAGED_SPF_INCLUDE` / `MANAGED_DAILY_LIMIT` | — / 200 | `include:` del SPF que se pide publicar, y envíos al día por proyecto |
+| `MANAGED_EVENTS_TOKEN` | — | Token de `/v1/inbound/managed/<token>`, donde SNS publica los eventos del relay |
 
 ## Despliegue
 
@@ -198,7 +221,8 @@ En Dokploy la aplicación usa la imagen `ghcr.io/alimzen/relayo-sim:latest` (con
 paquete es privado), Traefik pone el HTTPS y hay que configurar:
 
 - Variables: `DATABASE_URL`, `REDIS_URL`, `PUBLIC_URL=https://relayo.alimzen.com`, `TRUST_PROXY=1`, `ADMIN_TOKEN`,
-  `MONTHLY_MESSAGE_LIMIT`, `MESSAGES_PER_MINUTE`, `RETENTION_DAYS`, `MAIL_URL`, `MAIL_FROM` (ver `deploy/.env.example`).
+  `MONTHLY_MESSAGE_LIMIT`, `MESSAGES_PER_MINUTE`, `RETENTION_DAYS`, `MAIL_URL`, `MAIL_FROM`, `SECRETS_KEY` y, para el
+  envío de Relayo, `MANAGED_*` (ver `deploy/.env.example`).
 - Dominio `relayo.alimzen.com` al puerto 3000 del contenedor.
 - Puertos publicados 587 y 2525 → 2525 del contenedor (SMTP). Sin `TLS_KEY_FILE`/`TLS_CERT_FILE` el SMTP no ofrece
   STARTTLS (los certificados de Traefik no son accesibles desde el contenedor).

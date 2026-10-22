@@ -2028,6 +2028,18 @@ pre {
   border-bottom: 0;
 }
 
+.connection-group {
+  margin: 0;
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
 .connection-order {
   display: flex;
   flex-direction: column;

@@ -10,6 +10,7 @@ import {
   type EmailMessage,
   type Recipient,
   type RelayoEvent,
+  type SmsMessage,
   type WebhookRequest,
 } from '@alimzen/relayo';
 import type { Connection, Project, SimEvent, SimMessage, SuppressionReason } from '../domain.js';
@@ -71,6 +72,8 @@ export class LiveService {
     private readonly box: SecretBox | undefined,
     /** Relayo's own relay, when the platform offers it. */
     readonly managed?: ManagedSending,
+    /** Public address of this server, for the status callbacks of providers told per message (Twilio). */
+    private readonly publicUrl?: string,
   ) {}
 
   /** The providers a project can connect here, Relayo's own sending first when it is offered. */
@@ -219,6 +222,14 @@ export class LiveService {
   }
 
   private driverFor(connection: Connection): Driver<EmailMessage> {
+    return this.anyDriver(connection) as Driver<EmailMessage>;
+  }
+
+  private smsDriverFor(connection: Connection): Driver<SmsMessage> {
+    return this.anyDriver(connection) as Driver<SmsMessage>;
+  }
+
+  private anyDriver(connection: Connection): Driver<EmailMessage> | Driver<SmsMessage> {
     if (connection.provider === 'managed') {
       if (!this.managed) throw new LiveError('El envío de Relayo no está disponible en este servidor', 503);
       return this.managed.driver(connection);
@@ -230,7 +241,8 @@ export class LiveService {
       if (error instanceof LiveError) throw error;
       throw new LiveError(`No se pueden leer las credenciales de «${connection.name}»: vuelve a introducirlas.`, 500);
     }
-    return buildDriver(connection, { ...connection.settings, ...secrets });
+    const statusCallback = this.publicUrl ? `${this.publicUrl}/v1/inbound/${connection.inboundToken}` : undefined;
+    return buildDriver(connection, { ...connection.settings, ...secrets }, statusCallback);
   }
 
   private validate<T>(fn: () => T): T {
@@ -332,6 +344,79 @@ export class LiveService {
     }
   }
 
+  /**
+   * Delivers an SMS through the project's SMS connections, like `sendEmail`: priority order with failover,
+   * suppressed numbers dropped with a `rejected` event.
+   */
+  async sendSms(
+    project: Project,
+    input: { from?: string; to: string[]; body: string; relayoMessageId?: string; metadata?: Record<string, string>; tags?: string[] },
+    only?: Connection,
+  ): Promise<SimMessage> {
+    const connections = only ? [only] : await this.store.listConnections(project.id, 'sms');
+    if (!connections.length) {
+      throw new LiveError('Este proyecto no tiene conexiones de SMS para el modo en vivo: añade una (Twilio) en Conexiones.', 400);
+    }
+    const everyone = unique(input.to);
+    const blocked = await this.store.suppressed(project.id, everyone);
+    const stored: SimMessage = {
+      id: `sim_${randomUUID()}`,
+      projectId: project.id,
+      mode: 'live',
+      channel: 'sms',
+      via: 'api',
+      from: input.from ?? '',
+      body: input.body,
+      recipients: everyone.map((address) => ({ address, scenario: { name: 'live', source: 'default' } })),
+      subject: '',
+      createdAt: new Date(),
+      ...(input.relayoMessageId && { relayoMessageId: input.relayoMessageId }),
+      ...(input.metadata && { metadata: input.metadata }),
+      ...(input.tags?.length && { tags: input.tags }),
+    };
+    await this.store.saveMessage(stored);
+
+    const events: SimEvent[] = everyone
+      .filter((n) => blocked.has(n.toLowerCase()))
+      .map((n) => this.event(stored, n, 'rejected', 'suppressed', { reason: 'suppressed', diagnostic: 'The number is on the project suppression list' }));
+    const sendable = everyone.filter((n) => !blocked.has(n.toLowerCase()));
+    if (!sendable.length) {
+      await this.record(project, events);
+      return stored;
+    }
+
+    const drivers = connections.map((c) => this.smsDriverFor(c)) as [Driver<SmsMessage>, ...Driver<SmsMessage>[]];
+    const driver = drivers.length === 1 ? drivers[0] : failover(drivers, { name: 'relayo' });
+    const relayo = createRelayo({ sms: driver, generateId: () => stored.id });
+    try {
+      const result = await relayo.sms.send({
+        to: sendable.map((address) => ({ address })),
+        body: input.body,
+        ...(input.from && { from: input.from }),
+        ...(input.metadata && { metadata: input.metadata }),
+      });
+      const connection = connections.find((c) => c.id === result.provider) ?? connections[0]!;
+      const delivery = { connectionId: connection.id, provider: connection.provider, ...(result.providerMessageId && { providerMessageId: result.providerMessageId }) };
+      await this.store.setDelivery(project.id, stored.id, delivery);
+      stored.delivery = delivery;
+      const refused = new Set((result.rejectedRecipients ?? []).map((a) => a.toLowerCase()));
+      for (const number of sendable) {
+        events.push(
+          refused.has(number.toLowerCase())
+            ? this.event(stored, number, 'rejected', 'refused', { reason: 'invalid_recipient', diagnostic: 'Refused by the provider' })
+            : this.event(stored, number, 'accepted', 'accepted', {}, { delivery }),
+        );
+      }
+      await this.record(project, events);
+      return stored;
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      for (const number of sendable) events.push(this.event(stored, number, 'failed', 'failed', { diagnostic: text }));
+      await this.record(project, events);
+      throw toLiveError(error);
+    }
+  }
+
   /** Sends a short real email through one connection, to check its credentials. */
   async testConnection(project: Project, id: string, input: { to?: unknown; from?: unknown }): Promise<SimMessage> {
     const connection = await this.store.getConnection(project.id, id);
@@ -339,6 +424,10 @@ export class LiveService {
     const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const to = typeof input.to === 'string' ? input.to.trim() : '';
     const from = typeof input.from === 'string' ? input.from.trim() : '';
+    if (connection.channel === 'sms') {
+      if (!/^\+[1-9]\d{6,14}$/.test(to)) throw new LiveError('Introduce un número en formato internacional (+34600111222) como destinatario de la prueba', 400);
+      return this.sendSms(project, { to: [to], body: 'Prueba de Relayo: la conexión funciona.', ...(from && { from }) }, connection);
+    }
     if (!email.test(to)) throw new LiveError('Introduce un email válido como destinatario de la prueba', 400);
     // The sender must be one the provider accepts (a verified domain or address there).
     if (!email.test(from)) throw new LiveError('Introduce un remitente válido, de un dominio verificado en el proveedor', 400);
@@ -369,7 +458,7 @@ export class LiveService {
     if (!connection) throw new LiveError('Not found', 404);
     const project = await this.store.getProject(connection.projectId);
     if (!project) throw new LiveError('Not found', 404);
-    const driver = this.driverFor(connection);
+    const driver = this.anyDriver(connection);
     if (!driver.parseWebhook) throw new LiveError('This provider does not send webhooks', 400);
     if (driver.verifyWebhook && !(await driver.verifyWebhook(req))) throw new LiveError('Invalid webhook signature', 401);
 
@@ -377,7 +466,12 @@ export class LiveService {
     const events: SimEvent[] = [];
     for (const upstream of parsed) {
       // Drivers report our message id (we attached it when sending); events of other mail are ignored.
-      const message = await this.store.getMessage(project.id, upstream.messageId);
+      const message = upstream.messageId ? await this.store.getMessage(project.id, upstream.messageId) : undefined;
+      // An opt-out reply (SMS STOP) belongs to no message, but still suppresses the number.
+      if (!message && upstream.type === 'unsubscribed' && upstream.recipient) {
+        await this.applySuppression(project, upstream);
+        continue;
+      }
       if (!message || message.mode !== 'live') continue;
       events.push(this.fromUpstream(message, upstream, connection));
       await this.applySuppression(project, upstream);

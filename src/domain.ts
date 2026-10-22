@@ -20,7 +20,7 @@ export interface Session {
 }
 
 /** Providers a project can connect for live delivery. `managed` is Relayo's own sending (verified domains). */
-export type ProviderName = 'smtp' | 'ses' | 'sendgrid' | 'resend' | 'postmark' | 'mailgun' | 'managed';
+export type ProviderName = 'smtp' | 'ses' | 'sendgrid' | 'resend' | 'postmark' | 'mailgun' | 'twilio' | 'managed';
 
 /** A provider account of a project, used for live delivery. */
 export interface Connection {
