@@ -4,7 +4,9 @@ import { NestFactory } from '@nestjs/core';
 import type { AddressInfo } from 'node:net';
 import { SMTPServer } from 'smtp-server';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { AppModule } from '../src/app.module.js';
+import { createRelayo } from '@alimzen/relayo';
+import { smtp } from '@alimzen/relayo-smtp';
+import { AppModule, Lifecycle } from '../src/app.module.js';
 import { webhookReceiver } from './helpers.js';
 
 /** An SMTP server standing in for the customer's provider: it records what it receives. */
@@ -80,7 +82,7 @@ beforeAll(async () => {
   provider = await fakeProvider();
   hooks = await webhookReceiver();
   app = await NestFactory.create(
-    AppModule.forRoot({ httpPort: 0, host: '127.0.0.1', timeScale: 0, maxHangMs: 300, signup: true, secureCookies: false, secretsKey: 'live-test-key' }),
+    AppModule.forRoot({ httpPort: 0, smtpPort: 0, host: '127.0.0.1', timeScale: 0, maxHangMs: 300, signup: true, secureCookies: false, secretsKey: 'live-test-key' }),
     { logger: false },
   );
   await app.listen(0, '127.0.0.1');
@@ -205,6 +207,32 @@ describe('live mode', () => {
     expect(response.status).toBe(201);
     expect(provider.received.at(-1)).toMatchObject({ to: ['yo@empresa.com'] });
     expect((await panel('POST', `/v1/project/connections/${working.id}/test`, { to: 'yo@empresa.com' })).status).toBe(400);
+  });
+
+  it('relays SMTP sends of live keys through the providers, Bcc included', async () => {
+    const port = app.get(Lifecycle).smtpPort!;
+    const relayo = createRelayo({
+      email: smtp({ host: '127.0.0.1', port, secure: false, ignoreTLS: true, auth: { user: 'apikey', pass: liveKey } }),
+      generateId: () => 'msg_live_smtp',
+    });
+    const before = provider.received.length;
+    await relayo.email.send({
+      from: { address: 'facturas@empresa.com' },
+      to: { address: 'luis@cliente.com', name: 'Luis' },
+      bcc: [{ address: 'archivo@empresa.com' }],
+      subject: 'Por SMTP en vivo',
+      html: '<p>Hola</p>',
+      metadata: { pedido: '9' },
+    });
+
+    expect(provider.received.length).toBe(before + 1);
+    const delivered = provider.received.at(-1)!;
+    expect(delivered.to.sort()).toEqual(['archivo@empresa.com', 'luis@cliente.com']);
+    expect(delivered.raw).not.toMatch(/^Bcc:/m);
+    expect(delivered.raw).toContain('Subject: Por SMTP en vivo');
+    await vi.waitFor(() =>
+      expect(hooks.events.find((e) => e.messageId === 'msg_live_smtp')).toMatchObject({ type: 'accepted', metadata: { pedido: '9' } }),
+    );
   });
 
   it('only lets a signed-in person manage connections', async () => {

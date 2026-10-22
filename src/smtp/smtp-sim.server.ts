@@ -1,7 +1,9 @@
 import type { AddressInfo } from 'node:net';
 import { SMTPServer } from 'smtp-server';
 import { quotedHeaders, readHeaders } from '../capture/capture.js';
-import type { Project } from '../domain.js';
+import type { Mode, Project } from '../domain.js';
+import { LiveError, type LiveService } from '../live/live.service.js';
+import { emailFromMime } from '../live/parse.js';
 import type { SmtpReply } from '../scenarios/catalog.js';
 import type { ResolvedScenario } from '../scenarios/resolve.js';
 import { QuotaExceededError, type SimulationService } from '../simulation/simulation.service.js';
@@ -15,12 +17,18 @@ export interface SmtpSimOptions {
   maxSize?: number;
   /** PEM key and certificate to offer STARTTLS. Without them the server is plain text (local use only). */
   tls?: { key: string; cert: string };
+  /** Real delivery for live keys. Without it, live keys are refused over SMTP. */
+  live?: LiveService;
 }
 
 interface SessionState {
   project: Project;
+  /** Test keys play scenarios; live keys relay the message through the project's connections. */
+  mode: Mode;
   from: string;
   accepted: Array<{ address: string; outcome: ResolvedScenario }>;
+  /** Live mode: every recipient is accepted, the provider decides. */
+  liveRecipients: string[];
 }
 
 const MESSAGE_ID_HEADER = 'x-relayo-message-id';
@@ -48,11 +56,12 @@ export class SmtpSimServer {
       size: options.maxSize ?? 25 * 1024 * 1024,
 
       onAuth: (auth, session, callback) => {
-        void this.sim.authenticate(auth.password ?? '').then(
-          (project) => {
-            if (!project) return callback(smtpError(535, '5.7.8', 'Invalid API key'));
-            this.sessions.set(session.id, { project, from: '', accepted: [] });
-            callback(null, { user: project.id });
+        void this.sim.authenticateKey(auth.password ?? '').then(
+          (found) => {
+            if (!found) return callback(smtpError(535, '5.7.8', 'Invalid API key'));
+            if (found.mode === 'live' && !this.options.live) return callback(smtpError(535, '5.7.8', 'Live keys are not available over SMTP here'));
+            this.sessions.set(session.id, { project: found.project, mode: found.mode, from: '', accepted: [], liveRecipients: [] });
+            callback(null, { user: found.project.id });
           },
           (error: Error) => callback(error),
         );
@@ -66,6 +75,7 @@ export class SmtpSimServer {
           () => {
             state.from = address.address;
             state.accepted = [];
+            state.liveRecipients = [];
             callback();
           },
           (error: Error) =>
@@ -82,6 +92,10 @@ export class SmtpSimServer {
       onRcptTo: (address, session, callback) => {
         const state = this.sessions.get(session.id);
         if (!state) return callback(smtpError(530, '5.7.0', 'Authentication required'));
+        if (state.mode === 'live') {
+          state.liveRecipients.push(address.address);
+          return callback();
+        }
         void this.sim.smtpRecipient(state.project, state.from, address.address).then(
           async ({ outcome, reply }) => {
             if (reply && reply !== 'hang') {
@@ -105,6 +119,13 @@ export class SmtpSimServer {
             return callback(smtpError(552, '5.3.4', 'Message size exceeds fixed maximum message size'));
           }
           const raw = Buffer.concat(chunks);
+          if (state.mode === 'live') {
+            void this.relay(state, raw).then(
+              () => callback(),
+              (error: Error) => callback(error),
+            );
+            return;
+          }
           const headers = readHeaders(raw.toString('utf8'));
           void this.handleData(state, headers, raw).then(
             (reply) => this.answer(reply, callback),
@@ -117,6 +138,28 @@ export class SmtpSimServer {
         this.sessions.delete(session.id);
       },
     });
+  }
+
+  /** Live mode: hands the message to the project's providers, and answers with their outcome. */
+  private async relay(state: SessionState, raw: Buffer): Promise<void> {
+    const { message, relayoMessageId } = await emailFromMime(raw, { from: state.from, to: state.liveRecipients });
+    try {
+      await this.options.live!.sendEmail(state.project, {
+        via: 'smtp',
+        raw,
+        headers: quotedHeaders(readHeaders(raw.toString('utf8'))),
+        message,
+        ...(relayoMessageId && { relayoMessageId }),
+      });
+    } catch (error) {
+      if (!(error instanceof LiveError)) throw error;
+      // 4xx: the client may retry later (provider down or throttling); 5xx: it should not.
+      throw error.status === 429 || error.status >= 500
+        ? smtpError(451, '4.3.0', error.message)
+        : smtpError(554, '5.7.0', error.message);
+    } finally {
+      state.liveRecipients = [];
+    }
   }
 
   private async handleData(state: SessionState, headers: Map<string, string>, raw: Buffer) {

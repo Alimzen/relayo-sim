@@ -49,6 +49,7 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
     @Inject(SIM_CONFIG) private readonly config: SimConfig,
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(INFRASTRUCTURE) private readonly infra: Infrastructure,
+    @Inject(LiveService) private readonly live: LiveService,
     @Inject(SIM_STORE) private readonly store: SimStore,
   ) {}
 
@@ -85,6 +86,7 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
       port: this.config.smtpPort,
       host: this.config.host,
       maxHangMs: this.config.maxHangMs,
+      live: this.live,
       ...(initial && { tls: initial }),
     });
     if (tls && 'keyFile' in tls) {
