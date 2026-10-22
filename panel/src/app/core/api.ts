@@ -2,11 +2,18 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { ApiKey, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { ApiKey, Connection, Provider, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
 export const PROJECT_HEADER = 'X-Relayo-Project';
+export const MODE_HEADER = 'X-Relayo-Mode';
+
+let currentMode: 'test' | 'live' = 'test';
+/** The mode the panel shows: test (simulated) or live (real delivery). Set by the session. */
+export function setCurrentMode(mode: 'test' | 'live'): void {
+  currentMode = mode;
+}
 
 /** Error with the API's own message, ready to show. */
 export class ApiError extends Error {
@@ -29,6 +36,7 @@ export const panelInterceptor: HttpInterceptorFn = (req, next) => {
   const router = inject(Router);
   const headers: Record<string, string> = { [CLIENT_HEADER]: 'panel' };
   if (currentProjectId && !req.headers.has(PROJECT_HEADER)) headers[PROJECT_HEADER] = currentProjectId;
+  if (!req.headers.has(MODE_HEADER)) headers[MODE_HEADER] = currentMode;
   return next(req.clone({ setHeaders: headers, withCredentials: true })).pipe(
     tap({
       error: (error: unknown) => {
@@ -68,7 +76,22 @@ export class Api {
   usage = () => this.call<ProjectUsage>('GET', '/v1/project/usage');
   stats = (days: number) => this.call<ProjectStats>('GET', `/v1/project/stats?days=${days}`);
   keys = () => this.call<{ data: ApiKey[] }>('GET', '/v1/project/keys').then((r) => r.data);
-  createKey = (name: string) => this.call<ApiKey & { apiKey: string }>('POST', '/v1/project/keys', { name });
+  createKey = (name: string, mode: 'test' | 'live') => this.call<ApiKey & { apiKey: string }>('POST', '/v1/project/keys', { name, mode });
+
+  // Live delivery
+  providers = () => this.call<{ data: Provider[] }>('GET', '/v1/project/providers').then((r) => r.data);
+  connections = () => this.call<{ data: Connection[] }>('GET', '/v1/project/connections').then((r) => r.data);
+  createConnection = (body: { name: string; provider: string; values: Record<string, string> }) =>
+    this.call<Connection>('POST', '/v1/project/connections', body);
+  updateConnection = (id: string, body: { name?: string; values?: Record<string, string> }) =>
+    this.call<Connection>('PATCH', `/v1/project/connections/${encodeURIComponent(id)}`, body);
+  deleteConnection = (id: string) => this.call<void>('DELETE', `/v1/project/connections/${encodeURIComponent(id)}`);
+  reorderConnections = (ids: string[]) => this.call<void>('POST', '/v1/project/connections/order', { ids });
+  testConnection = (id: string, body: { to: string; from: string }) =>
+    this.call<{ id: string }>('POST', `/v1/project/connections/${encodeURIComponent(id)}/test`, body);
+  suppressions = () => this.call<{ data: Suppression[] }>('GET', '/v1/project/suppressions').then((r) => r.data);
+  addSuppression = (address: string) => this.call<void>('POST', '/v1/project/suppressions', { address });
+  removeSuppression = (address: string) => this.call<void>('DELETE', `/v1/project/suppressions/${encodeURIComponent(address)}`);
   revokeKey = (id: string) => this.call<void>('DELETE', `/v1/project/keys/${encodeURIComponent(id)}`);
   webhookSecret = () => this.call<{ webhookSecret: string }>('GET', '/v1/project/webhook-secret');
   rotateWebhookSecret = () => this.call<{ webhookSecret: string }>('POST', '/v1/project/webhook-secret/rotate');
@@ -81,7 +104,8 @@ export class Api {
     return this.call<{ data: SimMessage[] }>('GET', `/v1/messages?${params}`).then((r) => r.data);
   };
   message = (id: string) => this.call<MessageDetail>('GET', `/v1/messages/${encodeURIComponent(id)}`);
-  sendSms = (body: { from?: string; to: string[]; body: string }) => this.call<{ id: string }>('POST', '/v1/sms', body);
+  sendSms = (body: { from?: string; to: string[]; body: string }) =>
+    this.call<{ id: string }>('POST', '/v1/sms', body, { [MODE_HEADER]: 'test' });
   content = (id: string) => this.call<MessageContent>('GET', `/v1/messages/${encodeURIComponent(id)}/content`);
   /** A file of a message (the original `.eml` or an attachment), fetched with the session and saved by the browser. */
   download = async (path: string, filename: string): Promise<void> => {
@@ -96,8 +120,9 @@ export class Api {
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+  /** Scenario sends are always simulated, whatever mode the panel shows. */
   send = (body: { from: string; to: string[]; subject: string; text: string; html?: string; headers?: Record<string, string> }) =>
-    this.call<{ id: string }>('POST', '/v1/messages', body);
+    this.call<{ id: string }>('POST', '/v1/messages', body, { [MODE_HEADER]: 'test' });
   report = async (messageId: string, eventId: string): Promise<string> => {
     const url = `/v1/messages/${encodeURIComponent(messageId)}/events/${encodeURIComponent(eventId)}/report`;
     try {
@@ -107,9 +132,9 @@ export class Api {
     }
   };
 
-  private async call<T>(method: string, url: string, body?: unknown): Promise<T> {
+  private async call<T>(method: string, url: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
     try {
-      return await firstValueFrom(this.http.request<T>(method, url, { body }));
+      return await firstValueFrom(this.http.request<T>(method, url, { body, ...(headers && { headers }) }));
     } catch (error) {
       throw toApiError(error);
     }

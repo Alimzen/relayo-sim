@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideKeyRound, LucidePlus, LucideTrash, LucideTriangleAlert } from '@lucide/angular';
 import { Api } from '../core/api';
+import { Session } from '../core/session';
 import { fullDate, timeAgo } from '../core/format';
 import type { ApiKey } from '../core/types';
 import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
@@ -42,7 +43,10 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
               <tbody>
                 @for (key of keys(); track key.id) {
                   <tr [class.revoked]="key.revokedAt">
-                    <td class="cell-main">{{ key.name }}</td>
+                    <td class="cell-main">
+                      {{ key.name }}
+                      <app-badge [tone]="key.mode === 'live' ? 'good' : 'neutral'">{{ key.mode === 'live' ? 'En vivo' : 'Prueba' }}</app-badge>
+                    </td>
                     <td>
                       <code>{{ key.prefix }}…</code>
                       @if (key.revokedAt) {
@@ -86,6 +90,16 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
             <label for="key-name">Nombre</label>
             <input id="key-name" class="input" name="name" required [(ngModel)]="name" placeholder="Producción, CI, local…" />
           </div>
+          <div class="field">
+            <span class="label">Modo</span>
+            <div class="segmented" role="group" aria-label="Modo de la clave">
+              <button type="button" [attr.aria-pressed]="mode === 'test'" (click)="mode = 'test'">Prueba</button>
+              <button type="button" [attr.aria-pressed]="mode === 'live'" (click)="mode = 'live'">En vivo</button>
+            </div>
+            <span class="hint">
+              {{ mode === 'test' ? 'rly_test_…: simula los envíos con los escenarios; no se entrega nada.' : 'rly_live_…: entrega de verdad por tus conexiones.' }}
+            </span>
+          </div>
           <div class="modal-actions">
             <button type="button" class="btn" (click)="closeCreate()">Cancelar</button>
             <button type="submit" class="btn btn-primary" [disabled]="busy() || !name.trim()">Crear clave</button>
@@ -109,6 +123,7 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
 export class KeysPage {
   private readonly api = inject(Api);
   private readonly toasts = inject(Toasts);
+  private readonly session = inject(Session);
   protected readonly keys = signal<ApiKey[] | null>(null);
   protected readonly creating = signal(false);
   protected readonly created = signal<string | null>(null);
@@ -118,6 +133,7 @@ export class KeysPage {
   protected readonly full = fullDate;
   protected readonly ago = (value: string) => timeAgo(value);
   protected name = '';
+  protected mode: 'test' | 'live' = 'test';
 
   constructor() {
     void this.load();
@@ -125,6 +141,7 @@ export class KeysPage {
 
   protected openCreate(): void {
     this.name = '';
+    this.mode = this.session.mode();
     this.created.set(null);
     this.creating.set(true);
   }
@@ -140,7 +157,7 @@ export class KeysPage {
 
   protected async create(): Promise<void> {
     await this.run(async () => {
-      const { apiKey } = await this.api.createKey(this.name.trim());
+      const { apiKey } = await this.api.createKey(this.name.trim(), this.mode);
       this.created.set(apiKey);
       await this.load();
     });

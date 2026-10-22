@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { LucidePlus, LucideSend, LucideX } from '@lucide/angular';
 import { Api } from '../core/api';
+import { Session } from '../core/session';
 import type { Scenario } from '../core/types';
 import { CopyButton, Toasts } from '../ui/ui';
 
@@ -79,6 +80,12 @@ type Channel = 'email' | 'sms';
       </header>
 
       <div class="stack">
+        @if (live()) {
+          <div class="callout callout-info">
+            Los escenarios son del modo de prueba: con una clave en vivo, cada envío va al destinatario real. Los envíos de esta
+            página siempre se simulan: los verás en Mensajes cambiando a «Prueba».
+          </div>
+        }
         <section class="card">
           <header class="card-head">
             <div>
@@ -187,6 +194,8 @@ export class ScenariosPage {
   private readonly api = inject(Api);
   private readonly router = inject(Router);
   private readonly toasts = inject(Toasts);
+  private readonly session = inject(Session);
+  protected readonly live = computed(() => this.session.mode() === 'live');
   protected readonly domain = DOMAIN;
   protected readonly scenarios = signal<Scenario[]>([]);
   protected readonly busy = signal(false);

@@ -22,6 +22,7 @@ export function publicKey(key: ApiKey) {
     id: key.id,
     name: key.name,
     prefix: key.prefix,
+    mode: key.mode,
     createdAt: key.createdAt,
     lastUsedAt: key.lastUsedAt ?? null,
     revokedAt: key.revokedAt ?? null,

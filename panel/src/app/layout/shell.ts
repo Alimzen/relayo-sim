@@ -8,6 +8,9 @@ import {
   LucideLayoutDashboard,
   LucideLink,
   LucideLogOut,
+  LucidePlug,
+  LucideShieldBan,
+  LucideZap,
   LucideMail,
   LucideMenu,
   LucidePlus,
@@ -37,6 +40,9 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
     LucideLayoutDashboard,
     LucideLink,
     LucideLogOut,
+    LucidePlug,
+    LucideShieldBan,
+    LucideZap,
     LucideMail,
     LucideMenu,
     LucidePlus,
@@ -95,12 +101,19 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
           }
         </div>
 
+        <div class="mode-switch" role="group" aria-label="Modo">
+          <button type="button" [attr.aria-pressed]="session.mode() === 'test'" (click)="setMode('test')">Prueba</button>
+          <button type="button" [attr.aria-pressed]="session.mode() === 'live'" (click)="setMode('live')" class="mode-live">En vivo</button>
+        </div>
+
         <nav>
           <a class="nav-link" routerLink="/overview" routerLinkActive="active"><svg lucideLayoutDashboard [size]="16"></svg>Resumen</a>
           <a class="nav-link" routerLink="/messages" routerLinkActive="active"><svg lucideMail [size]="16"></svg>Mensajes</a>
           <a class="nav-link" routerLink="/scenarios" routerLinkActive="active"><svg lucideFlaskConical [size]="16"></svg>Escenarios</a>
           <p class="nav-section">Proyecto</p>
           <a class="nav-link" routerLink="/keys" routerLinkActive="active"><svg lucideKeyRound [size]="16"></svg>Claves de API</a>
+          <a class="nav-link" routerLink="/connections" routerLinkActive="active"><svg lucidePlug [size]="16"></svg>Conexiones</a>
+          <a class="nav-link" routerLink="/suppressions" routerLinkActive="active"><svg lucideShieldBan [size]="16"></svg>Supresiones</a>
           <a class="nav-link" routerLink="/webhooks" routerLinkActive="active"><svg lucideWebhook [size]="16"></svg>Webhooks</a>
           <a class="nav-link" routerLink="/settings" routerLinkActive="active"><svg lucideSettings [size]="16"></svg>Ajustes</a>
         </nav>
@@ -133,9 +146,15 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
           <button type="button" class="icon-button" (click)="drawer.set(true)" aria-label="Abrir menú"><svg lucideMenu [size]="18"></svg></button>
           <app-brand />
         </header>
+        @if (session.mode() === 'live') {
+          <div class="live-banner" role="status">
+            <svg lucideZap [size]="14"></svg>
+            Modo en vivo: ves los envíos reales, entregados por tus conexiones.
+          </div>
+        }
         @if (project(); as current) {
-          <!-- Keyed by project: switching projects recreates the page, so it loads that project's data. -->
-          @for (id of [current.id]; track id) {
+          <!-- Keyed by project and mode: switching either recreates the page, so it loads that data. -->
+          @for (id of [current.id + ':' + session.mode()]; track id) {
             <router-outlet />
           }
         } @else {
@@ -239,6 +258,12 @@ export class Shell {
 
   protected closeMenus(): void {
     this.menu.set(null);
+  }
+
+  protected setMode(mode: 'test' | 'live'): void {
+    if (mode === this.session.mode()) return;
+    this.session.setMode(mode);
+    if (this.router.url.startsWith('/messages/')) void this.router.navigateByUrl('/messages');
   }
 
   protected async switchTo(id: string): Promise<void> {

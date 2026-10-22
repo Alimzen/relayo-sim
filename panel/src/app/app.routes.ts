@@ -54,6 +54,8 @@ export const routes: Routes = [
       },
       { path: 'scenarios', loadComponent: () => import('./pages/scenarios').then((m) => m.ScenariosPage), title: page('Escenarios') },
       { path: 'keys', loadComponent: () => import('./pages/keys').then((m) => m.KeysPage), title: page('Claves de API') },
+      { path: 'connections', loadComponent: () => import('./pages/connections').then((m) => m.ConnectionsPage), title: page('Conexiones') },
+      { path: 'suppressions', loadComponent: () => import('./pages/suppressions').then((m) => m.SuppressionsPage), title: page('Supresiones') },
       { path: 'webhooks', loadComponent: () => import('./pages/webhooks').then((m) => m.WebhooksPage), title: page('Webhooks') },
       { path: 'settings', loadComponent: () => import('./pages/settings').then((m) => m.SettingsPage), title: page('Ajustes') },
       { path: 'account', loadComponent: () => import('./pages/account').then((m) => m.AccountPage), title: page('Cuenta') },

@@ -28,10 +28,13 @@ export interface Project {
   createdAt: string;
 }
 
+export type Mode = 'test' | 'live';
+
 export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
+  mode: Mode;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
@@ -75,6 +78,9 @@ export interface SimMessage {
   channel?: 'email' | 'sms';
   /** SMS text. */
   body?: string;
+  mode?: Mode;
+  /** Live messages: the connection that delivered it. */
+  delivery?: { connectionId: string; provider: string; providerMessageId?: string };
   relayoMessageId?: string;
   from: string;
   envelopeFrom?: string;
@@ -105,6 +111,44 @@ export interface MessageContent {
 
 export interface MessageDetail extends SimMessage {
   events: SimEvent[];
+}
+
+export interface ProviderField {
+  key: string;
+  label: string;
+  secret?: boolean;
+  required?: boolean;
+  placeholder?: string;
+  options?: string[];
+  help?: string;
+}
+
+export interface Provider {
+  name: string;
+  label: string;
+  channel: 'email' | 'sms';
+  fields: ProviderField[];
+  webhooks: { supported: boolean; help: string };
+}
+
+export interface Connection {
+  id: string;
+  name: string;
+  channel: 'email' | 'sms';
+  provider: string;
+  providerLabel: string;
+  settings: Record<string, string>;
+  secretsSet: string[];
+  priority: number;
+  inboundPath: string;
+  webhooks: { supported: boolean; help: string };
+  createdAt: string;
+}
+
+export interface Suppression {
+  address: string;
+  reason: 'hard_bounce' | 'complaint' | 'unsubscribe' | 'manual';
+  createdAt: string;
 }
 
 export interface ProjectUsage {

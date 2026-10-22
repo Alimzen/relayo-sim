@@ -1965,3 +1965,111 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------------------------------------------------------------
+   Live mode
+   ------------------------------------------------------------------------------------------------ */
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 3px;
+  margin: 0 0 8px;
+  border-radius: var(--radius-sm);
+  background: var(--active);
+}
+
+.mode-switch button {
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.mode-switch button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow), 0 0 0 1px var(--border);
+}
+
+.mode-switch button.mode-live[aria-pressed='true'] {
+  color: var(--tone-good);
+}
+
+.live-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tone-good);
+  background: var(--tone-good-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.connection {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.connection:last-child {
+  border-bottom: 0;
+}
+
+.connection-order {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.connection-rank {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.connection-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.connection-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.connection-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.inbound {
+  margin-top: 10px;
+}
+
+.inbound .secret {
+  height: 32px;
+}
+
+.inbound .hint {
+  display: block;
+  margin-top: 4px;
+}
