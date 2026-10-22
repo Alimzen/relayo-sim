@@ -40,6 +40,29 @@ export interface Connection {
   createdAt: Date;
 }
 
+/**
+ * A domain a project sends from with Relayo's managed sending. Relayo signs its mail with DKIM; the domain
+ * proves it allows that with DNS records.
+ */
+export interface SendingDomain {
+  id: string;
+  projectId: string;
+  /** Lowercased, e.g. `empresa.com`. */
+  domain: string;
+  /** DKIM selector: the record lives at `<selector>._domainkey.<domain>`. */
+  selector: string;
+  /** Base64 SPKI public key, published in the DKIM record. */
+  dkimPublicKey: string;
+  /** PEM private key, encrypted with SECRETS_KEY. */
+  dkimPrivateKey: string;
+  /** What the last DNS check found. */
+  checks: { dkim: boolean; spf: boolean; dmarc: boolean };
+  /** Set once DKIM (and SPF, when the platform asks for it) check out. */
+  verifiedAt?: Date;
+  lastCheckedAt?: Date;
+  createdAt: Date;
+}
+
 export type SuppressionReason = 'hard_bounce' | 'complaint' | 'unsubscribe' | 'manual';
 
 /** An address live mode will not send to again, and why. */

@@ -1,4 +1,4 @@
-import type { ApiKey, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -67,6 +67,13 @@ export interface SimStore {
   suppressed(projectId: string, addresses: string[]): Promise<Set<string>>;
   listSuppressions(projectId: string, limit: number): Promise<Suppression[]>;
   unsuppress(projectId: string, address: string): Promise<boolean>;
+  createDomain(domain: SendingDomain): Promise<void>;
+  listDomains(projectId: string): Promise<SendingDomain[]>;
+  getDomain(projectId: string, id: string): Promise<SendingDomain | undefined>;
+  updateDomain(projectId: string, id: string, changes: Partial<Pick<SendingDomain, 'checks' | 'verifiedAt' | 'lastCheckedAt'>>): Promise<void>;
+  deleteDomain(projectId: string, id: string): Promise<boolean>;
+  /** A message by its id alone, whatever project it belongs to (events of Relayo's managed sending). */
+  findMessage(id: string): Promise<SimMessage | undefined>;
   /** Records which connection delivered a live message, and the provider's id for it. */
   setDelivery(projectId: string, messageId: string, delivery: NonNullable<SimMessage['delivery']>): Promise<void>;
 

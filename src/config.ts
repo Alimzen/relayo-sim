@@ -31,6 +31,19 @@ export interface SimConfig {
    * fixed, insecure key so live mode can be tried locally.
    */
   secretsKey?: string;
+  /**
+   * Relayo's managed sending: the platform's own SMTP relay (Amazon SES SMTP, for example), offered to
+   * projects that send from a verified domain of theirs.
+   */
+  managed?: {
+    smtpUrl: string;
+    /** Domain the customer's SPF record must include (e.g. `amazonses.com`). Optional. */
+    spfInclude?: string;
+    /** Messages per project per day. */
+    dailyLimit: number;
+    /** Token in the URL where the relay's events arrive (`/v1/inbound/managed/<token>`), as Amazon SNS posts them. */
+    eventsToken?: string;
+  };
 }
 
 export const SIM_CONFIG = Symbol.for('relayo-sim:config');
@@ -50,6 +63,14 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
   };
   if (env.SECRETS_KEY) config.secretsKey = env.SECRETS_KEY;
   else if (env.NODE_ENV !== 'production') config.secretsKey = 'relayo-development-only-insecure-key';
+  if (env.MANAGED_SMTP_URL) {
+    config.managed = {
+      smtpUrl: env.MANAGED_SMTP_URL,
+      dailyLimit: number(env.MANAGED_DAILY_LIMIT, 200),
+      ...(env.MANAGED_SPF_INCLUDE && { spfInclude: env.MANAGED_SPF_INCLUDE }),
+      ...(env.MANAGED_EVENTS_TOKEN && { eventsToken: env.MANAGED_EVENTS_TOKEN }),
+    };
+  }
   if (env.MAIL_URL) config.mail = { url: env.MAIL_URL, from: env.MAIL_FROM ?? 'Relayo Sim <no-reply@localhost>' };
   if (env.SMTP_PORT !== 'off') config.smtpPort = number(env.SMTP_PORT, 2525);
   if (env.DATABASE_URL) config.databaseUrl = env.DATABASE_URL;

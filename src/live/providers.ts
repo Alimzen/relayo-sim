@@ -19,7 +19,7 @@ export interface ProviderField {
 }
 
 export interface ProviderSpec {
-  name: Exclude<ProviderName, 'managed'>;
+  name: ProviderName;
   label: string;
   channel: 'email' | 'sms';
   fields: ProviderField[];
@@ -108,6 +108,15 @@ export const PROVIDERS: readonly ProviderSpec[] = [
 ];
 
 export const PROVIDERS_BY_NAME = new Map(PROVIDERS.map((p) => [p.name, p]));
+
+/** Relayo's own relay: nothing to fill in, but the sender's domain must be verified in Dominios. */
+export const MANAGED_PROVIDER: ProviderSpec = {
+  name: 'managed',
+  label: 'Envío de Relayo',
+  channel: 'email',
+  fields: [],
+  webhooks: { supported: false, help: 'Relayo recibe los eventos de su propio envío: no hay nada que configurar.' },
+};
 
 /** Splits submitted values into plain settings and secrets, checking required fields and options. */
 export function splitValues(

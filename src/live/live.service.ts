@@ -15,7 +15,11 @@ import {
 import type { Connection, Project, SimEvent, SimMessage, SuppressionReason } from '../domain.js';
 import type { SimStore } from '../store/store.js';
 import type { WebhookDispatcher } from '../webhooks/webhooks.js';
-import { buildDriver, PROVIDERS_BY_NAME, splitValues } from './providers.js';
+import { ses } from '@alimzen/relayo-ses';
+import { timingSafeEqual } from 'node:crypto';
+import type { SendingDomain } from '../domain.js';
+import type { ManagedSending } from './managed.js';
+import { buildDriver, MANAGED_PROVIDER, PROVIDERS, PROVIDERS_BY_NAME, splitValues, type ProviderSpec } from './providers.js';
 import type { SecretBox } from './secrets.js';
 
 /** A live send that could not be delivered, with the HTTP status the API answers with. */
@@ -65,7 +69,14 @@ export class LiveService {
     private readonly store: SimStore,
     private readonly webhooks: WebhookDispatcher,
     private readonly box: SecretBox | undefined,
+    /** Relayo's own relay, when the platform offers it. */
+    readonly managed?: ManagedSending,
   ) {}
+
+  /** The providers a project can connect here, Relayo's own sending first when it is offered. */
+  providers(): ProviderSpec[] {
+    return this.managed ? [MANAGED_PROVIDER, ...PROVIDERS] : [...PROVIDERS];
+  }
 
   // --- Connections ------------------------------------------------------------------------------
 
@@ -76,6 +87,7 @@ export class LiveService {
 
   async createConnection(project: Project, input: { name?: unknown; provider?: unknown; values?: unknown }): Promise<Connection> {
     const box = this.requireBox();
+    if (input.provider === 'managed') return this.createManagedConnection(project, input.name);
     const spec = typeof input.provider === 'string' ? PROVIDERS_BY_NAME.get(input.provider as never) : undefined;
     if (!spec) throw new LiveError('Proveedor desconocido', 400);
     const values = (input.values && typeof input.values === 'object' ? input.values : {}) as Record<string, unknown>;
@@ -97,6 +109,65 @@ export class LiveService {
     this.validate(() => buildDriver(connection, { ...settings, ...secrets }));
     await this.store.createConnection(connection);
     return connection;
+  }
+
+  private async createManagedConnection(project: Project, name: unknown): Promise<Connection> {
+    if (!this.managed) throw new LiveError('El envío de Relayo no está disponible en este servidor', 400);
+    const existing = await this.store.listConnections(project.id, 'email');
+    if (existing.some((c) => c.provider === 'managed')) throw new LiveError('El envío de Relayo ya está activado en este proyecto', 409);
+    const connection: Connection = {
+      id: `con_${randomUUID()}`,
+      projectId: project.id,
+      name: (typeof name === 'string' && name.trim().slice(0, 80)) || MANAGED_PROVIDER.label,
+      channel: 'email',
+      provider: 'managed',
+      settings: {},
+      secrets: this.requireBox().seal({}),
+      priority: existing.length ? Math.max(...existing.map((c) => c.priority)) + 1 : 0,
+      inboundToken: randomBytes(24).toString('base64url'),
+      createdAt: new Date(),
+    };
+    await this.store.createConnection(connection);
+    return connection;
+  }
+
+  // --- Domains (Relayo's managed sending) -------------------------------------------------------
+
+  private requireManaged(): ManagedSending {
+    if (!this.managed) throw new LiveError('El envío de Relayo no está disponible en este servidor', 400);
+    return this.managed;
+  }
+
+  async addDomain(project: Project, domain: unknown): Promise<SendingDomain> {
+    const managed = this.requireManaged();
+    return this.validateAsync(() => managed.addDomain(project, domain));
+  }
+
+  async verifyDomain(project: Project, id: string): Promise<SendingDomain> {
+    const managed = this.requireManaged();
+    return this.validateAsync(() => managed.verify(project, id));
+  }
+
+  /** What the panel shows of a domain: its records and their status, never the private key. */
+  publicDomain(domain: SendingDomain) {
+    return {
+      id: domain.id,
+      domain: domain.domain,
+      verified: Boolean(domain.verifiedAt),
+      verifiedAt: domain.verifiedAt ?? null,
+      lastCheckedAt: domain.lastCheckedAt ?? null,
+      records: this.managed ? this.managed.records(domain) : [],
+      createdAt: domain.createdAt,
+    };
+  }
+
+  private async validateAsync<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof ValidationError) throw new LiveError(error.message, 400);
+      throw error;
+    }
   }
 
   async updateConnection(project: Project, id: string, input: { name?: unknown; values?: unknown }): Promise<Connection> {
@@ -125,7 +196,7 @@ export class LiveService {
   }
 
   publicConnection(connection: Connection): PublicConnection {
-    const spec = PROVIDERS_BY_NAME.get(connection.provider as never);
+    const spec = connection.provider === 'managed' ? MANAGED_PROVIDER : PROVIDERS_BY_NAME.get(connection.provider as never);
     let secretsSet: string[] = [];
     try {
       secretsSet = this.box ? Object.keys(this.box.open<Record<string, string>>(connection.secrets)) : [];
@@ -148,6 +219,10 @@ export class LiveService {
   }
 
   private driverFor(connection: Connection): Driver<EmailMessage> {
+    if (connection.provider === 'managed') {
+      if (!this.managed) throw new LiveError('El envío de Relayo no está disponible en este servidor', 503);
+      return this.managed.driver(connection);
+    }
     let secrets: Record<string, string>;
     try {
       secrets = this.requireBox().open<Record<string, string>>(connection.secrets);
@@ -311,6 +386,33 @@ export class LiveService {
     return events.length;
   }
 
+  /**
+   * Events of Relayo's own relay (Amazon SES through SNS): one endpoint for every project, each event
+   * finding its message by the Relayo id the relay carried.
+   */
+  async handleManagedInbound(token: string, req: WebhookRequest): Promise<number> {
+    const expected = this.managed?.config.eventsToken;
+    if (!expected || !safeEqual(token, expected)) throw new LiveError('Not found', 404);
+    const driver = ses({ name: 'managed', region: 'us-east-1', webhook: { confirmSubscriptions: true } });
+    if (!(await driver.verifyWebhook!(req))) throw new LiveError('Invalid webhook signature', 401);
+
+    let recorded = 0;
+    for (const upstream of await driver.parseWebhook!(req)) {
+      const message = await this.store.findMessage(upstream.messageId);
+      if (!message || message.mode !== 'live' || message.delivery?.provider !== 'managed') continue;
+      const project = await this.store.getProject(message.projectId);
+      if (!project) continue;
+      const connection = (await this.store.getConnection(project.id, message.delivery.connectionId)) ?? {
+        id: message.delivery.connectionId,
+        provider: 'managed',
+      };
+      await this.applySuppression(project, upstream);
+      await this.record(project, [this.fromUpstream(message, upstream, connection as Connection)]);
+      recorded++;
+    }
+    return recorded;
+  }
+
   private fromUpstream(message: SimMessage, upstream: RelayoEvent, connection: Connection): SimEvent {
     const { id: _id, messageId: _m, providerMessageId, provider: _p, raw, timestamp, ...rest } = upstream;
     return {
@@ -391,4 +493,10 @@ function toLiveError(error: unknown): LiveError {
   if (error instanceof ValidationError) return new LiveError(text, 422);
   if (isRelayoError(error)) return new LiveError(text, error.retryable ? 503 : 422);
   return new LiveError(`No se pudo entregar: ${text}`, 502);
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
 }

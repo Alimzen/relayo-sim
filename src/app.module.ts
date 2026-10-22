@@ -23,6 +23,7 @@ import {
 } from './api/controllers.js';
 import { LiveService } from './live/live.service.js';
 import { SecretBox } from './live/secrets.js';
+import { ManagedSending } from './live/managed.js';
 import { SIM_CONFIG, type SimConfig } from './config.js';
 import { infrastructure, type Infrastructure } from './infrastructure.js';
 import { EVENT_SCHEDULER, type EventScheduler } from './scheduler/scheduler.js';
@@ -158,8 +159,11 @@ export class AppModule {
         },
         {
           provide: LiveService,
-          useFactory: (store: SimStore, dispatcher: WebhookDispatcher) =>
-            new LiveService(store, dispatcher, config.secretsKey ? new SecretBox(config.secretsKey) : undefined),
+          useFactory: (store: SimStore, dispatcher: WebhookDispatcher) => {
+            const box = config.secretsKey ? new SecretBox(config.secretsKey) : undefined;
+            const managed = config.managed && box ? new ManagedSending(store, box, config.managed) : undefined;
+            return new LiveService(store, dispatcher, box, managed);
+          },
           inject: [SIM_STORE, WEBHOOK_DISPATCHER],
         },
         ProjectGuard,

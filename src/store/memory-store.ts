@@ -1,4 +1,4 @@
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason } from '../domain.js';
+import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
 
@@ -14,6 +14,7 @@ export class MemoryStore implements SimStore {
   private readonly resets = new Map<string, PasswordReset>();
   private readonly connections = new Map<string, Connection>();
   private readonly suppressions = new Map<string, Suppression>();
+  private readonly domains = new Map<string, SendingDomain>();
   private readonly usage = new Map<string, number>();
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
@@ -164,6 +165,33 @@ export class MemoryStore implements SimStore {
 
   async unsuppress(projectId: string, address: string): Promise<boolean> {
     return this.suppressions.delete(`${projectId}|${address.toLowerCase()}`);
+  }
+
+  async createDomain(domain: SendingDomain): Promise<void> {
+    this.domains.set(domain.id, domain);
+  }
+
+  async listDomains(projectId: string): Promise<SendingDomain[]> {
+    return [...this.domains.values()].filter((d) => d.projectId === projectId).sort((a, b) => a.domain.localeCompare(b.domain));
+  }
+
+  async getDomain(projectId: string, id: string): Promise<SendingDomain | undefined> {
+    const domain = this.domains.get(id);
+    return domain?.projectId === projectId ? domain : undefined;
+  }
+
+  async updateDomain(projectId: string, id: string, changes: Partial<Pick<SendingDomain, 'checks' | 'verifiedAt' | 'lastCheckedAt'>>): Promise<void> {
+    const domain = await this.getDomain(projectId, id);
+    if (domain) this.domains.set(id, { ...domain, ...changes });
+  }
+
+  async deleteDomain(projectId: string, id: string): Promise<boolean> {
+    if (!(await this.getDomain(projectId, id))) return false;
+    return this.domains.delete(id);
+  }
+
+  async findMessage(id: string): Promise<SimMessage | undefined> {
+    return this.messages.get(id);
   }
 
   async setDelivery(projectId: string, messageId: string, delivery: NonNullable<SimMessage['delivery']>): Promise<void> {

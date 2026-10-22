@@ -22,7 +22,6 @@ import { composeMessage, quotedHeaders, readAttachment, readContent, readHeaders
 import type { Mode, Project, SimEvent } from '../domain.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { isSmsScenario, PHONE, SMS_SCENARIOS } from '../scenarios/sms.js';
-import { PROVIDERS } from '../live/providers.js';
 import { QuotaExceededError, SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
@@ -469,7 +468,33 @@ export class ConnectionsController {
 
   @Get('providers')
   providers() {
-    return { data: PROVIDERS };
+    return { data: this.live.providers() };
+  }
+
+  /** Domains for Relayo's managed sending, with the DNS records each one needs. */
+  @Get('domains')
+  async domains(@CurrentProject() project: Project) {
+    return { available: Boolean(this.live.managed), data: (await this.store.listDomains(project.id)).map((d) => this.live.publicDomain(d)) };
+  }
+
+  @Post('domains')
+  @SessionOnly()
+  async addDomain(@CurrentProject() project: Project, @Body() body: { domain?: unknown }) {
+    return this.live.publicDomain(await liveCall(() => this.live.addDomain(project, body?.domain)));
+  }
+
+  @Post('domains/:id/verify')
+  @SessionOnly()
+  @HttpCode(200)
+  async verifyDomain(@CurrentProject() project: Project, @Param('id') id: string) {
+    return this.live.publicDomain(await liveCall(() => this.live.verifyDomain(project, id)));
+  }
+
+  @Delete('domains/:id')
+  @SessionOnly()
+  @HttpCode(204)
+  async deleteDomain(@CurrentProject() project: Project, @Param('id') id: string) {
+    if (!(await this.store.deleteDomain(project.id, id))) throw new NotFoundException('Dominio no encontrado');
   }
 
   @Get('connections')
@@ -541,6 +566,16 @@ export class ConnectionsController {
 @Controller('v1/inbound')
 export class InboundController {
   constructor(@Inject(LiveService) private readonly live: LiveService) {}
+
+  /** Events of Relayo's own relay (Amazon SNS), for every project. */
+  @Post('managed/:token')
+  @HttpCode(200)
+  async managed(@Param('token') token: string, @Req() req: InboundRequest) {
+    const rawBody = req.rawBody ?? (typeof req.body === 'string' ? req.body : undefined);
+    const body = typeof req.body === 'string' && req.body.trim().startsWith('{') ? JSON.parse(req.body) : req.body;
+    const received = await liveCall(() => this.live.handleManagedInbound(token, { headers: req.headers, body, ...(rawBody !== undefined && { rawBody }) }));
+    return { received };
+  }
 
   @Post(':token')
   @HttpCode(200)

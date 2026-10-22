@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason } from '../domain.js';
+import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
 
@@ -82,6 +82,19 @@ CREATE TABLE IF NOT EXISTS connections (
   created_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS connections_project ON connections (project_id, channel, priority);
+CREATE TABLE IF NOT EXISTS sending_domains (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  domain text NOT NULL,
+  selector text NOT NULL,
+  dkim_public_key text NOT NULL,
+  dkim_private_key text NOT NULL,
+  checks jsonb NOT NULL,
+  verified_at timestamptz,
+  last_checked_at timestamptz,
+  created_at timestamptz NOT NULL,
+  UNIQUE (project_id, domain)
+);
 CREATE TABLE IF NOT EXISTS suppressions (
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   address text NOT NULL,
@@ -541,6 +554,52 @@ export class PostgresStore implements SimStore {
     return (rowCount ?? 0) > 0;
   }
 
+  async createDomain(d: SendingDomain): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO sending_domains (id, project_id, domain, selector, dkim_public_key, dkim_private_key, checks, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [d.id, d.projectId, d.domain, d.selector, d.dkimPublicKey, d.dkimPrivateKey, JSON.stringify(d.checks), d.createdAt],
+    );
+  }
+
+  async listDomains(projectId: string): Promise<SendingDomain[]> {
+    const { rows } = await this.pool.query<DomainRow>('SELECT * FROM sending_domains WHERE project_id = $1 ORDER BY domain', [projectId]);
+    return rows.map(toDomain);
+  }
+
+  async getDomain(projectId: string, id: string): Promise<SendingDomain | undefined> {
+    const { rows } = await this.pool.query<DomainRow>('SELECT * FROM sending_domains WHERE id = $1 AND project_id = $2', [id, projectId]);
+    return rows[0] && toDomain(rows[0]);
+  }
+
+  async updateDomain(projectId: string, id: string, changes: Partial<Pick<SendingDomain, 'checks' | 'verifiedAt' | 'lastCheckedAt'>>): Promise<void> {
+    await this.pool.query(
+      `UPDATE sending_domains SET
+         checks = COALESCE($3, checks),
+         verified_at = CASE WHEN $4::boolean THEN $5 ELSE verified_at END,
+         last_checked_at = COALESCE($6, last_checked_at)
+       WHERE id = $1 AND project_id = $2`,
+      [
+        id,
+        projectId,
+        changes.checks ? JSON.stringify(changes.checks) : null,
+        'verifiedAt' in changes,
+        changes.verifiedAt ?? null,
+        changes.lastCheckedAt ?? null,
+      ],
+    );
+  }
+
+  async deleteDomain(projectId: string, id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query('DELETE FROM sending_domains WHERE id = $1 AND project_id = $2', [id, projectId]);
+    return (rowCount ?? 0) > 0;
+  }
+
+  async findMessage(id: string): Promise<SimMessage | undefined> {
+    const { rows } = await this.pool.query<MessageRow>('SELECT * FROM messages WHERE id = $1', [id]);
+    return rows[0] && toMessage(rows[0]);
+  }
+
   async setDelivery(projectId: string, messageId: string, delivery: NonNullable<SimMessage['delivery']>): Promise<void> {
     await this.pool.query('UPDATE messages SET delivery = $3 WHERE id = $1 AND project_id = $2', [messageId, projectId, JSON.stringify(delivery)]);
   }
@@ -606,7 +665,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE events, message_contents, messages, usage, password_resets, connections, suppressions, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
@@ -627,6 +686,34 @@ function toProject(row: ProjectRow): Project {
     ...(row.owner_id && { ownerId: row.owner_id }),
     ...(row.webhook_url && { webhookUrl: row.webhook_url }),
     ...(row.reports_smtp_url && { reportsSmtpUrl: row.reports_smtp_url }),
+  };
+}
+
+interface DomainRow {
+  id: string;
+  project_id: string;
+  domain: string;
+  selector: string;
+  dkim_public_key: string;
+  dkim_private_key: string;
+  checks: SendingDomain['checks'];
+  verified_at: Date | null;
+  last_checked_at: Date | null;
+  created_at: Date;
+}
+
+function toDomain(row: DomainRow): SendingDomain {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    domain: row.domain,
+    selector: row.selector,
+    dkimPublicKey: row.dkim_public_key,
+    dkimPrivateKey: row.dkim_private_key,
+    checks: row.checks,
+    createdAt: new Date(row.created_at),
+    ...(row.verified_at && { verifiedAt: new Date(row.verified_at) }),
+    ...(row.last_checked_at && { lastCheckedAt: new Date(row.last_checked_at) }),
   };
 }
 
