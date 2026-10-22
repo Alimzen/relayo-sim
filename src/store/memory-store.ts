@@ -1,4 +1,4 @@
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset } from '../domain.js';
+import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
 
@@ -12,6 +12,8 @@ export class MemoryStore implements SimStore {
   private readonly events = new Map<string, SimEvent[]>();
   private readonly contents = new Map<string, Buffer>();
   private readonly resets = new Map<string, PasswordReset>();
+  private readonly connections = new Map<string, Connection>();
+  private readonly suppressions = new Map<string, Suppression>();
   private readonly usage = new Map<string, number>();
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
@@ -115,6 +117,60 @@ export class MemoryStore implements SimStore {
 
   // --- Messages ---------------------------------------------------------------------------------
 
+  async createConnection(connection: Connection): Promise<void> {
+    this.connections.set(connection.id, connection);
+  }
+
+  async listConnections(projectId: string, channel?: 'email' | 'sms'): Promise<Connection[]> {
+    return [...this.connections.values()]
+      .filter((c) => c.projectId === projectId && (!channel || c.channel === channel))
+      .sort((a, b) => a.priority - b.priority || a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async getConnection(projectId: string, id: string): Promise<Connection | undefined> {
+    const connection = this.connections.get(id);
+    return connection?.projectId === projectId ? connection : undefined;
+  }
+
+  async findConnectionByInboundToken(token: string): Promise<Connection | undefined> {
+    return [...this.connections.values()].find((c) => c.inboundToken === token);
+  }
+
+  async updateConnection(projectId: string, id: string, changes: Partial<Pick<Connection, 'name' | 'settings' | 'secrets' | 'priority'>>): Promise<void> {
+    const connection = await this.getConnection(projectId, id);
+    if (connection) this.connections.set(id, { ...connection, ...changes });
+  }
+
+  async deleteConnection(projectId: string, id: string): Promise<boolean> {
+    if (!(await this.getConnection(projectId, id))) return false;
+    return this.connections.delete(id);
+  }
+
+  async suppress(projectId: string, address: string, reason: SuppressionReason): Promise<void> {
+    const key = `${projectId}|${address.toLowerCase()}`;
+    if (!this.suppressions.has(key)) this.suppressions.set(key, { projectId, address: address.toLowerCase(), reason, createdAt: new Date() });
+  }
+
+  async suppressed(projectId: string, addresses: string[]): Promise<Set<string>> {
+    return new Set(addresses.map((a) => a.toLowerCase()).filter((a) => this.suppressions.has(`${projectId}|${a}`)));
+  }
+
+  async listSuppressions(projectId: string, limit: number): Promise<Suppression[]> {
+    return [...this.suppressions.values()]
+      .filter((s) => s.projectId === projectId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+  }
+
+  async unsuppress(projectId: string, address: string): Promise<boolean> {
+    return this.suppressions.delete(`${projectId}|${address.toLowerCase()}`);
+  }
+
+  async setDelivery(projectId: string, messageId: string, delivery: NonNullable<SimMessage['delivery']>): Promise<void> {
+    const message = this.messages.get(messageId);
+    if (message?.projectId === projectId) this.messages.set(messageId, { ...message, delivery });
+  }
+
   async createPasswordReset(reset: PasswordReset): Promise<void> {
     this.resets.set(reset.tokenHash, reset);
   }
@@ -167,10 +223,10 @@ export class MemoryStore implements SimStore {
     return { ...message, events: this.eventsOf(id) };
   }
 
-  async listMessages(projectId: string, { limit, before, search, status, channel }: MessageQuery): Promise<MessageListItem[]> {
+  async listMessages(projectId: string, { limit, before, search, status, channel, mode = 'test' }: MessageQuery): Promise<MessageListItem[]> {
     const needle = search?.trim().toLowerCase();
     return [...this.messages.values()]
-      .filter((m) => !channel || (m.channel ?? 'email') === channel)
+      .filter((m) => (m.mode ?? 'test') === mode && (!channel || (m.channel ?? 'email') === channel))
       .filter((m) => m.projectId === projectId && (!before || m.createdAt < before))
       .filter(
         (m) =>
@@ -196,11 +252,11 @@ export class MemoryStore implements SimStore {
     this.events.set(key, [...existing, event]);
   }
 
-  async stats(projectId: string, since: Date): Promise<ProjectStats> {
+  async stats(projectId: string, since: Date, mode: Mode = 'test'): Promise<ProjectStats> {
     const stats = emptyStats(since);
     const days = new Map(stats.daily.map((d) => [d.date, d]));
     for (const message of this.messages.values()) {
-      if (message.projectId !== projectId || message.createdAt < since) continue;
+      if (message.projectId !== projectId || message.createdAt < since || (message.mode ?? 'test') !== mode) continue;
       stats.messages++;
       for (const event of this.eventsOf(message.id)) {
         stats.events[event.type] = (stats.events[event.type] ?? 0) + 1;

@@ -1,4 +1,4 @@
-import type { ApiKey, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ApiKey, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -16,6 +16,8 @@ export interface MessageQuery {
   /** Only messages with at least one event of this type. */
   status?: SimEvent['type'];
   channel?: 'email' | 'sms';
+  /** Test or live messages; test when absent. */
+  mode?: Mode;
 }
 
 export const SIM_STORE = Symbol.for('relayo-sim:store');
@@ -51,6 +53,23 @@ export interface SimStore {
   findProjectByApiKeyHash(hash: string): Promise<{ project: Project; key: ApiKey } | undefined>;
   touchApiKey(id: string, at: Date): Promise<void>;
 
+  // Live delivery
+  createConnection(connection: Connection): Promise<void>;
+  /** The project's connections, by priority. */
+  listConnections(projectId: string, channel?: 'email' | 'sms'): Promise<Connection[]>;
+  getConnection(projectId: string, id: string): Promise<Connection | undefined>;
+  findConnectionByInboundToken(token: string): Promise<Connection | undefined>;
+  updateConnection(projectId: string, id: string, changes: Partial<Pick<Connection, 'name' | 'settings' | 'secrets' | 'priority'>>): Promise<void>;
+  deleteConnection(projectId: string, id: string): Promise<boolean>;
+  /** Adds a suppression; the first reason is kept. */
+  suppress(projectId: string, address: string, reason: SuppressionReason): Promise<void>;
+  /** Which of these addresses are suppressed (lowercased). */
+  suppressed(projectId: string, addresses: string[]): Promise<Set<string>>;
+  listSuppressions(projectId: string, limit: number): Promise<Suppression[]>;
+  unsuppress(projectId: string, address: string): Promise<boolean>;
+  /** Records which connection delivered a live message, and the provider's id for it. */
+  setDelivery(projectId: string, messageId: string, delivery: NonNullable<SimMessage['delivery']>): Promise<void>;
+
   // Messages
   /** Stores a message and, when given, its raw MIME source (the captured email). */
   saveMessage(message: SimMessage, raw?: Uint8Array): Promise<void>;
@@ -60,7 +79,7 @@ export interface SimStore {
   /** Newest first, each with the latest event of its first recipient. */
   listMessages(projectId: string, query: MessageQuery): Promise<MessageListItem[]>;
   addEvent(event: SimEvent): Promise<void>;
-  stats(projectId: string, since: Date): Promise<ProjectStats>;
+  stats(projectId: string, since: Date, mode?: Mode): Promise<ProjectStats>;
 
   /** Adds one message to a project's usage for a month (`2026-10`) and returns the new total. */
   incrementUsage(projectId: string, month: string): Promise<number>;

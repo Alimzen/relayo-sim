@@ -142,7 +142,7 @@ describe('accounts', () => {
   it('manages API keys: create, use, revoke; API keys cannot manage keys', async () => {
     const { b } = await signUp();
     const created = await b.json<{ id: string; apiKey: string; prefix: string; name: string }>('POST', '/v1/project/keys', { name: 'CI' });
-    expect(created.apiKey).toMatch(/^sim_live_/);
+    expect(created.apiKey).toMatch(/^rly_test_/);
     expect(created.apiKey.startsWith(created.prefix)).toBe(true);
 
     const withKey = (path: string, init: RequestInit = {}) =>
@@ -173,7 +173,7 @@ describe('accounts', () => {
   it('creates more projects and reports stats per project', async () => {
     const { b } = await signUp();
     const second = await b.json<{ id: string; apiKey: string }>('POST', '/v1/projects', { name: 'Staging' });
-    expect(second.apiKey).toMatch(/^sim_live_/);
+    expect(second.apiKey).toMatch(/^rly_test_/);
     const projects = await b.json<{ data: Array<{ name: string }> }>('GET', '/v1/projects');
     expect(projects.data.map((p) => p.name)).toEqual(['Mi primer proyecto', 'Staging']);
 

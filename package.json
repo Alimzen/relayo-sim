@@ -18,6 +18,11 @@
   },
   "dependencies": {
     "@alimzen/relayo": "^0.2.1",
+    "@alimzen/relayo-mailgun": "^0.1.0",
+    "@alimzen/relayo-postmark": "^0.1.0",
+    "@alimzen/relayo-resend": "^0.1.0",
+    "@alimzen/relayo-sendgrid": "^0.1.0",
+    "@alimzen/relayo-ses": "^0.1.0",
     "@alimzen/relayo-smtp": "^0.2.1",
     "@nestjs/common": "^12",
     "@nestjs/core": "^12",

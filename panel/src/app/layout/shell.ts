@@ -189,7 +189,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
             required
             autocomplete="off"
             [(ngModel)]="claimKey"
-            placeholder="sim_live_…"
+            placeholder="rly_test_… o sim_live_…"
           />
         </div>
         <div class="modal-actions">

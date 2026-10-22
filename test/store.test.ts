@@ -66,7 +66,7 @@ describe.each(stores)('%s store', (_, open) => {
   it('stores projects and finds them through their active API keys', async () => {
     const store = await open();
     await store.createProject(project());
-    const key = { id: 'key_1', projectId: 'prj_1', name: 'CI', prefix: 'sim_live_abcd', keyHash: 'hash_1', createdAt: new Date('2026-10-18T10:00:00Z') };
+    const key = { id: 'key_1', projectId: 'prj_1', name: 'CI', prefix: 'sim_live_abcd', keyHash: 'hash_1', mode: 'test' as const, createdAt: new Date('2026-10-18T10:00:00Z') };
     await store.createApiKey(key);
     await store.createApiKey({ ...key, id: 'key_2', name: 'Local', keyHash: 'hash_2', createdAt: new Date('2026-10-18T11:00:00Z') });
 

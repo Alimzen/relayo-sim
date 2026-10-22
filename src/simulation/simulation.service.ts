@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { BounceEvent, ClickEvent, RejectEvent, RelayoEvent } from '@alimzen/relayo';
-import type { ApiKey, Project, SimEvent, SimMessage, SimRecipient } from '../domain.js';
+import type { ApiKey, Project, SimEvent, SimMessage, SimRecipient, Mode } from '../domain.js';
 import { buildReport, reportRecipient } from '../reports/reports.js';
 import type { ReportSender } from '../reports/sender.js';
 import type { SmtpReply, TimelineStep } from '../scenarios/catalog.js';
@@ -106,13 +106,17 @@ export class SimulationService {
     return { project, apiKey };
   }
 
-  /** A new API key for a project. The key is returned only here. */
-  async createApiKey(projectId: string, name: string): Promise<{ key: ApiKey; apiKey: string }> {
-    const apiKey = `sim_live_${randomBytes(24).toString('base64url')}`;
+  /**
+   * A new API key for a project, returned only here. `rly_test_...` keys simulate; `rly_live_...` keys deliver
+   * through the project's connections. Keys from before live mode (`sim_live_...`) are test keys.
+   */
+  async createApiKey(projectId: string, name: string, mode: Mode = 'test'): Promise<{ key: ApiKey; apiKey: string }> {
+    const apiKey = `rly_${mode}_${randomBytes(24).toString('base64url')}`;
     const key: ApiKey = {
       id: `key_${randomUUID()}`,
       projectId,
       name,
+      mode,
       prefix: apiKey.slice(0, 13),
       keyHash: hashKey(apiKey),
       createdAt: new Date(),
@@ -129,6 +133,11 @@ export class SimulationService {
   }
 
   async authenticate(apiKey: string): Promise<Project | undefined> {
+    return (await this.authenticateKey(apiKey))?.project;
+  }
+
+  /** The project of a key and the mode the key works in. */
+  async authenticateKey(apiKey: string): Promise<{ project: Project; mode: Mode } | undefined> {
     const found = await this.store.findProjectByApiKeyHash(hashKey(apiKey));
     if (!found) return undefined;
     // "Last used" is a hint, not an audit log: write it at most once a minute per key.
@@ -136,7 +145,7 @@ export class SimulationService {
     if (!found.key.lastUsedAt || now.getTime() - found.key.lastUsedAt.getTime() > 60_000) {
       void this.store.touchApiKey(found.key.id, now).catch(() => undefined);
     }
-    return found.project;
+    return { project: found.project, mode: found.key.mode };
   }
 
   // --- Quotas -----------------------------------------------------------------------------------

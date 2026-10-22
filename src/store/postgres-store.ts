@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset } from '../domain.js';
+import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
 
@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   revoked_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS api_keys_project ON api_keys (project_id);
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'test';
 -- Keys created before api_keys existed lived on the project row.
 INSERT INTO api_keys (id, project_id, name, prefix, key_hash, created_at)
   SELECT 'key_' || md5(p.api_key_hash), p.id, 'Default', 'sim_live_', p.api_key_hash, p.created_at
@@ -65,6 +66,29 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS headers jsonb;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS size integer;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'email';
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS body text;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'test';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivery jsonb;
+CREATE INDEX IF NOT EXISTS messages_project_mode_created ON messages (project_id, mode, created_at DESC);
+CREATE TABLE IF NOT EXISTS connections (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  channel text NOT NULL,
+  provider text NOT NULL,
+  settings jsonb NOT NULL,
+  secrets text NOT NULL,
+  priority integer NOT NULL,
+  inbound_token text NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS connections_project ON connections (project_id, channel, priority);
+CREATE TABLE IF NOT EXISTS suppressions (
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  address text NOT NULL,
+  reason text NOT NULL,
+  created_at timestamptz NOT NULL,
+  PRIMARY KEY (project_id, address)
+);
 CREATE TABLE IF NOT EXISTS message_contents (
   message_id text PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
   raw bytea NOT NULL
@@ -126,6 +150,20 @@ interface KeyRow {
   created_at: Date;
   last_used_at: Date | null;
   revoked_at: Date | null;
+  mode: Mode;
+}
+
+interface ConnectionRow {
+  id: string;
+  project_id: string;
+  name: string;
+  channel: 'email' | 'sms';
+  provider: Connection['provider'];
+  settings: Record<string, string>;
+  secrets: string;
+  priority: number;
+  inbound_token: string;
+  created_at: Date;
 }
 
 interface MessageRow {
@@ -143,6 +181,8 @@ interface MessageRow {
   size: number | null;
   channel: 'email' | 'sms';
   body: string | null;
+  mode: Mode;
+  delivery: SimMessage['delivery'] | null;
   created_at: Date;
 }
 
@@ -270,8 +310,8 @@ export class PostgresStore implements SimStore {
 
   async createApiKey(k: ApiKey): Promise<void> {
     await this.pool.query(
-      'INSERT INTO api_keys (id, project_id, name, prefix, key_hash, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
-      [k.id, k.projectId, k.name, k.prefix, k.keyHash, k.createdAt],
+      'INSERT INTO api_keys (id, project_id, name, prefix, key_hash, created_at, mode) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [k.id, k.projectId, k.name, k.prefix, k.keyHash, k.createdAt, k.mode],
     );
   }
 
@@ -307,8 +347,8 @@ export class PostgresStore implements SimStore {
 
   async saveMessage(m: SimMessage, raw?: Uint8Array): Promise<void> {
     await this.pool.query(
-      `INSERT INTO messages (id, project_id, via, relayo_message_id, from_address, recipients, subject, metadata, tags, envelope_from, headers, created_at, size, channel, body)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO messages (id, project_id, via, relayo_message_id, from_address, recipients, subject, metadata, tags, envelope_from, headers, created_at, size, channel, body, mode, delivery)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (id) DO NOTHING`,
       [
         m.id,
         m.projectId,
@@ -325,6 +365,8 @@ export class PostgresStore implements SimStore {
         m.size ?? null,
         m.channel ?? 'email',
         m.body ?? null,
+        m.mode ?? 'test',
+        m.delivery ? JSON.stringify(m.delivery) : null,
       ],
     );
     if (raw) {
@@ -353,7 +395,7 @@ export class PostgresStore implements SimStore {
     };
   }
 
-  async listMessages(projectId: string, { limit, before, search, status, channel }: MessageQuery): Promise<MessageListItem[]> {
+  async listMessages(projectId: string, { limit, before, search, status, channel, mode = 'test' }: MessageQuery): Promise<MessageListItem[]> {
     const { rows } = await this.pool.query<MessageRow & { latest_type: string | null; latest_bounce: string | null }>(
       `SELECT m.*, latest.type AS latest_type, latest.body->>'bounceType' AS latest_bounce
        FROM messages m
@@ -367,8 +409,9 @@ export class PostgresStore implements SimStore {
          AND ($3::text IS NULL OR m.subject ILIKE $3 OR m.from_address ILIKE $3 OR m.body ILIKE $3 OR m.recipients::text ILIKE $3)
          AND ($4::text IS NULL OR EXISTS (SELECT 1 FROM events s WHERE s.message_id = m.id AND s.type = $4))
          AND ($6::text IS NULL OR m.channel = $6)
+         AND m.mode = $7
        ORDER BY m.created_at DESC LIMIT $5`,
-      [projectId, before ?? null, search?.trim() ? `%${escapeLike(search.trim())}%` : null, status ?? null, limit, channel ?? null],
+      [projectId, before ?? null, search?.trim() ? `%${escapeLike(search.trim())}%` : null, status ?? null, limit, channel ?? null, mode],
     );
     return rows.map((row) => {
       const message: MessageListItem = toMessage(row);
@@ -391,20 +434,26 @@ export class PostgresStore implements SimStore {
     );
   }
 
-  async stats(projectId: string, since: Date): Promise<ProjectStats> {
+  async stats(projectId: string, since: Date, mode: Mode = 'test'): Promise<ProjectStats> {
     const stats = emptyStats(since);
     const [messages, events, daily] = await Promise.all([
-      this.pool.query<{ count: string }>('SELECT count(*) FROM messages WHERE project_id = $1 AND created_at >= $2', [projectId, since]),
+      this.pool.query<{ count: string }>('SELECT count(*) FROM messages WHERE project_id = $1 AND created_at >= $2 AND mode = $3', [
+        projectId,
+        since,
+        mode,
+      ]),
       this.pool.query<{ type: string; bounce_type: string | null; count: string }>(
-        `SELECT type, body->>'bounceType' AS bounce_type, count(*) FROM events
-         WHERE project_id = $1 AND occurred_at >= $2 GROUP BY 1, 2`,
-        [projectId, since],
+        `SELECT e.type, e.body->>'bounceType' AS bounce_type, count(*) FROM events e
+         JOIN messages m ON m.id = e.message_id AND m.mode = $3
+         WHERE e.project_id = $1 AND e.occurred_at >= $2 GROUP BY 1, 2`,
+        [projectId, since, mode],
       ),
       this.pool.query<{ day: string; type: string; count: string }>(
-        `SELECT to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, type, count(*) FROM events
-         WHERE project_id = $1 AND occurred_at >= $2 AND type IN ('delivered', 'bounced', 'deferred', 'complained')
+        `SELECT to_char(e.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, e.type, count(*) FROM events e
+         JOIN messages m ON m.id = e.message_id AND m.mode = $3
+         WHERE e.project_id = $1 AND e.occurred_at >= $2 AND e.type IN ('delivered', 'bounced', 'deferred', 'complained')
          GROUP BY 1, 2`,
-        [projectId, since],
+        [projectId, since, mode],
       ),
     ]);
     stats.messages = Number(messages.rows[0]?.count ?? 0);
@@ -419,6 +468,81 @@ export class PostgresStore implements SimStore {
       if (day) day[row.type as 'delivered' | 'bounced' | 'deferred' | 'complained'] += Number(row.count);
     }
     return stats;
+  }
+
+  async createConnection(c: Connection): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO connections (id, project_id, name, channel, provider, settings, secrets, priority, inbound_token, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [c.id, c.projectId, c.name, c.channel, c.provider, JSON.stringify(c.settings), c.secrets, c.priority, c.inboundToken, c.createdAt],
+    );
+  }
+
+  async listConnections(projectId: string, channel?: 'email' | 'sms'): Promise<Connection[]> {
+    const { rows } = await this.pool.query<ConnectionRow>(
+      'SELECT * FROM connections WHERE project_id = $1 AND ($2::text IS NULL OR channel = $2) ORDER BY priority, created_at',
+      [projectId, channel ?? null],
+    );
+    return rows.map(toConnection);
+  }
+
+  async getConnection(projectId: string, id: string): Promise<Connection | undefined> {
+    const { rows } = await this.pool.query<ConnectionRow>('SELECT * FROM connections WHERE id = $1 AND project_id = $2', [id, projectId]);
+    return rows[0] && toConnection(rows[0]);
+  }
+
+  async findConnectionByInboundToken(token: string): Promise<Connection | undefined> {
+    const { rows } = await this.pool.query<ConnectionRow>('SELECT * FROM connections WHERE inbound_token = $1', [token]);
+    return rows[0] && toConnection(rows[0]);
+  }
+
+  async updateConnection(projectId: string, id: string, changes: Partial<Pick<Connection, 'name' | 'settings' | 'secrets' | 'priority'>>): Promise<void> {
+    const sets: string[] = [];
+    const values: unknown[] = [id, projectId];
+    for (const key of ['name', 'settings', 'secrets', 'priority'] as const) {
+      if (changes[key] === undefined) continue;
+      values.push(key === 'settings' ? JSON.stringify(changes[key]) : changes[key]);
+      sets.push(`${key} = $${values.length}`);
+    }
+    if (sets.length) await this.pool.query(`UPDATE connections SET ${sets.join(', ')} WHERE id = $1 AND project_id = $2`, values);
+  }
+
+  async deleteConnection(projectId: string, id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query('DELETE FROM connections WHERE id = $1 AND project_id = $2', [id, projectId]);
+    return (rowCount ?? 0) > 0;
+  }
+
+  async suppress(projectId: string, address: string, reason: SuppressionReason): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO suppressions (project_id, address, reason, created_at) VALUES ($1, $2, $3, now()) ON CONFLICT (project_id, address) DO NOTHING',
+      [projectId, address.toLowerCase(), reason],
+    );
+  }
+
+  async suppressed(projectId: string, addresses: string[]): Promise<Set<string>> {
+    if (!addresses.length) return new Set();
+    const { rows } = await this.pool.query<{ address: string }>(
+      'SELECT address FROM suppressions WHERE project_id = $1 AND address = ANY($2::text[])',
+      [projectId, addresses.map((a) => a.toLowerCase())],
+    );
+    return new Set(rows.map((r) => r.address));
+  }
+
+  async listSuppressions(projectId: string, limit: number): Promise<Suppression[]> {
+    const { rows } = await this.pool.query<{ project_id: string; address: string; reason: SuppressionReason; created_at: Date }>(
+      'SELECT * FROM suppressions WHERE project_id = $1 ORDER BY created_at DESC LIMIT $2',
+      [projectId, limit],
+    );
+    return rows.map((r) => ({ projectId: r.project_id, address: r.address, reason: r.reason, createdAt: r.created_at }));
+  }
+
+  async unsuppress(projectId: string, address: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query('DELETE FROM suppressions WHERE project_id = $1 AND address = $2', [projectId, address.toLowerCase()]);
+    return (rowCount ?? 0) > 0;
+  }
+
+  async setDelivery(projectId: string, messageId: string, delivery: NonNullable<SimMessage['delivery']>): Promise<void> {
+    await this.pool.query('UPDATE messages SET delivery = $3 WHERE id = $1 AND project_id = $2', [messageId, projectId, JSON.stringify(delivery)]);
   }
 
   async createPasswordReset(reset: PasswordReset): Promise<void> {
@@ -482,7 +606,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE events, message_contents, messages, usage, password_resets, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE events, message_contents, messages, usage, password_resets, connections, suppressions, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
@@ -506,6 +630,21 @@ function toProject(row: ProjectRow): Project {
   };
 }
 
+function toConnection(row: ConnectionRow): Connection {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    channel: row.channel,
+    provider: row.provider,
+    settings: row.settings,
+    secrets: row.secrets,
+    priority: row.priority,
+    inboundToken: row.inbound_token,
+    createdAt: new Date(row.created_at),
+  };
+}
+
 function toKey(row: KeyRow): ApiKey {
   return {
     id: row.id,
@@ -513,6 +652,7 @@ function toKey(row: KeyRow): ApiKey {
     name: row.name,
     prefix: row.prefix,
     keyHash: row.key_hash,
+    mode: row.mode === 'live' ? 'live' : 'test',
     createdAt: new Date(row.created_at),
     ...(row.last_used_at && { lastUsedAt: new Date(row.last_used_at) }),
     ...(row.revoked_at && { revokedAt: new Date(row.revoked_at) }),
@@ -536,6 +676,8 @@ function toMessage(row: MessageRow): SimMessage {
     ...(row.size !== null && row.size !== undefined && { size: row.size }),
     ...(row.channel === 'sms' && { channel: 'sms' as const }),
     ...(row.body !== null && row.body !== undefined && { body: row.body }),
+    ...(row.mode === 'live' && { mode: 'live' as const }),
+    ...(row.delivery && { delivery: row.delivery }),
   };
 }
 

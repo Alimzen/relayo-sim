@@ -19,6 +19,38 @@ export interface Session {
   expiresAt: Date;
 }
 
+/** Providers a project can connect for live delivery. `managed` is Relayo's own sending (verified domains). */
+export type ProviderName = 'smtp' | 'ses' | 'sendgrid' | 'resend' | 'postmark' | 'mailgun' | 'managed';
+
+/** A provider account of a project, used for live delivery. */
+export interface Connection {
+  id: string;
+  projectId: string;
+  name: string;
+  channel: 'email' | 'sms';
+  provider: ProviderName;
+  /** Non-secret settings, shown in the panel (host, region, domain...). */
+  settings: Record<string, string>;
+  /** Credentials, encrypted with SECRETS_KEY (see live/secrets.ts). */
+  secrets: string;
+  /** Lower goes first; the others are failover, in order. */
+  priority: number;
+  /** In the URL that receives this provider's webhooks: `/v1/inbound/<token>`. */
+  inboundToken: string;
+  createdAt: Date;
+}
+
+export type SuppressionReason = 'hard_bounce' | 'complaint' | 'unsubscribe' | 'manual';
+
+/** An address live mode will not send to again, and why. */
+export interface Suppression {
+  projectId: string;
+  /** Lowercased email address or phone number. */
+  address: string;
+  reason: SuppressionReason;
+  createdAt: Date;
+}
+
 export interface PasswordReset {
   /** SHA-256 of the token sent by email. */
   tokenHash: string;
@@ -26,10 +58,17 @@ export interface PasswordReset {
   expiresAt: Date;
 }
 
+/**
+ * `test`: the simulator plays scenarios, nothing is delivered. `live`: real delivery through the project's
+ * provider connections. Both share the API, the webhook and the panel.
+ */
+export type Mode = 'test' | 'live';
+
 export interface ApiKey {
   id: string;
   projectId: string;
   name: string;
+  mode: Mode;
   /** First characters of the key, to recognize it in lists (`sim_live_AbC1…`). */
   prefix: string;
   /** SHA-256 of the key; the key itself is shown once, when it is created. */
@@ -64,6 +103,10 @@ export interface SimMessage {
   /** Simulator id (`sim_...`), reported as `providerMessageId`. */
   id: string;
   projectId: string;
+  /** Absent for messages stored before live mode existed: they are test messages. */
+  mode?: Mode;
+  /** Live messages: the connection that delivered it and the provider's own id for it. */
+  delivery?: { connectionId: string; provider: string; providerMessageId?: string };
   /** Absent for email (messages stored before SMS existed). */
   channel?: 'email' | 'sms';
   /** SMS text. Emails keep their content as the captured MIME source instead. */
