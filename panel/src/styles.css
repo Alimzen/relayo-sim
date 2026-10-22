@@ -1890,3 +1890,78 @@ pre {
 .usage-props {
   margin-top: 18px;
 }
+
+/* ------------------------------------------------------------------------------------------------
+   SMS and multiple recipients
+   ------------------------------------------------------------------------------------------------ */
+
+.param-input {
+  width: 110px;
+  flex: none;
+}
+
+.recipients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 36px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.recipient {
+  gap: 4px;
+  padding-right: 3px;
+}
+
+.chip-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip-remove:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.textarea {
+  height: auto;
+  padding: 8px 11px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.channel-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--tone-info);
+  background: var(--tone-info-bg);
+  vertical-align: 1px;
+}
+
+.sms-from {
+  margin-bottom: 8px;
+}
+
+.sms-bubble {
+  max-width: 420px;
+  padding: 10px 14px;
+  border-radius: 16px 16px 16px 4px;
+  background: var(--hover);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

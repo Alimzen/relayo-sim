@@ -11,7 +11,7 @@ import {
 import { AccountsService } from './accounts/accounts.service.js';
 import { AuthController, ProjectsController } from './api/account.controllers.js';
 import { AdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
-import { AdminController, HealthController, MessagesController, ProjectController, ScenariosController } from './api/controllers.js';
+import { AdminController, HealthController, MessagesController, ProjectController, ScenariosController, SmsController } from './api/controllers.js';
 import { SIM_CONFIG, type SimConfig } from './config.js';
 import { infrastructure, type Infrastructure } from './infrastructure.js';
 import { EVENT_SCHEDULER, type EventScheduler } from './scheduler/scheduler.js';
@@ -111,6 +111,7 @@ export class AppModule {
         AuthController,
         ProjectsController,
         MessagesController,
+        SmsController,
         ProjectController,
         AdminController,
       ],

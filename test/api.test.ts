@@ -214,6 +214,55 @@ describe('HTTP API', () => {
     expect(response.status).toBe(400);
   });
 
+  it('sends SMS like a provider API, each number playing its scenario as signed webhooks', async () => {
+    const response = await post('/v1/sms', {
+      from: 'Empresa',
+      to: ['+12015550101', '+12015550105', '+34600111222'],
+      body: 'Tu código es 1234',
+      metadata: { pedido: '77' },
+      relayoMessageId: 'msg_sms_1',
+    });
+    expect(response.status).toBe(202);
+    const { id } = (await response.json()) as { id: string };
+
+    const ofSms = () => hooks.events.filter((e) => e.messageId === 'msg_sms_1');
+    await vi.waitFor(() => expect(ofSms().map((e) => `${e.recipient}:${e.type}`)).toEqual(expect.arrayContaining([
+      '+12015550101:bounced',
+      '+12015550105:unsubscribed',
+      '+34600111222:delivered',
+    ])));
+    expect(ofSms().every((e) => e.channel === 'sms' && e.metadata?.pedido === '77')).toBe(true);
+    expect(ofSms().find((e) => e.type === 'bounced')).toMatchObject({ bounceType: 'hard', reason: 'user_unknown' });
+    expect(hooks.invalid).toEqual([]);
+
+    const detail = (await (await get(`/v1/messages/${id}`)).json()) as { channel: string; body: string; from: string; recipients: Array<{ scenario: { name: string; source: string } }> };
+    expect(detail).toMatchObject({ channel: 'sms', body: 'Tu código es 1234', from: 'Empresa' });
+    expect(detail.recipients.map((r) => r.scenario)).toEqual([
+      { name: 'invalid-number', source: 'number' },
+      { name: 'opt-out', source: 'number' },
+      { name: 'delivered', source: 'default' },
+    ]);
+    const smsOnly = (await (await get('/v1/messages?channel=sms&q=1234')).json()) as { data: Array<{ id: string }> };
+    expect(smsOnly.data.map((m) => m.id)).toEqual([id]);
+    expect((await get(`/v1/messages/${id}/events/${encodeURIComponent(`${id}:+12015550101:001`)}/report`)).status).toBe(404);
+  });
+
+  it('lets an SMS pick its scenario with a field, and validates SMS requests', async () => {
+    const forced = await post('/v1/sms', { to: '+34600111222', body: 'Hola', scenario: 'carrier-filtered', relayoMessageId: 'msg_sms_2' });
+    expect(forced.status).toBe(202);
+    await vi.waitFor(() =>
+      expect(hooks.events.find((e) => e.messageId === 'msg_sms_2' && e.type === 'bounced')).toMatchObject({ bounceType: 'block', reason: 'content_rejected' }),
+    );
+    expect((await post('/v1/sms', { to: '600111222', body: 'x' })).status).toBe(400);
+    expect((await post('/v1/sms', { to: '+34600111222', body: '' })).status).toBe(400);
+    expect((await post('/v1/sms', { to: '+34600111222', body: 'x', from: 'UnNombreMuyLargo' })).status).toBe(400);
+    expect((await post('/v1/sms', { to: '+34600111222', body: 'x', scenario: 'nope' })).status).toBe(400);
+
+    const scenarios = (await (await fetch(`${base}/v1/scenarios`)).json()) as { data: Array<{ name: string; channel: string; example: string }> };
+    expect(scenarios.data).toContainEqual(expect.objectContaining({ name: 'landline', channel: 'sms', example: '+12015550102' }));
+    expect(scenarios.data).toContainEqual(expect.objectContaining({ name: 'greylist', channel: 'email' }));
+  });
+
   it('starts the SMTP server with the app', () => {
     expect(app.get(Lifecycle).smtpPort).toBeGreaterThan(0);
   });

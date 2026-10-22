@@ -167,14 +167,15 @@ export class MemoryStore implements SimStore {
     return { ...message, events: this.eventsOf(id) };
   }
 
-  async listMessages(projectId: string, { limit, before, search, status }: MessageQuery): Promise<MessageListItem[]> {
+  async listMessages(projectId: string, { limit, before, search, status, channel }: MessageQuery): Promise<MessageListItem[]> {
     const needle = search?.trim().toLowerCase();
     return [...this.messages.values()]
+      .filter((m) => !channel || (m.channel ?? 'email') === channel)
       .filter((m) => m.projectId === projectId && (!before || m.createdAt < before))
       .filter(
         (m) =>
           !needle ||
-          [m.subject, m.from, ...m.recipients.map((r) => r.address)].some((v) => v.toLowerCase().includes(needle)),
+          [m.subject, m.from, m.body ?? '', ...m.recipients.map((r) => r.address)].some((v) => v.toLowerCase().includes(needle)),
       )
       .filter((m) => !status || this.eventsOf(m.id).some((e) => e.type === status))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())

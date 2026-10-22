@@ -20,6 +20,7 @@ import type { Response } from 'express';
 import { composeMessage, quotedHeaders, readAttachment, readContent, readHeaders, type ApiAttachment, type MailAddress } from '../capture/capture.js';
 import type { Project, SimEvent } from '../domain.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
+import { isSmsScenario, PHONE, SMS_SCENARIOS } from '../scenarios/sms.js';
 import { QuotaExceededError, SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
@@ -71,9 +72,72 @@ function checkAttachments(value: unknown): ApiAttachment[] | undefined {
 
 @Controller('v1')
 export class ScenariosController {
+  /** Email scenarios (selected by address) and SMS scenarios (selected by number), each with its `channel`. */
   @Get('scenarios')
   list() {
-    return { data: SCENARIOS.map(({ name, description, example }) => ({ name, description, example })) };
+    return {
+      data: [
+        ...SCENARIOS.map(({ name, description, example }) => ({ name, description, example, channel: 'email' })),
+        ...SMS_SCENARIOS.map(({ name, description, number }) => ({ name, description, example: number, channel: 'sms' })),
+      ],
+    };
+  }
+}
+
+/** Body of `POST /v1/sms`. Mirrors Relayo's SmsMessage. */
+export interface SendSmsBody {
+  from?: string;
+  to: Address | Address[];
+  body: string;
+  metadata?: Record<string, string>;
+  tags?: string[];
+  /** Relayo's message id, so events come back with it. */
+  relayoMessageId?: string;
+  /** Scenario for every recipient, instead of the magic numbers. */
+  scenario?: string;
+}
+
+/** Sender ids: a phone number, or up to 11 letters and digits (alphanumeric sender id). */
+const SENDER = /^(\+[1-9]\d{7,14}|[A-Za-z0-9 ]{1,11})$/;
+
+@Controller('v1/sms')
+@UseGuards(ProjectGuard)
+export class SmsController {
+  constructor(@Inject(SimulationService) private readonly sim: SimulationService) {}
+
+  /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
+  @Post()
+  @HttpCode(202)
+  async send(@CurrentProject() project: Project, @Body() body: SendSmsBody) {
+    const to = (Array.isArray(body?.to) ? body.to : [body?.to]).map((a) => addressOf(a as Address)?.trim());
+    if (!to.length || to.some((n) => !n || !PHONE.test(n))) {
+      throw new BadRequestException('"to" must contain phone numbers in E.164 format, e.g. +12015550100');
+    }
+    if (typeof body.body !== 'string' || !body.body.trim()) throw new BadRequestException('"body" is required');
+    if (body.body.length > 1600) throw new BadRequestException('"body" can have at most 1600 characters');
+    const from = body.from?.trim() || 'RelayoSim';
+    if (!SENDER.test(from)) throw new BadRequestException('"from" must be a phone number (E.164) or an alphanumeric sender id of up to 11 characters');
+    if (body.scenario !== undefined && (typeof body.scenario !== 'string' || !isSmsScenario(body.scenario.trim().toLowerCase()))) {
+      throw new BadRequestException(`Unknown SMS scenario "${String(body.scenario)}"`);
+    }
+
+    try {
+      await this.sim.reserve(project);
+    } catch (error) {
+      if (error instanceof QuotaExceededError) throw new HttpException({ statusCode: 429, message: error.message }, 429);
+      throw error;
+    }
+
+    const message = await this.sim.acceptSms(project, {
+      from,
+      to: to as string[],
+      body: body.body,
+      ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
+      ...(body.metadata && { metadata: body.metadata }),
+      ...(body.tags && { tags: body.tags }),
+      ...(body.scenario && { scenario: body.scenario }),
+    });
+    return { id: message.id, status: 'queued', recipients: message.recipients };
   }
 }
 
@@ -147,15 +211,18 @@ export class MessagesController {
     @Query('before') before?: string,
     @Query('q') q?: string,
     @Query('status') status?: string,
+    @Query('channel') channel?: string,
   ) {
     const max = Math.min(100, Math.max(1, Number(limit) || 25));
     const beforeDate = before ? new Date(before) : undefined;
     if (status && !EVENT_TYPES.has(status)) throw new BadRequestException(`Unknown status "${status}"`);
+    if (channel && channel !== 'email' && channel !== 'sms') throw new BadRequestException('"channel" must be email or sms');
     const messages = await this.store.listMessages(project.id, {
       limit: max,
       ...(beforeDate && !Number.isNaN(beforeDate.getTime()) && { before: beforeDate }),
       ...(q?.trim() && { search: q.trim().slice(0, 200) }),
       ...(status && { status: status as SimEvent['type'] }),
+      ...(channel && { channel: channel as 'email' | 'sms' }),
     });
     return { data: messages.map(publicMessage) };
   }

@@ -39,6 +39,14 @@ const PAGE = 50;
             />
           </label>
           <label>
+            <span class="sr-only">Canal</span>
+            <select class="select" [ngModel]="channel()" (ngModelChange)="filterChannel($event)">
+              <option value="">Email y SMS</option>
+              <option value="email">Solo email</option>
+              <option value="sms">Solo SMS</option>
+            </select>
+          </label>
+          <label>
             <span class="sr-only">Estado</span>
             <select class="select" [ngModel]="status()" (ngModelChange)="filter($event)">
               @for (option of filters; track option.value) {
@@ -55,7 +63,7 @@ const PAGE = 50;
             <div class="skeleton"></div>
           </div>
         } @else if (messages()!.length === 0) {
-          @if (query() || status()) {
+          @if (query() || status() || channel()) {
             <app-empty heading="Sin resultados">
               <svg icon lucideSearch [size]="20"></svg>
               Ningún mensaje coincide con la búsqueda o el filtro.
@@ -85,6 +93,7 @@ export class MessagesPage {
   protected readonly filters = STATUS_FILTERS;
   protected readonly query = signal('');
   protected readonly status = signal('');
+  protected readonly channel = signal('');
   protected readonly messages = signal<SimMessage[] | null>(null);
   protected readonly loading = signal(false);
   protected readonly more = signal(false);
@@ -107,6 +116,11 @@ export class MessagesPage {
     void this.load(false);
   }
 
+  protected filterChannel(value: string): void {
+    this.channel.set(value);
+    void this.load(false);
+  }
+
   protected reload(): void {
     void this.load(false);
   }
@@ -125,6 +139,7 @@ export class MessagesPage {
         before: append ? current.at(-1)?.createdAt : undefined,
         q: this.query().trim(),
         status: this.status(),
+        channel: this.channel(),
       });
       if (generation !== this.generation) return;
       this.messages.set([...current, ...page]);

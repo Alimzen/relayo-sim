@@ -13,7 +13,8 @@ export interface SmtpReply {
 export interface TimelineStep {
   after: number;
   type: EventType;
-  bounce?: { bounceType: BounceType; reason: BounceReason; smtpCode: number; enhancedCode: string; diagnostic: string };
+  /** SMS bounces have no SMTP codes: the carrier's error is in the diagnostic. */
+  bounce?: { bounceType: BounceType; reason: BounceReason; smtpCode?: number; enhancedCode?: string; diagnostic: string };
   /** For deferrals: the temporary SMTP answer behind them. */
   smtp?: { code: number; enhancedCode: string; diagnostic: string };
   reject?: { reason: RejectReason; diagnostic: string };

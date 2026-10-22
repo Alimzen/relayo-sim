@@ -7,7 +7,8 @@ export interface ScenarioSelection {
   name: string;
   param?: string;
   /** Where the choice came from. */
-  source: 'address' | 'header' | 'default';
+  /** `number` and `field` are for SMS: the magic number, or the request's `scenario` field. */
+  source: 'address' | 'header' | 'default' | 'number' | 'field';
 }
 
 /**

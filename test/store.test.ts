@@ -143,6 +143,19 @@ describe.each(stores)('%s store', (_, open) => {
     expect(await store.getContent('prj_1', 'sim_none')).toBeUndefined();
   });
 
+  it('keeps SMS with their text, and filters messages by channel', async () => {
+    const store = await open();
+    await store.createProject(project());
+    await store.saveMessage(message('sim_mail', '2026-10-18T10:00:00Z'));
+    await store.saveMessage(message('sim_sms', '2026-10-18T11:00:00Z', { channel: 'sms', body: 'Tu código es 1234', subject: '' }));
+
+    expect(await store.getMessage('prj_1', 'sim_sms')).toMatchObject({ channel: 'sms', body: 'Tu código es 1234' });
+    expect((await store.getMessage('prj_1', 'sim_mail'))?.channel).toBeUndefined();
+    expect((await store.listMessages('prj_1', { limit: 10, channel: 'sms' })).map((m) => m.id)).toEqual(['sim_sms']);
+    expect((await store.listMessages('prj_1', { limit: 10, channel: 'email' })).map((m) => m.id)).toEqual(['sim_mail']);
+    expect((await store.listMessages('prj_1', { limit: 10, search: 'código' })).map((m) => m.id)).toEqual(['sim_sms']);
+  });
+
   it('only shows a project its own messages', async () => {
     const store = await open();
     await store.createProject(project());

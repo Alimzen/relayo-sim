@@ -5,6 +5,7 @@ import { buildReport, reportRecipient } from '../reports/reports.js';
 import type { ReportSender } from '../reports/sender.js';
 import type { SmtpReply, TimelineStep } from '../scenarios/catalog.js';
 import { resolveScenario, selectScenario, smtpTimeline, type ResolvedScenario } from '../scenarios/resolve.js';
+import { selectSmsScenario, smsTimeline } from '../scenarios/sms.js';
 import type { EventScheduler, ScheduledStep } from '../scheduler/scheduler.js';
 import type { SimStore } from '../store/store.js';
 import type { WebhookDispatcher } from '../webhooks/webhooks.js';
@@ -53,6 +54,19 @@ export interface IncomingMessage {
   headers?: Record<string, string>;
   /** The whole message (MIME), captured for the inbox. */
   raw?: Uint8Array;
+}
+
+/** An SMS sent through the HTTP API. */
+export interface IncomingSms {
+  /** Sender: a phone number or an alphanumeric sender id. */
+  from: string;
+  to: string[];
+  body: string;
+  relayoMessageId?: string;
+  metadata?: Record<string, string>;
+  tags?: string[];
+  /** Scenario for every recipient, instead of the magic numbers. */
+  scenario?: string;
 }
 
 /** Ties scenarios, storage, scheduling and webhooks together. */
@@ -161,6 +175,27 @@ export class SimulationService {
     return message;
   }
 
+  /** HTTP API SMS send: accepted like a provider's API; each recipient plays its number's scenario. */
+  async acceptSms(project: Project, input: IncomingSms): Promise<SimMessage> {
+    const recipients = input.to.map((address) => ({ address, scenario: selectSmsScenario(address, input.scenario) }));
+    const message = await this.save(
+      project,
+      {
+        from: input.from,
+        to: input.to,
+        subject: '',
+        ...(input.relayoMessageId && { relayoMessageId: input.relayoMessageId }),
+        ...(input.metadata && { metadata: input.metadata }),
+        ...(input.tags && { tags: input.tags }),
+      },
+      recipients,
+      'api',
+      { channel: 'sms', body: input.body },
+    );
+    for (const recipient of recipients) await this.play(message, recipient.address, smsTimeline(recipient.scenario));
+    return message;
+  }
+
   /**
    * SMTP `RCPT TO`: decides the live answer for one recipient. Header-selected scenarios are not known yet;
    * they are applied after DATA by `smtpData`.
@@ -209,11 +244,18 @@ export class SimulationService {
 
   // --- Timeline ---------------------------------------------------------------------------------
 
-  private async save(project: Project, input: IncomingMessage, recipients: SimRecipient[], via: SimMessage['via']): Promise<SimMessage> {
+  private async save(
+    project: Project,
+    input: IncomingMessage,
+    recipients: SimRecipient[],
+    via: SimMessage['via'],
+    sms?: { channel: 'sms'; body: string },
+  ): Promise<SimMessage> {
     const message: SimMessage = {
       id: `sim_${randomUUID()}`,
       projectId: project.id,
       via,
+      ...sms,
       from: input.from,
       recipients,
       subject: input.subject,
@@ -248,8 +290,8 @@ export class SimulationService {
     if (project.webhookUrl) await this.webhooks.dispatch(event, { url: project.webhookUrl, secret: project.webhookSecret });
 
     // Like a receiving server, mail the report to the envelope sender. A failure throws so the step is
-    // retried; the event and webhook above are idempotent.
-    if (project.reportsSmtpUrl && this.reports) {
+    // retried; the event and webhook above are idempotent. SMS has no such reports.
+    if (project.reportsSmtpUrl && this.reports && message.channel !== 'sms') {
       const report = buildReport(message, event);
       if (report) await this.reports.send(project.reportsSmtpUrl, reportRecipient(message), report);
     }
@@ -260,7 +302,7 @@ export class SimulationService {
     const messageId = eventId.slice(0, eventId.indexOf(':'));
     const message = await this.store.getMessage(project.id, messageId);
     const event = message?.events.find((e) => e.id === eventId);
-    return message && event ? buildReport(message, event) : undefined;
+    return message && event && message.channel !== 'sms' ? buildReport(message, event) : undefined;
   }
 }
 
@@ -271,7 +313,7 @@ function toEvent(message: SimMessage, job: ScheduledStep): SimEvent {
     // Zero-padded so ids sort in timeline order when timestamps tie (e.g. TIME_SCALE=0).
     id: `${message.id}:${job.recipient}:${String(job.index).padStart(3, '0')}`,
     type: step.type,
-    channel: 'email',
+    channel: message.channel ?? 'email',
     provider: 'simulator',
     messageId: message.relayoMessageId ?? message.id,
     providerMessageId: message.id,

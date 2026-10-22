@@ -57,7 +57,7 @@ interface Track {
       } @else if (message(); as m) {
         <header class="page-head">
           <div class="detail-title">
-            <h1 class="truncate">{{ m.subject || '(sin asunto)' }}</h1>
+            <h1 class="truncate">{{ m.channel === 'sms' ? 'SMS a ' + (m.recipients[0]?.address ?? '') : m.subject || '(sin asunto)' }}</h1>
             <p>De {{ m.from }} · {{ full(m.createdAt) }}</p>
           </div>
           <div class="row">
@@ -83,6 +83,15 @@ interface Track {
 
         <div class="detail-grid">
           <div class="stack">
+            @if (m.channel === 'sms') {
+              <section class="card">
+                <header class="card-head"><h2>Mensaje</h2><span class="muted small">{{ m.body?.length ?? 0 }} caracteres</span></header>
+                <div class="card-body">
+                  <p class="muted small sms-from">De {{ m.from }}</p>
+                  <div class="sms-bubble">{{ m.body }}</div>
+                </div>
+              </section>
+            }
             @if (current() !== 'events') {
               @if (content(); as c) {
                 <section class="card">
@@ -189,7 +198,7 @@ interface Track {
                             @if (event.diagnostic) {
                               <code class="timeline-diag">{{ event.diagnostic }}</code>
                             }
-                            @if (reportOf(event); as kind) {
+                            @if (reportOf({ type: event.type, channel: m.channel }); as kind) {
                               <div class="timeline-actions">
                                 <button type="button" class="btn btn-sm btn-ghost" (click)="toggleReport(event)">
                                   <svg lucideFileText [size]="14"></svg>

@@ -51,7 +51,8 @@ sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
 | `GET`, `PATCH /v1/auth/me` · `POST /v1/auth/password` | Sesión | Perfil y contraseña (cierra las otras sesiones) |
 | `GET`, `POST /v1/projects` · `POST /v1/projects/claim` | Sesión | Proyectos del usuario |
 | `GET /v1/scenarios` | — | Catálogo |
-| `POST /v1/messages` | API key | Envío (202, `{ id, status: 'queued' }`) |
+| `POST /v1/messages` | API key | Envío de email (202, `{ id, status: 'queued' }`) |
+| `POST /v1/sms` | API key | Envío de SMS: `{ from?, to, body, metadata?, relayoMessageId?, scenario? }` (202) |
 | `GET /v1/messages?limit=&before=&q=&status=` | API key | Últimos mensajes, con búsqueda y filtro por tipo de evento |
 | `GET /v1/messages/:id` | API key | Mensaje con su línea de tiempo |
 | `GET /v1/messages/:id/content` | API key | Correo capturado: cuerpos, cabeceras y adjuntos (imágenes `cid:` incrustadas) |
@@ -65,6 +66,27 @@ sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
 
 Webhooks: `POST` con un evento Relayo en JSON y `Relayo-Signature: t=<unix>,v1=<hex HMAC-SHA256 de "t.cuerpo">`
 (secreto del proyecto). 8 reintentos con backoff exponencial.
+
+## SMS
+
+`POST /v1/sms` acepta SMS como la API de un proveedor (`to` en E.164, `body` de hasta 1600 caracteres, `from` un número
+o un remitente alfanumérico de hasta 11). Cada número sigue su escenario y los eventos llegan por el mismo webhook
+firmado que el email, con `channel: "sms"`. Los números son ficticios (555-01XX): ningún teléfono real los recibe.
+
+| Número | Escenario | Eventos |
+| --- | --- | --- |
+| `+12015550100` (o cualquier otro) | `delivered` | accepted → delivered |
+| `+12015550101` | `invalid-number` | bounced hard / `user_unknown` (error 30005) |
+| `+12015550102` | `landline` | bounced hard: un fijo no recibe SMS (30006) |
+| `+12015550103` | `unreachable` | deferred ×2 → bounced soft / `temporary_failure` (30003) |
+| `+12015550104` | `carrier-filtered` | bounced block / `content_rejected`: filtrado como spam (30007) |
+| `+12015550105` | `opt-out` | delivered → unsubscribed (responde STOP) |
+| `+12015550106` | `suppressed` | rejected / `suppressed`: ya había respondido STOP |
+| `+12015550107` | `delay` | deferred → delivered a los 30 s |
+
+El campo `scenario` elige el escenario para todos los destinatarios. En la librería, `simulatorSms()` y
+`scenarioNumber()` de `@alimzen/relayo-simulator`. El panel muestra los SMS junto a los correos (filtro por canal) y
+tiene su pestaña en Escenarios para enviar pruebas.
 
 ## Bandeja de captura
 

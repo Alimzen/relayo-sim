@@ -15,6 +15,7 @@ export interface MessageQuery {
   search?: string;
   /** Only messages with at least one event of this type. */
   status?: SimEvent['type'];
+  channel?: 'email' | 'sms';
 }
 
 export const SIM_STORE = Symbol.for('relayo-sim:store');

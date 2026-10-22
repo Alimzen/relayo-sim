@@ -40,7 +40,9 @@ export interface ApiKey {
 export interface Scenario {
   name: string;
   description: string;
+  /** An address (email) or a number (SMS) that selects it. */
   example: string;
+  channel?: 'email' | 'sms';
 }
 
 export interface Recipient {
@@ -51,6 +53,7 @@ export interface Recipient {
 export interface SimEvent {
   id: string;
   type: EventType;
+  channel?: 'email' | 'sms';
   recipient: string;
   timestamp: string;
   messageId: string;
@@ -68,6 +71,10 @@ export interface SimEvent {
 export interface SimMessage {
   id: string;
   via: 'smtp' | 'api';
+  /** Absent for email. */
+  channel?: 'email' | 'sms';
+  /** SMS text. */
+  body?: string;
   relayoMessageId?: string;
   from: string;
   envelopeFrom?: string;

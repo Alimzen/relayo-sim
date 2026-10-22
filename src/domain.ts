@@ -59,11 +59,15 @@ export interface SimRecipient {
   scenario: ScenarioSelection;
 }
 
-/** A message received by the simulator, over SMTP or the HTTP API. */
+/** A message received by the simulator: an email (over SMTP or the HTTP API) or an SMS (HTTP API). */
 export interface SimMessage {
   /** Simulator id (`sim_...`), reported as `providerMessageId`. */
   id: string;
   projectId: string;
+  /** Absent for email (messages stored before SMS existed). */
+  channel?: 'email' | 'sms';
+  /** SMS text. Emails keep their content as the captured MIME source instead. */
+  body?: string;
   via: 'smtp' | 'api';
   /** Relayo's message id when the sender used Relayo (header `X-Relayo-Message-ID` or API field). */
   relayoMessageId?: string;

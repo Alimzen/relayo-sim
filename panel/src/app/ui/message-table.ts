@@ -17,7 +17,7 @@ const QUEUED: StatusLook = { label: 'En cola', tone: 'neutral' };
           <tr>
             <th>Estado</th>
             <th>Destinatario</th>
-            <th class="hide-sm">Asunto</th>
+            <th class="hide-sm">Asunto / texto</th>
             <th class="hide-sm">Escenario</th>
             @if (!compact()) {
               <th class="hide-sm">Vía</th>
@@ -30,12 +30,17 @@ const QUEUED: StatusLook = { label: 'En cola', tone: 'neutral' };
             <tr class="clickable" (click)="open(m)">
               <td><app-badge [tone]="look(m).tone">{{ look(m).label }}</app-badge></td>
               <td class="cell-recipient">
+                @if (m.channel === 'sms') {
+                  <span class="channel-tag" title="SMS">SMS</span>
+                }
                 <a class="cell-main row-link" [routerLink]="['/messages', m.id]">{{ m.recipients[0]?.address ?? '—' }}</a>
                 @if (m.recipients.length > 1) {
                   <span class="muted"> +{{ m.recipients.length - 1 }}</span>
                 }
               </td>
-              <td class="hide-sm cell-subject"><span class="truncate">{{ m.subject || '(sin asunto)' }}</span></td>
+              <td class="hide-sm cell-subject">
+                <span class="truncate">{{ m.channel === 'sms' ? m.body : m.subject || '(sin asunto)' }}</span>
+              </td>
               <td class="hide-sm"><span class="chip mono">{{ scenario(m) }}</span></td>
               @if (!compact()) {
                 <td class="hide-sm muted">{{ m.via === 'smtp' ? 'SMTP' : 'API' }}</td>

@@ -72,21 +72,35 @@ const REASONS: Record<string, string> = {
   unknown: 'Motivo desconocido',
 };
 
-export const reasonText = (reason: string | undefined) => (reason ? (REASONS[reason] ?? reason) : undefined);
+/** SMS reasons in the words of phones, not mailboxes. */
+const SMS_REASONS: Record<string, string> = {
+  user_unknown: 'El número no existe',
+  unknown: 'No puede recibir SMS',
+  temporary_failure: 'Teléfono inalcanzable',
+  content_rejected: 'Filtrado por el operador',
+  suppressed: 'Respondió STOP antes',
+};
+
+export const reasonText = (reason: string | undefined, channel?: string) =>
+  reason ? ((channel === 'sms' ? SMS_REASONS[reason] : undefined) ?? REASONS[reason] ?? reason) : undefined;
 
 /** One-line explanation of an event, when it has details worth showing. */
 export function detailOf(event: SimEvent): string | undefined {
   if (event.type === 'bounced') {
     const code = [event.smtpCode, event.enhancedCode].filter(Boolean).join(' ');
-    return [reasonText(event.reason), code].filter(Boolean).join(' · ');
+    return [reasonText(event.reason, event.channel), code].filter(Boolean).join(' · ');
   }
-  if (event.type === 'rejected') return reasonText(event.reason);
+  if (event.type === 'unsubscribed' && (event as { channel?: string }).channel === 'sms') {
+    return 'Respondió STOP';
+  }
+  if (event.type === 'rejected') return reasonText(event.reason, event.channel);
   if (event.type === 'clicked') return event.url;
   return undefined;
 }
 
-/** Which email report an event has: a DSN for bounces and deferrals, an ARF report for complaints. */
-export function reportOf(event: Pick<SimEvent, 'type'>): 'DSN' | 'ARF' | undefined {
+/** Which email report an event has: a DSN for bounces and deferrals, an ARF report for complaints. SMS have none. */
+export function reportOf(event: Pick<SimEvent, 'type'> & { channel?: string }): 'DSN' | 'ARF' | undefined {
+  if (event.channel === 'sms') return undefined;
   if (event.type === 'bounced' || event.type === 'deferred') return 'DSN';
   if (event.type === 'complained') return 'ARF';
   return undefined;

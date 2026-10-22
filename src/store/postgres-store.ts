@@ -63,6 +63,8 @@ CREATE INDEX IF NOT EXISTS messages_project_created ON messages (project_id, cre
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS envelope_from text;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS headers jsonb;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS size integer;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'email';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS body text;
 CREATE TABLE IF NOT EXISTS message_contents (
   message_id text PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
   raw bytea NOT NULL
@@ -139,6 +141,8 @@ interface MessageRow {
   envelope_from: string | null;
   headers: Record<string, string> | null;
   size: number | null;
+  channel: 'email' | 'sms';
+  body: string | null;
   created_at: Date;
 }
 
@@ -303,8 +307,8 @@ export class PostgresStore implements SimStore {
 
   async saveMessage(m: SimMessage, raw?: Uint8Array): Promise<void> {
     await this.pool.query(
-      `INSERT INTO messages (id, project_id, via, relayo_message_id, from_address, recipients, subject, metadata, tags, envelope_from, headers, created_at, size)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO messages (id, project_id, via, relayo_message_id, from_address, recipients, subject, metadata, tags, envelope_from, headers, created_at, size, channel, body)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
       [
         m.id,
         m.projectId,
@@ -319,6 +323,8 @@ export class PostgresStore implements SimStore {
         m.headers ? JSON.stringify(m.headers) : null,
         m.createdAt,
         m.size ?? null,
+        m.channel ?? 'email',
+        m.body ?? null,
       ],
     );
     if (raw) {
@@ -347,7 +353,7 @@ export class PostgresStore implements SimStore {
     };
   }
 
-  async listMessages(projectId: string, { limit, before, search, status }: MessageQuery): Promise<MessageListItem[]> {
+  async listMessages(projectId: string, { limit, before, search, status, channel }: MessageQuery): Promise<MessageListItem[]> {
     const { rows } = await this.pool.query<MessageRow & { latest_type: string | null; latest_bounce: string | null }>(
       `SELECT m.*, latest.type AS latest_type, latest.body->>'bounceType' AS latest_bounce
        FROM messages m
@@ -358,10 +364,11 @@ export class PostgresStore implements SimStore {
        ) latest ON true
        WHERE m.project_id = $1
          AND ($2::timestamptz IS NULL OR m.created_at < $2)
-         AND ($3::text IS NULL OR m.subject ILIKE $3 OR m.from_address ILIKE $3 OR m.recipients::text ILIKE $3)
+         AND ($3::text IS NULL OR m.subject ILIKE $3 OR m.from_address ILIKE $3 OR m.body ILIKE $3 OR m.recipients::text ILIKE $3)
          AND ($4::text IS NULL OR EXISTS (SELECT 1 FROM events s WHERE s.message_id = m.id AND s.type = $4))
+         AND ($6::text IS NULL OR m.channel = $6)
        ORDER BY m.created_at DESC LIMIT $5`,
-      [projectId, before ?? null, search?.trim() ? `%${escapeLike(search.trim())}%` : null, status ?? null, limit],
+      [projectId, before ?? null, search?.trim() ? `%${escapeLike(search.trim())}%` : null, status ?? null, limit, channel ?? null],
     );
     return rows.map((row) => {
       const message: MessageListItem = toMessage(row);
@@ -527,6 +534,8 @@ function toMessage(row: MessageRow): SimMessage {
     ...(row.envelope_from && { envelopeFrom: row.envelope_from }),
     ...(row.headers && { headers: row.headers }),
     ...(row.size !== null && row.size !== undefined && { size: row.size }),
+    ...(row.channel === 'sms' && { channel: 'sms' as const }),
+    ...(row.body !== null && row.body !== undefined && { body: row.body }),
   };
 }
 

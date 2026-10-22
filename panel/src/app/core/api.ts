@@ -75,12 +75,13 @@ export class Api {
 
   // Messages
   scenarios = () => this.call<{ data: Scenario[] }>('GET', '/v1/scenarios').then((r) => r.data);
-  messages = (query: { limit?: number; before?: string; q?: string; status?: string } = {}) => {
+  messages = (query: { limit?: number; before?: string; q?: string; status?: string; channel?: string } = {}) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== '') params.set(key, String(value));
     return this.call<{ data: SimMessage[] }>('GET', `/v1/messages?${params}`).then((r) => r.data);
   };
   message = (id: string) => this.call<MessageDetail>('GET', `/v1/messages/${encodeURIComponent(id)}`);
+  sendSms = (body: { from?: string; to: string[]; body: string }) => this.call<{ id: string }>('POST', '/v1/sms', body);
   content = (id: string) => this.call<MessageContent>('GET', `/v1/messages/${encodeURIComponent(id)}/content`);
   /** A file of a message (the original `.eml` or an attachment), fetched with the session and saved by the browser. */
   download = async (path: string, filename: string): Promise<void> => {
