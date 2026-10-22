@@ -98,6 +98,12 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
           <label for="name">Nombre</label>
           <input id="name" class="input" name="name" [(ngModel)]="name" [placeholder]="spec()?.label ?? ''" />
         </div>
+        @if (spec()?.name === 'managed') {
+          <p class="callout callout-info">
+            Relayo envía por su propio servidor, firmando con DKIM tu dominio. Antes de enviar, verifica el dominio de tu
+            remitente en <a routerLink="/domains" (click)="formOpen.set(false)">Dominios</a>.
+          </p>
+        }
         @for (f of spec()?.fields ?? []; track f.key) {
           <div class="field">
             <label [for]="'f-' + f.key">{{ f.label }}@if (!f.required) {<span class="muted"> (opcional)</span>}</label>
@@ -188,7 +194,11 @@ export class ConnectionsPage {
   constructor() {
     void this.load();
     this.api.providers().then(
-      (list) => this.providers.set(list),
+      (list) => {
+        this.providers.set(list);
+        // Relayo's own sending comes first when the platform offers it.
+        if (list[0]) this.providerName.set(list[0].name);
+      },
       (error) => this.toasts.error(error),
     );
   }

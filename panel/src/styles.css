@@ -2073,3 +2073,11 @@ pre {
   display: block;
   margin-top: 4px;
 }
+
+.domain-add .input {
+  flex: 1;
+}
+
+.records .record-value {
+  max-width: 280px;
+}

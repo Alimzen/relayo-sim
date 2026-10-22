@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { ApiKey, Connection, Provider, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -89,6 +89,10 @@ export class Api {
   reorderConnections = (ids: string[]) => this.call<void>('POST', '/v1/project/connections/order', { ids });
   testConnection = (id: string, body: { to: string; from: string }) =>
     this.call<{ id: string }>('POST', `/v1/project/connections/${encodeURIComponent(id)}/test`, body);
+  domains = () => this.call<{ available: boolean; data: SendingDomain[] }>('GET', '/v1/project/domains');
+  addDomain = (domain: string) => this.call<SendingDomain>('POST', '/v1/project/domains', { domain });
+  verifyDomain = (id: string) => this.call<SendingDomain>('POST', `/v1/project/domains/${encodeURIComponent(id)}/verify`);
+  deleteDomain = (id: string) => this.call<void>('DELETE', `/v1/project/domains/${encodeURIComponent(id)}`);
   suppressions = () => this.call<{ data: Suppression[] }>('GET', '/v1/project/suppressions').then((r) => r.data);
   addSuppression = (address: string) => this.call<void>('POST', '/v1/project/suppressions', { address });
   removeSuppression = (address: string) => this.call<void>('DELETE', `/v1/project/suppressions/${encodeURIComponent(address)}`);

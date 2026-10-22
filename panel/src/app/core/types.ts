@@ -145,6 +145,16 @@ export interface Connection {
   createdAt: string;
 }
 
+export interface SendingDomain {
+  id: string;
+  domain: string;
+  verified: boolean;
+  verifiedAt: string | null;
+  lastCheckedAt: string | null;
+  records: Array<{ purpose: 'dkim' | 'spf' | 'dmarc'; type: string; host: string; value: string; required: boolean; ok: boolean }>;
+  createdAt: string;
+}
+
 export interface Suppression {
   address: string;
   reason: 'hard_bounce' | 'complaint' | 'unsubscribe' | 'manual';

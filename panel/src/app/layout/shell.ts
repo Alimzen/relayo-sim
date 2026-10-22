@@ -6,6 +6,7 @@ import {
   LucideFlaskConical,
   LucideKeyRound,
   LucideLayoutDashboard,
+  LucideGlobe,
   LucideLink,
   LucideLogOut,
   LucidePlug,
@@ -38,6 +39,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
     LucideFlaskConical,
     LucideKeyRound,
     LucideLayoutDashboard,
+    LucideGlobe,
     LucideLink,
     LucideLogOut,
     LucidePlug,
@@ -113,6 +115,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
           <p class="nav-section">Proyecto</p>
           <a class="nav-link" routerLink="/keys" routerLinkActive="active"><svg lucideKeyRound [size]="16"></svg>Claves de API</a>
           <a class="nav-link" routerLink="/connections" routerLinkActive="active"><svg lucidePlug [size]="16"></svg>Conexiones</a>
+          <a class="nav-link" routerLink="/domains" routerLinkActive="active"><svg lucideGlobe [size]="16"></svg>Dominios</a>
           <a class="nav-link" routerLink="/suppressions" routerLinkActive="active"><svg lucideShieldBan [size]="16"></svg>Supresiones</a>
           <a class="nav-link" routerLink="/webhooks" routerLinkActive="active"><svg lucideWebhook [size]="16"></svg>Webhooks</a>
           <a class="nav-link" routerLink="/settings" routerLinkActive="active"><svg lucideSettings [size]="16"></svg>Ajustes</a>
