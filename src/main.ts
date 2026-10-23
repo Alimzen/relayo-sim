@@ -102,7 +102,7 @@ function logStartup(config: SimConfig, url: string, panelDir: string | undefined
   logger.log(`Storage: ${config.databaseUrl ? 'PostgreSQL' : 'memory'} · Queues: ${config.redisUrl ? 'BullMQ' : 'in-process'} · time scale ${config.timeScale}`);
   logger.log(
     `Public URL ${config.publicUrl ?? '-'} · retention ${config.retentionDays ? `${config.retentionDays} days` : 'forever'}` +
-      ` · limits ${limits?.monthlyMessages || '∞'}/month, ${limits?.messagesPerMinute || '∞'}/min · sign-up ${config.signup ? 'open' : 'closed'}`,
+      ` · limits ${limits?.monthlyMessages || '∞'}/month (live ${limits?.liveMonthlyMessages || '∞'}), ${limits?.messagesPerMinute || '∞'}/min · sign-up ${config.signup ? 'open' : 'closed'}`,
   );
   if (!config.mail) logger.warn('MAIL_URL is not set: password reset links go to this log instead of by email');
   if (!config.adminToken) logger.warn('ADMIN_TOKEN is not set: projects cannot be created with the admin API');

@@ -12,7 +12,7 @@ afterEach(async () => {
   for (const fn of cleanup.splice(0)) await fn();
 });
 
-function simulation(limits: { monthlyMessages?: number; messagesPerMinute?: number }) {
+function simulation(limits: { monthlyMessages?: number; messagesPerMinute?: number; liveMonthlyMessages?: number }) {
   const store = new MemoryStore();
   const scheduler = new MemoryScheduler();
   const dispatcher = new MemoryDispatcher();
@@ -28,7 +28,26 @@ describe('plan limits', () => {
     await sim.reserve(project);
     await sim.reserve(project);
     await expect(sim.reserve(project)).rejects.toMatchObject({ kind: 'monthly', limit: 2 });
-    expect(await sim.usage(project)).toEqual({ month: usageMonth(), messages: 2, limits: { monthlyMessages: 2, messagesPerMinute: 0 } });
+    expect(await sim.usage(project)).toEqual({
+      month: usageMonth(),
+      messages: 2,
+      live: 0,
+      limits: { monthlyMessages: 2, messagesPerMinute: 0, liveMonthlyMessages: 0 },
+    });
+  });
+
+  it('counts live messages apart, against their own monthly limit', async () => {
+    const { sim } = simulation({ monthlyMessages: 1, liveMonthlyMessages: 2 });
+    const { project } = await sim.createProject('P');
+    await sim.reserve(project);
+    await expect(sim.reserve(project)).rejects.toMatchObject({ kind: 'monthly', mode: 'test' });
+    // A simulator quota used up does not stop real sending, and the other way round.
+    await sim.reserve(project, 'live');
+    await sim.reserve(project, 'live');
+    const error = await sim.reserve(project, 'live').catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: 'monthly', limit: 2, mode: 'live' });
+    expect((error as Error).message).toBe('Monthly limit of 2 live messages reached for this project');
+    expect(await sim.usage(project)).toMatchObject({ messages: 1, live: 2 });
   });
 
   it('limits messages per minute, per project', async () => {

@@ -22,8 +22,8 @@ export interface SimConfig {
   tls?: { key: string; cert: string } | { keyFile: string; certFile: string };
   /** Days messages are kept; older ones are deleted. 0 keeps them forever. */
   retentionDays?: number;
-  /** Per project. 0 means no limit. */
-  limits?: { monthlyMessages: number; messagesPerMinute: number };
+  /** Per project. 0 means no limit. Live (real) messages have their own monthly limit. */
+  limits?: { monthlyMessages: number; messagesPerMinute: number; liveMonthlyMessages?: number };
   /** Public address of the panel, for links in emails (password reset). */
   publicUrl?: string;
   /** How the simulator sends its own email (password reset). Without it, links are logged instead. */
@@ -63,7 +63,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
     adminEmails: (env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
     secureCookies: env.COOKIE_SECURE === 'true' || (env.COOKIE_SECURE !== 'false' && env.NODE_ENV === 'production'),
     retentionDays: number(env.RETENTION_DAYS, 7),
-    limits: { monthlyMessages: number(env.MONTHLY_MESSAGE_LIMIT, 0), messagesPerMinute: number(env.MESSAGES_PER_MINUTE, 0) },
+    limits: {
+      monthlyMessages: number(env.MONTHLY_MESSAGE_LIMIT, 0),
+      messagesPerMinute: number(env.MESSAGES_PER_MINUTE, 0),
+      liveMonthlyMessages: number(env.LIVE_MONTHLY_MESSAGE_LIMIT, 0),
+    },
     publicUrl: (env.PUBLIC_URL ?? `http://localhost:${number(env.PORT, 3000)}`).replace(/\/+$/, ''),
   };
   if (env.SECRETS_KEY) config.secretsKey = env.SECRETS_KEY;

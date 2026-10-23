@@ -71,7 +71,7 @@ export class SmtpSimServer {
         const state = this.sessions.get(session.id);
         if (!state) return callback(smtpError(530, '5.7.0', 'Authentication required'));
         // Each transaction is one message against the project's plan.
-        void this.sim.reserve(state.project).then(
+        void this.sim.reserve(state.project, state.mode).then(
           () => {
             state.from = address.address;
             state.accepted = [];

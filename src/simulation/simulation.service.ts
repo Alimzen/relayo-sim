@@ -18,7 +18,7 @@ export interface SimulationOptions {
   /** Sends bounce (DSN) and complaint (ARF) reports to projects that set `reportsSmtpUrl`. */
   reports?: ReportSender;
   /** Per project; 0 or missing means no limit. */
-  limits?: { monthlyMessages?: number; messagesPerMinute?: number };
+  limits?: { monthlyMessages?: number; messagesPerMinute?: number; liveMonthlyMessages?: number };
 }
 
 /** A project went over its plan: too many messages this month, or too fast. */
@@ -26,10 +26,11 @@ export class QuotaExceededError extends Error {
   constructor(
     readonly kind: 'monthly' | 'rate',
     readonly limit: number,
+    readonly mode: Mode = 'test',
   ) {
     super(
       kind === 'monthly'
-        ? `Monthly limit of ${limit} messages reached for this project`
+        ? `Monthly limit of ${limit} ${mode === 'live' ? 'live ' : ''}messages reached for this project`
         : `Too many messages: the limit is ${limit} per minute`,
     );
     this.name = 'QuotaExceededError';
@@ -38,6 +39,15 @@ export class QuotaExceededError extends Error {
 
 /** `2026-10`, in UTC. */
 export const usageMonth = (date = new Date()) => date.toISOString().slice(0, 7);
+
+/** The usage counter of a month: `2026-10` for simulated messages, `live:2026-10` for real ones. */
+const usageCounter = (mode: Mode, date = new Date()) => (mode === 'live' ? `live:${usageMonth(date)}` : usageMonth(date));
+
+interface Limits {
+  monthlyMessages: number;
+  messagesPerMinute: number;
+  liveMonthlyMessages: number;
+}
 
 export interface IncomingMessage {
   from: string;
@@ -74,7 +84,7 @@ export class SimulationService {
   private readonly timeScale: number;
   private readonly greylistTtlMs: number;
   private readonly reports: ReportSender | undefined;
-  private readonly limits: { monthlyMessages: number; messagesPerMinute: number };
+  private readonly limits: Limits;
 
   constructor(
     private readonly store: SimStore,
@@ -85,7 +95,11 @@ export class SimulationService {
     this.timeScale = options.timeScale ?? 1;
     this.greylistTtlMs = options.greylistTtlMs ?? 60 * 60_000;
     this.reports = options.reports;
-    this.limits = { monthlyMessages: options.limits?.monthlyMessages ?? 0, messagesPerMinute: options.limits?.messagesPerMinute ?? 0 };
+    this.limits = {
+      monthlyMessages: options.limits?.monthlyMessages ?? 0,
+      messagesPerMinute: options.limits?.messagesPerMinute ?? 0,
+      liveMonthlyMessages: options.limits?.liveMonthlyMessages ?? 0,
+    };
     scheduler.start((job) => this.runStep(job));
   }
 
@@ -152,24 +166,32 @@ export class SimulationService {
 
   /**
    * Counts one message against the project's plan, or throws `QuotaExceededError`. Called once per API send
-   * and once per SMTP transaction, before the message is accepted.
+   * and once per SMTP transaction, before the message is accepted. Live messages count apart from simulated
+   * ones, against their own monthly limit; the per-minute rate covers both.
    */
-  async reserve(project: Project): Promise<void> {
-    const { monthlyMessages, messagesPerMinute } = this.limits;
+  async reserve(project: Project, mode: Mode = 'test'): Promise<void> {
+    const { messagesPerMinute } = this.limits;
     if (messagesPerMinute > 0) {
       const minute = Math.floor(Date.now() / 60_000);
       const count = await this.store.nextAttempt(`rate|${project.id}|${minute}`, 120_000);
-      if (count > messagesPerMinute) throw new QuotaExceededError('rate', messagesPerMinute);
+      if (count > messagesPerMinute) throw new QuotaExceededError('rate', messagesPerMinute, mode);
     }
-    if (monthlyMessages > 0 && (await this.store.getUsage(project.id, usageMonth())) >= monthlyMessages) {
-      throw new QuotaExceededError('monthly', monthlyMessages);
+    const limit = mode === 'live' ? this.limits.liveMonthlyMessages : this.limits.monthlyMessages;
+    const counter = usageCounter(mode);
+    if (limit > 0 && (await this.store.getUsage(project.id, counter)) >= limit) {
+      throw new QuotaExceededError('monthly', limit, mode);
     }
-    await this.store.incrementUsage(project.id, usageMonth());
+    await this.store.incrementUsage(project.id, counter);
   }
 
-  async usage(project: Project): Promise<{ month: string; messages: number; limits: { monthlyMessages: number; messagesPerMinute: number } }> {
-    const month = usageMonth();
-    return { month, messages: await this.store.getUsage(project.id, month), limits: this.limits };
+  /** This month's simulated and live messages, against the limits. */
+  async usage(project: Project): Promise<{ month: string; messages: number; live: number; limits: Limits }> {
+    return {
+      month: usageMonth(),
+      messages: await this.store.getUsage(project.id, usageCounter('test')),
+      live: await this.store.getUsage(project.id, usageCounter('live')),
+      limits: this.limits,
+    };
   }
 
   // --- Sending ----------------------------------------------------------------------------------

@@ -145,7 +145,7 @@ export class SmsController {
     }
 
     try {
-      await this.sim.reserve(project);
+      await this.sim.reserve(project, mode);
     } catch (error) {
       if (error instanceof QuotaExceededError) throw new HttpException({ statusCode: 429, message: error.message }, 429);
       throw error;
@@ -204,7 +204,7 @@ export class MessagesController {
     }
 
     try {
-      await this.sim.reserve(project);
+      await this.sim.reserve(project, mode);
     } catch (error) {
       if (error instanceof QuotaExceededError) throw new HttpException({ statusCode: 429, message: error.message }, 429);
       throw error;
@@ -471,7 +471,7 @@ export class ManagedReviewController {
           project: publicProject(project),
           owner: owner ? { email: owner.email, name: owner.name, createdAt: owner.createdAt } : null,
           domains: domains.map((d) => ({ domain: d.domain, verified: !!d.verifiedAt })),
-          usage: (await this.sim.usage(project)).messages,
+          usage: (await this.sim.usage(project)).live,
         };
       }),
     );

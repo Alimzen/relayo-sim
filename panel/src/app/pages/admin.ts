@@ -43,7 +43,7 @@ const ACCESS: Record<string, { label: string; tone: 'warning' | 'good' | 'critic
                   <th>Proyecto</th>
                   <th>Dueño</th>
                   <th>Dominios</th>
-                  <th class="num">Mensajes (mes)</th>
+                  <th class="num">Envíos reales (mes)</th>
                   <th>Estado</th>
                   <th><span class="sr-only">Acciones</span></th>
                 </tr>

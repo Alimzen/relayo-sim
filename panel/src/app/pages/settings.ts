@@ -55,26 +55,30 @@ import { CopyButton, Toasts } from '../ui/ui';
               </div>
             </header>
             <div class="card-body">
-              <div class="usage">
-                <div class="usage-row">
-                  <span>Mensajes este mes</span>
-                  <strong>{{ format(u.messages) }}{{ u.limits.monthlyMessages ? ' / ' + format(u.limits.monthlyMessages) : '' }}</strong>
-                </div>
-                @if (u.limits.monthlyMessages) {
-                  <div
-                    class="meter"
-                    role="meter"
-                    aria-label="Mensajes usados este mes"
-                    [attr.aria-valuenow]="u.messages"
-                    aria-valuemin="0"
-                    [attr.aria-valuemax]="u.limits.monthlyMessages"
-                    [attr.data-level]="level(u)"
-                  >
-                    <span [style.width.%]="share(u)"></span>
+              @for (row of meters(u); track row.label) {
+                <div class="usage">
+                  <div class="usage-row">
+                    <span>{{ row.label }}</span>
+                    <strong>{{ format(row.used) }}{{ row.limit ? ' / ' + format(row.limit) : '' }}</strong>
                   </div>
-                  <p class="muted small">Se reinicia el día 1 de cada mes. Al llegar al límite, los envíos se rechazan (HTTP 429; SMTP 452).</p>
-                }
-              </div>
+                  @if (row.limit) {
+                    <div
+                      class="meter"
+                      role="meter"
+                      [attr.aria-label]="row.label"
+                      [attr.aria-valuenow]="row.used"
+                      aria-valuemin="0"
+                      [attr.aria-valuemax]="row.limit"
+                      [attr.data-level]="level(row.used, row.limit)"
+                    >
+                      <span [style.width.%]="share(row.used, row.limit)"></span>
+                    </div>
+                  }
+                </div>
+              }
+              <p class="muted small">
+                Se reinician el día 1 de cada mes. Al llegar a un límite, los envíos se rechazan (HTTP 429; SMTP 452).
+              </p>
               <dl class="props props-inline usage-props">
                 <div>
                   <dt>Envíos por minuto</dt>
@@ -149,12 +153,19 @@ export class SettingsPage {
     );
   }
 
-  protected share(u: ProjectUsage): number {
-    return Math.min(100, (u.messages / u.limits.monthlyMessages) * 100);
+  protected meters(u: ProjectUsage): Array<{ label: string; used: number; limit: number }> {
+    return [
+      { label: 'Mensajes simulados este mes', used: u.messages, limit: u.limits.monthlyMessages },
+      { label: 'Envíos reales este mes', used: u.live, limit: u.limits.liveMonthlyMessages },
+    ];
   }
 
-  protected level(u: ProjectUsage): 'ok' | 'high' | 'full' {
-    const share = this.share(u);
+  protected share(used: number, limit: number): number {
+    return Math.min(100, (used / limit) * 100);
+  }
+
+  protected level(used: number, limit: number): 'ok' | 'high' | 'full' {
+    const share = this.share(used, limit);
     return share >= 100 ? 'full' : share >= 80 ? 'high' : 'ok';
   }
 

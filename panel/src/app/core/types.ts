@@ -177,9 +177,12 @@ export interface Suppression {
 
 export interface ProjectUsage {
   month: string;
+  /** Simulated messages this month. */
   messages: number;
+  /** Real (live) messages this month. */
+  live: number;
   /** 0 means no limit. */
-  limits: { monthlyMessages: number; messagesPerMinute: number };
+  limits: { monthlyMessages: number; messagesPerMinute: number; liveMonthlyMessages: number };
   /** 0 means messages are kept forever. */
   retentionDays: number;
 }
