@@ -84,6 +84,13 @@ describe('live SMS', () => {
     const message = await live.sendSms(project, { to: ['+34600111222'], body: 'x' });
     expect(calls.map((c) => c.account)).toEqual(['AC1', 'AC2']);
     expect(message.delivery).toMatchObject({ connectionId: backup.id, providerMessageId: 'SM2' });
+
+    // After three failures in a row, the broken connection is tried last for a while.
+    await live.sendSms(project, { to: ['+34600111222'], body: 'x' });
+    await live.sendSms(project, { to: ['+34600111222'], body: 'x' });
+    calls.length = 0;
+    await live.sendSms(project, { to: ['+34600111222'], body: 'x' });
+    expect(calls.map((c) => c.account)).toEqual(['AC2']);
   });
 
   it('turns signed status callbacks into events, suppressing dead numbers and STOP replies', async () => {

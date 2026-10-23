@@ -156,6 +156,8 @@ export interface Connection {
   priority: number;
   inboundPath: string;
   webhooks: { supported: boolean; help: string };
+  /** Set while it is skipped for failing repeatedly. */
+  pausedUntil: string | null;
   createdAt: string;
 }
 

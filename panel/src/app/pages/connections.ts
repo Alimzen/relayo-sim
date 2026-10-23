@@ -63,6 +63,9 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
                   <strong>{{ c.name }}</strong>
                   <span class="chip">{{ c.providerLabel }}</span>
                   <app-badge [tone]="i === 0 ? 'good' : 'neutral'">{{ i === 0 ? 'Principal' : 'Respaldo ' + i }}</app-badge>
+                  @if (c.pausedUntil) {
+                    <app-badge tone="serious" [attr.title]="'Falló varias veces seguidas: se prueba la última hasta ' + time(c.pausedUntil)">En pausa</app-badge>
+                  }
                 </div>
                 <p class="connection-meta">{{ summary(c) }}</p>
                 @if (c.webhooks.supported) {
@@ -224,6 +227,10 @@ export class ConnectionsPage {
       },
       (error) => this.toasts.error(error),
     );
+  }
+
+  protected time(value: string): string {
+    return new Date(value).toLocaleTimeString();
   }
 
   protected summary(c: Connection): string {

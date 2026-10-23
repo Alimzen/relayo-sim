@@ -19,6 +19,7 @@ import type { WebhookDispatcher } from '../webhooks/webhooks.js';
 import { ses } from '@alimzen/relayo-ses';
 import { timingSafeEqual } from 'node:crypto';
 import type { SendingDomain } from '../domain.js';
+import { CircuitBreaker } from './breaker.js';
 import type { ManagedSending } from './managed.js';
 import { buildDriver, MANAGED_PROVIDER, PROVIDERS, PROVIDERS_BY_NAME, splitValues, type ProviderSpec } from './providers.js';
 import type { SecretBox } from './secrets.js';
@@ -58,6 +59,8 @@ export interface PublicConnection {
   priority: number;
   inboundPath: string;
   webhooks: { supported: boolean; help: string };
+  /** Set while the connection is skipped for failing repeatedly: sends try it last until then. */
+  pausedUntil: Date | null;
   createdAt: Date;
 }
 
@@ -66,6 +69,8 @@ export interface PublicConnection {
  * failover in priority order, a suppression list, and the same events and webhook as test mode.
  */
 export class LiveService {
+  private readonly breaker = new CircuitBreaker();
+
   constructor(
     private readonly store: SimStore,
     private readonly webhooks: WebhookDispatcher,
@@ -257,6 +262,7 @@ export class LiveService {
       priority: connection.priority,
       inboundPath: `/v1/inbound/${connection.inboundToken}`,
       webhooks: spec?.webhooks ?? { supported: false, help: '' },
+      pausedUntil: this.breaker.pausedUntil(connection.id) ?? null,
       createdAt: connection.createdAt,
     };
   }
@@ -351,7 +357,8 @@ export class LiveService {
       return stored;
     }
 
-    const drivers = connections.map((c) => this.driverFor(c)) as [Driver<EmailMessage>, ...Driver<EmailMessage>[]];
+    // A connection that keeps failing goes last for a while (all of them still get tried).
+    const drivers = this.breaker.order(connections).map((c) => this.breaker.watch(c.id, this.driverFor(c))) as [Driver<EmailMessage>, ...Driver<EmailMessage>[]];
     const driver = drivers.length === 1 ? drivers[0] : failover(drivers, { name: 'relayo' });
     // The provider message carries our id (the drivers attach it), so its webhooks map back to this message.
     const relayo = createRelayo({ email: driver, generateId: () => stored.id });
@@ -432,7 +439,7 @@ export class LiveService {
       return stored;
     }
 
-    const drivers = connections.map((c) => this.smsDriverFor(c)) as [Driver<SmsMessage>, ...Driver<SmsMessage>[]];
+    const drivers = this.breaker.order(connections).map((c) => this.breaker.watch(c.id, this.smsDriverFor(c))) as [Driver<SmsMessage>, ...Driver<SmsMessage>[]];
     const driver = drivers.length === 1 ? drivers[0] : failover(drivers, { name: 'relayo' });
     const relayo = createRelayo({ sms: driver, generateId: () => stored.id });
     try {
