@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -58,8 +58,8 @@ export class Api {
   me = () => this.call<{ user: User; projects: Project[] }>('GET', '/v1/auth/me');
   login = (email: string, password: string) =>
     this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/login', { email, password });
-  signup = (name: string, email: string, password: string) =>
-    this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/signup', { name, email, password });
+  signup = (name: string, email: string, password: string, invite?: string) =>
+    this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/signup', { name, email, password, ...(invite && { invite }) });
   logout = () => this.call<void>('POST', '/v1/auth/logout');
   forgotPassword = (email: string) => this.call<void>('POST', '/v1/auth/forgot', { email });
   resetPassword = (token: string, password: string) =>
@@ -116,6 +116,14 @@ export class Api {
   redeliverWebhook = (id: string) => this.call<WebhookDelivery>('POST', `/v1/project/webhook/deliveries/${encodeURIComponent(id)}/redeliver`);
   testWebhook = () => this.call<WebhookDelivery>('POST', '/v1/project/webhook/test');
   webhookStats = () => this.call<WebhookStats>('GET', '/v1/project/webhook/stats');
+  team = () => this.call<TeamView>('GET', '/v1/project/team');
+  inviteMember = (email: string, role: 'admin' | 'member') => this.call<{ id: string; email: string }>('POST', '/v1/project/team/invites', { email, role });
+  revokeInvite = (id: string) => this.call<void>('DELETE', `/v1/project/team/invites/${encodeURIComponent(id)}`);
+  changeMemberRole = (userId: string, role: 'admin' | 'member') =>
+    this.call<void>('PATCH', `/v1/project/team/members/${encodeURIComponent(userId)}`, { role });
+  removeMember = (userId: string) => this.call<void>('DELETE', `/v1/project/team/members/${encodeURIComponent(userId)}`);
+  describeInvite = (token: string) => this.call<InviteInfo>('GET', `/v1/invites/${encodeURIComponent(token)}`);
+  acceptInvite = (token: string) => this.call<{ project: Project; emailVerified: boolean }>('POST', '/v1/invites/accept', { token });
   scheduled = (status?: ScheduledSend['status']) =>
     this.call<{ data: ScheduledSend[] }>('GET', `/v1/scheduled${status ? `?status=${status}` : ''}`).then((r) => r.data);
   cancelScheduled = (id: string) => this.call<void>('DELETE', `/v1/scheduled/${encodeURIComponent(id)}`);

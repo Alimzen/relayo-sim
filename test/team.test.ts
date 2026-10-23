@@ -159,3 +159,31 @@ describe('teams', () => {
     expect(anaEmail.status).toBe(409);
   });
 });
+
+describe('sign-up with an invitation', () => {
+  it('opens a closed sign-up, only for the invited email', async () => {
+    const { MemoryStore } = await import('../src/store/memory-store.js');
+    const { SimulationService } = await import('../src/simulation/simulation.service.js');
+    const { MemoryScheduler } = await import('../src/scheduler/scheduler.js');
+    const { MemoryDispatcher } = await import('../src/webhooks/webhooks.js');
+    const { AccountsService } = await import('../src/accounts/accounts.service.js');
+    const { TeamService } = await import('../src/accounts/team.js');
+    const store = new MemoryStore();
+    const sim = new SimulationService(store, new MemoryScheduler(), new MemoryDispatcher(), { timeScale: 0 });
+    const sent: string[] = [];
+    const accounts = new AccountsService(store, sim, { signup: false, mailer: { send: async (m) => void sent.push(m.text) } });
+    const team = new TeamService(store, (m) => accounts.deliver(m), 'https://relayo.test');
+
+    const { project } = await sim.createProject('P');
+    const owner = { id: 'usr_owner', email: 'ana@empresa.com', name: 'Ana', passwordHash: 'x', createdAt: new Date() };
+    await store.createUser(owner);
+    await team.invite(project, owner, { email: 'luis@empresa.com' });
+    const token = /invite\?token=([\w-]+)/.exec(sent[0]!)![1]!;
+
+    expect(await team.invitedEmail(token, 'Luis@Empresa.com')).toBe(true);
+    expect(await team.invitedEmail(token, 'eva@empresa.com')).toBe(false);
+    await expect(accounts.signup({ email: 'eva@empresa.com', name: 'Eva', password: 'una-clave-larga' })).rejects.toMatchObject({ status: 403 });
+    const { user } = await accounts.signup({ email: 'luis@empresa.com', name: 'Luis', password: 'una-clave-larga' }, true);
+    await expect(team.accept(user, token)).resolves.toMatchObject({ role: 'member' });
+  });
+});

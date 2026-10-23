@@ -25,6 +25,19 @@ export interface User {
 
 export type ManagedAccess = 'requested' | 'approved' | 'denied';
 
+export interface TeamView {
+  members: Array<{ userId: string; name: string; email: string; role: ProjectRole; since: string }>;
+  invites: Array<{ id: string; email: string; role: 'admin' | 'member'; expiresAt: string; createdAt: string }>;
+}
+
+export interface InviteInfo {
+  project: string;
+  email: string;
+  role: 'admin' | 'member';
+  invitedBy: string;
+  expiresAt: string;
+}
+
 export interface ScheduledSend {
   id: string;
   mode: Mode;
@@ -97,8 +110,12 @@ export interface ManagedRequest {
   usage: number;
 }
 
+export type ProjectRole = 'owner' | 'admin' | 'member';
+
 export interface Project {
   id: string;
+  /** The signed-in person's role in it. */
+  role?: ProjectRole;
   name: string;
   webhookUrl: string | null;
   /** Shown without its password. */

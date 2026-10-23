@@ -126,8 +126,9 @@ export class AccountsService {
   }
 
   /** Creates the account with a first project, and signs it in. */
-  async signup(input: { email?: unknown; name?: unknown; password?: unknown }): Promise<{ user: User; token: string; project: Project }> {
-    if (!this.signupOpen) throw new AccountError('El registro está cerrado.', 403);
+  /** `invited`: the email has a live invitation to a project, which opens sign-up even when it is closed. */
+  async signup(input: { email?: unknown; name?: unknown; password?: unknown }, invited = false): Promise<{ user: User; token: string; project: Project }> {
+    if (!this.signupOpen && !invited) throw new AccountError('El registro está cerrado.', 403);
     const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
     const name = typeof input.name === 'string' ? input.name.trim() : '';
     const password = typeof input.password === 'string' ? input.password : '';

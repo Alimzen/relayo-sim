@@ -2122,6 +2122,26 @@ pre {
   width: auto;
 }
 
+.menu-note {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.invite-row .input {
+  flex: 1 1 240px;
+}
+
+.invite-role {
+  width: auto;
+}
+
+.select-sm {
+  height: 30px;
+  width: auto;
+  font-size: 13px;
+}
+
 .compose-html summary {
   cursor: pointer;
   font-size: 13px;

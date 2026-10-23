@@ -1,4 +1,4 @@
-import { Component, inject, input, signal } from '@angular/core';
+import { Component, inject, input, signal, type OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Api } from '../../core/api';
@@ -12,7 +12,7 @@ import { safeNext } from './login';
   template: `
     <main class="auth">
       <a href="/" class="brand-link" aria-label="Relayo Sim, inicio"><app-brand /></a>
-      @if (closed()) {
+      @if (closed() && !invite()) {
         <div class="card auth-card">
           <h1>Registro cerrado</h1>
           <p class="lede">Esta instalación de Relayo Sim no admite cuentas nuevas. Pide acceso a quien la administra.</p>
@@ -64,8 +64,11 @@ import { safeNext } from './login';
     </main>
   `,
 })
-export class SignupPage {
+export class SignupPage implements OnInit {
   readonly next = input<string>();
+  /** From an invitation link: the email it was sent to, and its token (opens sign-up even when closed). */
+  readonly emailParam = input<string>(undefined, { alias: 'email' });
+  readonly invite = input<string>();
   private readonly api = inject(Api);
   private readonly session = inject(Session);
   private readonly router = inject(Router);
@@ -87,6 +90,10 @@ export class SignupPage {
     );
   }
 
+  ngOnInit(): void {
+    if (this.emailParam()) this.email = this.emailParam()!;
+  }
+
   protected async submit(): Promise<void> {
     if (this.busy()) return;
     if (this.password.length < this.minPassword()) {
@@ -96,7 +103,7 @@ export class SignupPage {
     this.busy.set(true);
     this.error.set('');
     try {
-      const { user, projects } = await this.api.signup(this.name.trim(), this.email.trim(), this.password);
+      const { user, projects } = await this.api.signup(this.name.trim(), this.email.trim(), this.password, this.invite());
       this.session.set(user, projects);
       await this.router.navigateByUrl(safeNext(this.next()));
     } catch (error) {

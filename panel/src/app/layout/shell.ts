@@ -22,6 +22,7 @@ import {
   LucideShieldCheck,
   LucideTriangleAlert,
   LucideUser,
+  LucideUsers,
   LucideWebhook,
 } from '@lucide/angular';
 import { Api } from '../core/api';
@@ -59,6 +60,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
     LucideShieldCheck,
     LucideTriangleAlert,
     LucideUser,
+    LucideUsers,
     LucideWebhook,
   ],
   host: { '(document:click)': 'outside($event)', '(document:keydown.escape)': 'closeMenus()' },
@@ -98,6 +100,9 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
                 >
                   <span class="avatar project-avatar" aria-hidden="true">{{ initials(p.name) }}</span>
                   <span class="truncate">{{ p.name }}</span>
+                  @if (p.role && p.role !== 'owner') {
+                    <small class="menu-note">{{ p.role === 'admin' ? 'admin' : 'miembro' }}</small>
+                  }
                 </button>
               }
               <div class="menu-sep"></div>
@@ -124,11 +129,16 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
           <a class="nav-link" routerLink="/scheduled" routerLinkActive="active"><svg lucideClock [size]="16"></svg>Programados</a>
           <a class="nav-link" routerLink="/scenarios" routerLinkActive="active"><svg lucideFlaskConical [size]="16"></svg>Escenarios</a>
           <p class="nav-section">Proyecto</p>
-          <a class="nav-link" routerLink="/keys" routerLinkActive="active"><svg lucideKeyRound [size]="16"></svg>Claves de API</a>
-          <a class="nav-link" routerLink="/connections" routerLinkActive="active"><svg lucidePlug [size]="16"></svg>Conexiones</a>
-          <a class="nav-link" routerLink="/domains" routerLinkActive="active"><svg lucideGlobe [size]="16"></svg>Dominios</a>
+          @if (projectAdmin()) {
+            <a class="nav-link" routerLink="/keys" routerLinkActive="active"><svg lucideKeyRound [size]="16"></svg>Claves de API</a>
+            <a class="nav-link" routerLink="/connections" routerLinkActive="active"><svg lucidePlug [size]="16"></svg>Conexiones</a>
+            <a class="nav-link" routerLink="/domains" routerLinkActive="active"><svg lucideGlobe [size]="16"></svg>Dominios</a>
+          }
           <a class="nav-link" routerLink="/suppressions" routerLinkActive="active"><svg lucideShieldBan [size]="16"></svg>Supresiones</a>
-          <a class="nav-link" routerLink="/webhooks" routerLinkActive="active"><svg lucideWebhook [size]="16"></svg>Webhooks</a>
+          @if (projectAdmin()) {
+            <a class="nav-link" routerLink="/webhooks" routerLinkActive="active"><svg lucideWebhook [size]="16"></svg>Webhooks</a>
+          }
+          <a class="nav-link" routerLink="/team" routerLinkActive="active"><svg lucideUsers [size]="16"></svg>Equipo</a>
           <a class="nav-link" routerLink="/settings" routerLinkActive="active"><svg lucideSettings [size]="16"></svg>Ajustes</a>
           @if (session.user()?.admin) {
             <p class="nav-section">Plataforma</p>
@@ -252,6 +262,8 @@ export class Shell {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly initials = initials;
   protected readonly project = computed(() => this.session.project());
+  /** Members (not admins) do not see keys, connections, domains or webhooks: the API refuses them those. */
+  protected readonly projectAdmin = computed(() => this.project()?.role !== 'member');
   protected readonly menu = signal<'projects' | 'user' | null>(null);
   protected readonly drawer = signal(false);
   protected readonly modal = signal<'create' | 'claim' | null>(null);

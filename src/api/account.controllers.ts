@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { AccountError, AccountsService, SESSION_COOKIE, SESSION_DAYS, MIN_PASSWORD } from '../accounts/accounts.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
+import { TeamService } from '../accounts/team.js';
 import type { User } from '../domain.js';
 import { SimulationService } from '../simulation/simulation.service.js';
 import { SIM_STORE, type SimStore } from '../store/store.js';
@@ -60,6 +61,7 @@ export class AuthController {
     @Inject(AccountsService) private readonly accounts: AccountsService,
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(SIM_CONFIG) private readonly config: SimConfig,
+    @Inject(TeamService) private readonly team: TeamService,
   ) {}
 
   /** What the sign-in page needs to know before anyone is signed in. */
@@ -71,7 +73,8 @@ export class AuthController {
   @Post('signup')
   async signup(@Req() req: AuthedRequest, @Body() body: Record<string, unknown>, @Res({ passthrough: true }) res: CookieResponse) {
     requireClientHeader(req);
-    const { user, token, project } = await run(() => this.accounts.signup(body ?? {}));
+    const invited = await this.team.invitedEmail(body?.invite, body?.email);
+    const { user, token, project } = await run(() => this.accounts.signup(body ?? {}, invited));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
     return { user: this.accounts.present(user), projects: [publicProject(project, 'owner')] };
   }

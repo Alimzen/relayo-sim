@@ -105,6 +105,13 @@ export class TeamService {
     if (!(await this.store.removeMember(project.id, userId))) throw new TeamError('Esa persona no es miembro del proyecto.', 404);
   }
 
+  /** Whether a token is a live invitation for this email: it opens sign-up even when sign-up is closed. */
+  async invitedEmail(token: unknown, email: unknown): Promise<boolean> {
+    if (typeof token !== 'string' || !token || typeof email !== 'string') return false;
+    const invite = await this.store.findInvite(hashToken(token));
+    return invite?.email === email.trim().toLowerCase();
+  }
+
   /** What the invitation page shows before signing in. */
   async describe(token: string): Promise<{ project: string; email: string; role: ProjectInvite['role']; invitedBy: string; expiresAt: Date }> {
     const invite = token ? await this.store.findInvite(hashToken(token)) : undefined;
