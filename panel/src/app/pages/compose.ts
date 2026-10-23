@@ -87,7 +87,7 @@ type Channel = 'email' | 'sms';
                 <div class="field">
                   <label for="sms-to">Para</label>
                   <input id="sms-to" class="input" name="smsTo" required [(ngModel)]="smsTo" placeholder="+34600111222" />
-                  <span class="hint">En formato internacional; varios separados por comas.</span>
+                  <span class="hint">En formato internacional; varios separados por comas. Para WhatsApp, <code>whatsapp:+34600111222</code>.</span>
                 </div>
                 <div class="field">
                   <label for="sms-from">Remitente <span class="muted">(opcional)</span></label>

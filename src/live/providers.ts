@@ -115,6 +115,12 @@ export const PROVIDERS: readonly ProviderSpec[] = [
       { key: 'authToken', label: 'Auth token', required: true, secret: true },
       { key: 'from', label: 'Número o remitente', placeholder: '+15550001111', help: 'El número de Twilio que envía, o un remitente alfanumérico.' },
       { key: 'messagingServiceSid', label: 'Messaging Service SID', placeholder: 'MG…', help: 'En lugar de un número: envía por un Messaging Service.' },
+      {
+        key: 'whatsappFrom',
+        label: 'Remitente de WhatsApp',
+        placeholder: '+14155238886',
+        help: 'Tu número de WhatsApp en Twilio, para destinatarios whatsapp:+…',
+      },
     ],
     webhooks: {
       supported: true,
@@ -162,24 +168,36 @@ export function splitValues(
  * The library driver for a connection. Its name is the connection id, so a send result (or a failover
  * attempt) says exactly which connection delivered.
  */
+/** Whether a Twilio connection has an SMS sender (a number or a Messaging Service), not only a WhatsApp one. */
+export const canSendSms = (values: Record<string, string>) => Boolean(values.from || values.messagingServiceSid);
+
 export function buildDriver(
   connection: Connection,
   values: Record<string, string>,
   /** Public URL of the connection's inbound endpoint, for providers told per message (Twilio). */
   statusCallback?: string,
+  /** Twilio: the driver for WhatsApp recipients, from the connection's WhatsApp sender. */
+  whatsapp = false,
 ): Driver<EmailMessage> | Driver<SmsMessage> {
   const name = connection.id;
   switch (connection.provider) {
-    case 'twilio':
-      if (!values.from && !values.messagingServiceSid) throw new ValidationError('Indica el número de envío o un Messaging Service SID');
+    case 'twilio': {
+      if (!values.from && !values.messagingServiceSid && !values.whatsappFrom) {
+        throw new ValidationError('Indica el número de envío, un Messaging Service SID o el remitente de WhatsApp');
+      }
+      if (whatsapp && !values.whatsappFrom) throw new ValidationError('Esta conexión no tiene remitente de WhatsApp');
+      if (!whatsapp && !canSendSms(values)) throw new ValidationError('Esta conexión solo tiene remitente de WhatsApp');
+      // WhatsApp goes from its own sender, prefixed as Twilio wants it.
+      const from = whatsapp ? `whatsapp:${values.whatsappFrom!.replace(/^whatsapp:/, '')}` : values.from;
       return twilio({
         name,
         accountSid: values.accountSid!,
         authToken: values.authToken!,
-        ...(values.from && { from: values.from }),
-        ...(values.messagingServiceSid && { messagingServiceSid: values.messagingServiceSid }),
+        ...(from && { from }),
+        ...(!whatsapp && values.messagingServiceSid && { messagingServiceSid: values.messagingServiceSid }),
         ...(statusCallback && { statusCallback }),
       });
+    }
     case 'ses':
       return ses({
         name,

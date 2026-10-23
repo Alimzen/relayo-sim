@@ -83,3 +83,19 @@ describe('scheduled sends', () => {
     expect(failed).toMatchObject({ status: 'failed', error: expect.stringContaining('aviso') });
   });
 });
+
+describe('WhatsApp in the API', () => {
+  it('plays the SMS scenarios for whatsapp: numbers, and refuses mixing them with SMS', async () => {
+    const sent = await call('POST', '/v1/sms', { to: ['whatsapp:+12015550101'], body: 'Hola' });
+    expect(sent.status).toBe(202);
+    const { id, recipients } = (await sent.json()) as { id: string; recipients: Array<{ address: string; scenario: { name: string } }> };
+    expect(recipients[0]).toMatchObject({ address: 'whatsapp:+12015550101', scenario: { name: 'invalid-number' } });
+    await expect
+      .poll(async () => ((await (await call('GET', `/v1/messages/${id}`)).json()) as { events: Array<{ type: string }> }).events.map((e) => e.type))
+      .toContain('bounced');
+
+    expect((await call('POST', '/v1/sms', { to: ['whatsapp:+12015550100', '+12015550100'], body: 'x' })).status).toBe(400);
+    expect((await call('POST', '/v1/sms', { to: ['+12015550100'], body: 'x', whatsapp: { contentSid: 'HX1' } })).status).toBe(400);
+    expect((await call('POST', '/v1/sms', { to: ['whatsapp:+12015550100'], body: 'x', whatsapp: { contentSid: 'HX1', contentVariables: { 1: 'Ana' } } })).status).toBe(202);
+  });
+});

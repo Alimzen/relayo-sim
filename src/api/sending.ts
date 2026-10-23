@@ -2,7 +2,7 @@ import { BadRequestException, HttpException, Inject, Injectable } from '@nestjs/
 import { composeMessage, quotedHeaders, readHeaders, type ApiAttachment, type MailAddress } from '../capture/capture.js';
 import type { Mode, Project } from '../domain.js';
 import { LiveError, LiveService } from '../live/live.service.js';
-import { isSmsScenario, PHONE } from '../scenarios/sms.js';
+import { isSmsScenario, PHONE, WHATSAPP } from '../scenarios/sms.js';
 import { QuotaExceededError, SimulationService } from '../simulation/simulation.service.js';
 import { TemplateError, TemplatesService } from '../templates/templates.js';
 
@@ -48,6 +48,11 @@ export interface SendSmsBody {
   variables?: Record<string, unknown>;
   /** ISO date: send then instead of now (up to 30 days ahead). */
   sendAt?: string;
+  /**
+   * WhatsApp's approved template (Twilio Content API), needed outside the 24-hour window after the user's
+   * last message. `body` is then the message's readable summary.
+   */
+  whatsapp?: { contentSid?: string; contentVariables?: Record<string, string> };
 }
 
 /** What a send answers: the message, or the scheduled send. */
@@ -55,7 +60,7 @@ export type SendAnswer = { id: string; status: 'queued' | 'scheduled'; recipient
 
 export const EMAIL = /^[^\s@]+@[^\s@]+$/;
 /** Sender ids: a phone number, or up to 11 letters and digits (alphanumeric sender id). */
-const SENDER = /^(\+[1-9]\d{7,14}|[A-Za-z0-9 ]{1,11})$/;
+const SENDER = /^((whatsapp:)?\+[1-9]\d{7,14}|[A-Za-z0-9 ]{1,11})$/;
 
 export const addressOf = (value: Address) => (typeof value === 'string' ? value : value?.address);
 /** A Relayo recipient from an API address. */
@@ -237,7 +242,19 @@ export class SendingService {
         : { ...input, body: input.body ?? (await renderTemplate(() => this.templates.renderSms(project, String(input.template), variablesOf(input)))).body };
     const to = (Array.isArray(body?.to) ? body.to : [body?.to]).map((a) => addressOf(a as Address)?.trim());
     if (!to.length || to.some((n) => !n || !PHONE.test(n))) {
-      throw new BadRequestException('"to" must contain phone numbers in E.164 format, e.g. +12015550100');
+      throw new BadRequestException('"to" must contain phone numbers in E.164 format, e.g. +12015550100 (whatsapp:+12015550100 for WhatsApp)');
+    }
+    const whatsapp = to.filter((n) => n!.startsWith(WHATSAPP)).length;
+    if (whatsapp && whatsapp < to.length) throw new BadRequestException('Send SMS and WhatsApp numbers in separate requests');
+    if (body.whatsapp !== undefined) {
+      const options = body.whatsapp;
+      const valid =
+        options !== null &&
+        typeof options === 'object' &&
+        (options.contentSid === undefined || typeof options.contentSid === 'string') &&
+        (options.contentVariables === undefined || (typeof options.contentVariables === 'object' && options.contentVariables !== null));
+      if (!valid) throw new BadRequestException('"whatsapp" must be { contentSid?, contentVariables? }');
+      if (!whatsapp) throw new BadRequestException('"whatsapp" options need whatsapp: recipients');
     }
     if (typeof body.body !== 'string' || !body.body.trim()) throw new BadRequestException('"body" is required');
     if (body.body.length > 1600) throw new BadRequestException('"body" can have at most 1600 characters');
@@ -259,6 +276,7 @@ export class SendingService {
           ...(body.from?.trim() && { from: body.from.trim() }),
           to,
           body: body.body,
+          ...(body.whatsapp && { whatsapp: body.whatsapp }),
           ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
           ...(body.metadata && { metadata: body.metadata }),
           ...(body.tags && { tags: body.tags }),

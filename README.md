@@ -62,7 +62,7 @@ Los envíos (`POST /v1/messages`, `POST /v1/sms`) aceptan `Idempotency-Key`: rep
 | `GET /v1/scheduled?status=` · `GET`, `DELETE /v1/scheduled/:id` | API key | Envíos con `sendAt` (ISO, hasta 30 días): se validan al llegar, salen a su hora (cada 15 s se revisan) y se pueden cancelar mientras están pendientes |
 | `GET /v1/project/webhook/deliveries` · `/deliveries/:id` · `/stats` | API key | Registro de entregas del webhook (`status=failed`, `before`): respuesta, error, intento, y el evento enviado |
 | `POST /v1/project/webhook/deliveries/:id/redeliver` · `/webhook/test` | API key | Reenvía un evento ahora, o envía uno de prueba (cabecera `Relayo-Test: true`) |
-| `POST /v1/sms` | API key | Envío de SMS: `{ from?, to, body, metadata?, relayoMessageId?, scenario? }` (202) |
+| `POST /v1/sms` | API key | Envío de SMS o WhatsApp: `{ from?, to, body, metadata?, relayoMessageId?, scenario?, whatsapp? }` (202). WhatsApp con destinatarios `whatsapp:+…` (sin mezclar con SMS), desde el remitente de WhatsApp de la conexión de Twilio; `whatsapp: { contentSid, contentVariables }` para plantillas aprobadas |
 | `GET /v1/messages?limit=&before=&q=&status=` | API key | Últimos mensajes, con búsqueda y filtro por tipo de evento |
 | `GET /v1/messages/:id` | API key | Mensaje con su línea de tiempo |
 | `GET /v1/messages/:id/content` | API key | Correo capturado: cuerpos, cabeceras y adjuntos (imágenes `cid:` incrustadas) |

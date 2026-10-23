@@ -21,7 +21,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { SendingDomain } from '../domain.js';
 import { CircuitBreaker } from './breaker.js';
 import type { ManagedSending } from './managed.js';
-import { buildDriver, MANAGED_PROVIDER, PROVIDERS, PROVIDERS_BY_NAME, splitValues, type ProviderSpec } from './providers.js';
+import { buildDriver, canSendSms, MANAGED_PROVIDER, PROVIDERS, PROVIDERS_BY_NAME, splitValues, type ProviderSpec } from './providers.js';
 import type { SecretBox } from './secrets.js';
 
 /** A live send that could not be delivered, with the HTTP status the API answers with. */
@@ -170,7 +170,9 @@ export class LiveService {
       createdAt: new Date(),
     };
     // Build it once now, so a bad combination of settings fails here and not on the first send.
-    this.validate(() => buildDriver(connection, { ...settings, ...secrets }));
+    // A Twilio connection with only a WhatsApp sender is checked as the WhatsApp driver it will be.
+    const combined = { ...settings, ...secrets };
+    this.validate(() => buildDriver(connection, combined, undefined, connection.provider === 'twilio' && !canSendSms(combined)));
     await this.store.createConnection(connection);
     return connection;
   }
@@ -296,11 +298,11 @@ export class LiveService {
     return this.anyDriver(connection) as Driver<EmailMessage>;
   }
 
-  private smsDriverFor(connection: Connection): Driver<SmsMessage> {
-    return this.anyDriver(connection) as Driver<SmsMessage>;
+  private smsDriverFor(connection: Connection, whatsapp = false): Driver<SmsMessage> {
+    return this.anyDriver(connection, whatsapp) as Driver<SmsMessage>;
   }
 
-  private anyDriver(connection: Connection): Driver<EmailMessage> | Driver<SmsMessage> {
+  private anyDriver(connection: Connection, whatsapp = false): Driver<EmailMessage> | Driver<SmsMessage> {
     if (connection.provider === 'managed') {
       if (!this.managed) throw new LiveError('El envío de Relayo no está disponible en este servidor', 503);
       return this.managed.driver(connection);
@@ -313,7 +315,10 @@ export class LiveService {
       throw new LiveError(`No se pueden leer las credenciales de «${connection.name}»: vuelve a introducirlas.`, 500);
     }
     const statusCallback = this.publicUrl ? `${this.publicUrl}/v1/inbound/${connection.inboundToken}` : undefined;
-    return buildDriver(connection, { ...connection.settings, ...secrets }, statusCallback);
+    const values = { ...connection.settings, ...secrets };
+    // A Twilio connection with only a WhatsApp sender is always its WhatsApp driver (its webhooks too).
+    const variant = whatsapp || (connection.provider === 'twilio' && !canSendSms(values));
+    return buildDriver(connection, values, statusCallback, variant);
   }
 
   private validate<T>(fn: () => T): T {
@@ -429,12 +434,29 @@ export class LiveService {
    */
   async sendSms(
     project: Project,
-    input: { from?: string; to: string[]; body: string; relayoMessageId?: string; metadata?: Record<string, string>; tags?: string[] },
+    input: {
+      from?: string;
+      to: string[];
+      body: string;
+      relayoMessageId?: string;
+      metadata?: Record<string, string>;
+      tags?: string[];
+      /** WhatsApp's approved template (Twilio). */
+      whatsapp?: { contentSid?: string; contentVariables?: Record<string, string> };
+    },
     only?: Connection,
   ): Promise<SimMessage> {
-    const connections = only ? [only] : await this.store.listConnections(project.id, 'sms');
+    // WhatsApp (whatsapp:+… recipients) goes through the connections that have a WhatsApp sender.
+    const whatsapp = input.to.length > 0 && input.to.every((n) => n.startsWith('whatsapp:'));
+    const all = only ? [only] : await this.store.listConnections(project.id, 'sms');
+    const connections = all.filter((c) => (whatsapp ? c.settings.whatsappFrom : c.provider !== 'twilio' || canSendSms(c.settings)));
     if (!connections.length) {
-      throw new LiveError('Este proyecto no tiene conexiones de SMS para el modo en vivo: añade una (Twilio) en Conexiones.', 400);
+      throw new LiveError(
+        whatsapp
+          ? 'Ninguna conexión tiene remitente de WhatsApp: añádelo en tu conexión de Twilio.'
+          : 'Este proyecto no tiene conexiones de SMS para el modo en vivo: añade una (Twilio) en Conexiones.',
+        400,
+      );
     }
     const everyone = unique(input.to);
     const blocked = await this.store.suppressed(project.id, everyone);
@@ -464,16 +486,20 @@ export class LiveService {
       return stored;
     }
 
-    const drivers = this.breaker.order(connections).map((c) => this.breaker.watch(c.id, this.smsDriverFor(c))) as [Driver<SmsMessage>, ...Driver<SmsMessage>[]];
+    const drivers = this.breaker.order(connections).map((c) => this.breaker.watch(c.id, this.smsDriverFor(c, whatsapp))) as [Driver<SmsMessage>, ...Driver<SmsMessage>[]];
     const driver = drivers.length === 1 ? drivers[0] : failover(drivers, { name: 'relayo' });
-    const relayo = createRelayo({ sms: driver, generateId: () => stored.id });
     try {
-      const result = await relayo.sms.send({
-        to: sendable.map((address) => ({ address })),
-        body: input.body,
-        ...(input.from && { from: input.from }),
-        ...(input.metadata && { metadata: input.metadata }),
-      });
+      // The request was checked by the API already: straight to the driver, with our id (as the core would).
+      const result = await driver.send(
+        {
+          to: sendable.map((address) => ({ address })),
+          body: input.body,
+          ...(input.from && { from: input.from }),
+          ...(input.metadata && { metadata: input.metadata }),
+          ...(input.whatsapp && { providerOptions: { twilio: input.whatsapp } }),
+        },
+        { messageId: stored.id },
+      );
       const connection = connections.find((c) => c.id === result.provider) ?? connections[0]!;
       const delivery = { connectionId: connection.id, provider: connection.provider, ...(result.providerMessageId && { providerMessageId: result.providerMessageId }) };
       await this.store.setDelivery(project.id, stored.id, delivery);
@@ -504,7 +530,9 @@ export class LiveService {
     const to = typeof input.to === 'string' ? input.to.trim() : '';
     const from = typeof input.from === 'string' ? input.from.trim() : '';
     if (connection.channel === 'sms') {
-      if (!/^\+[1-9]\d{6,14}$/.test(to)) throw new LiveError('Introduce un número en formato internacional (+34600111222) como destinatario de la prueba', 400);
+      if (!/^(whatsapp:)?\+[1-9]\d{6,14}$/.test(to)) {
+        throw new LiveError('Introduce un número en formato internacional (+34600111222, o whatsapp:+34600111222) como destinatario de la prueba', 400);
+      }
       return this.sendSms(project, { to: [to], body: 'Prueba de Relayo: la conexión funciona.', ...(from && { from }) }, connection);
     }
     if (!email.test(to)) throw new LiveError('Introduce un email válido como destinatario de la prueba', 400);

@@ -243,7 +243,9 @@ export class ConnectionsPage {
       case 'mailgun':
         return `${s['domain']} · región ${s['region'] ?? 'us'}`;
       case 'twilio':
-        return `${s['accountSid']} · ${s['messagingServiceSid'] ? `Messaging Service ${s['messagingServiceSid']}` : s['from']}`;
+        return [s['accountSid'], s['messagingServiceSid'] ? `Messaging Service ${s['messagingServiceSid']}` : s['from'], s['whatsappFrom'] && `WhatsApp ${s['whatsappFrom']}`]
+          .filter(Boolean)
+          .join(' · ');
       default:
         return Object.entries(s).map(([k, v]) => `${k}: ${v}`).join(' · ') || 'Credenciales guardadas';
     }

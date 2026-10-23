@@ -87,13 +87,16 @@ const BY_NAME = new Map(SMS_SCENARIOS.map((s) => [s.name, s]));
 const BY_NUMBER = new Map(SMS_SCENARIOS.map((s) => [s.number, s]));
 
 /** E.164: `+` and 8 to 15 digits. */
-export const PHONE = /^\+[1-9]\d{7,14}$/;
+/** E.164, or `whatsapp:` + E.164 for WhatsApp. */
+export const PHONE = /^(whatsapp:)?\+[1-9]\d{7,14}$/;
+export const WHATSAPP = 'whatsapp:';
 
 /** The `scenario` field of the request wins; then the magic number; anything else is delivered. */
 export function selectSmsScenario(to: string, requested?: string): ScenarioSelection {
   const name = requested?.trim().toLowerCase();
   if (name && BY_NAME.has(name)) return { name, source: 'field' };
-  const byNumber = BY_NUMBER.get(to);
+  // WhatsApp numbers play the same scenarios as SMS ones.
+  const byNumber = BY_NUMBER.get(to.startsWith(WHATSAPP) ? to.slice(WHATSAPP.length) : to);
   if (byNumber && byNumber.name !== 'delivered') return { name: byNumber.name, source: 'number' };
   return { name: 'delivered', source: 'default' };
 }

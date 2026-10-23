@@ -123,6 +123,31 @@ describe('live SMS', () => {
     expect(types).toEqual(expect.arrayContaining([['+34600999888', 'rejected'], ['+34600555444', 'accepted']]));
   });
 
+  it('sends WhatsApp from the connection\'s WhatsApp sender, and keeps WhatsApp opt-outs apart from SMS', async () => {
+    const calls = fakeTwilio();
+    const { store, live } = await setup();
+    const both = await live.createConnection(project, {
+      provider: 'twilio',
+      values: { accountSid: 'AC1', authToken: 'token-1', from: '+15550001111', whatsappFrom: '+14155238886' },
+    });
+    const onlyWhatsapp = await live.createConnection(project, { provider: 'twilio', values: { accountSid: 'AC2', authToken: 'token-1', whatsappFrom: 'whatsapp:+14155230000' } });
+
+    const message = await live.sendSms(project, { to: ['whatsapp:+34600111222'], body: 'Tu pedido ha salido' });
+    expect(calls[0]).toMatchObject({ account: 'AC1', form: { To: 'whatsapp:+34600111222', From: 'whatsapp:+14155238886' } });
+    expect(message.delivery?.connectionId).toBe(both.id);
+
+    // SMS skip the WhatsApp-only connection.
+    await live.sendSms(project, { to: ['+34600111222'], body: 'x' });
+    expect(calls[1]).toMatchObject({ account: 'AC1', form: { From: '+15550001111' } });
+
+    // A WhatsApp STOP suppresses the WhatsApp address, not the phone number for SMS.
+    await live.handleInbound(
+      onlyWhatsapp.inboundToken,
+      signed(`${PUBLIC_URL}/v1/inbound/${onlyWhatsapp.inboundToken}`, { MessageSid: 'SM9', From: 'whatsapp:+34600111222', OptOutType: 'STOP' }),
+    );
+    expect(await store.suppressed(project.id, ['whatsapp:+34600111222', '+34600111222'])).toEqual(new Set(['whatsapp:+34600111222']));
+  });
+
   it('tests an SMS connection with a short message to a phone number', async () => {
     const calls = fakeTwilio();
     const { live, twilio } = await setup();
