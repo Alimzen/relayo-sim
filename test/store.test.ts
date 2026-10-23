@@ -308,6 +308,49 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
   });
 
+  it('claims due scheduled sends once, and cancels only pending ones', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const send = (id: string, at: string) => ({
+      id,
+      projectId: 'prj_1',
+      mode: 'test' as const,
+      channel: 'email' as const,
+      request: { subject: 'S', to: ['a@x.com'] },
+      sendAt: new Date(at),
+      status: 'pending' as const,
+      summary: 'S',
+      recipients: ['a@x.com'],
+      createdAt: new Date('2026-10-18T09:00:00Z'),
+      updatedAt: new Date('2026-10-18T09:00:00Z'),
+    });
+    await store.createScheduled(send('sch_2', '2026-10-18T11:00:00Z'));
+    await store.createScheduled(send('sch_1', '2026-10-18T10:00:00Z'));
+    await store.createScheduled(send('sch_3', '2026-10-18T12:00:00Z'));
+
+    expect((await store.listScheduled('prj_1', { mode: 'test', status: 'pending', limit: 10 })).map((s) => s.id)).toEqual(['sch_1', 'sch_2', 'sch_3']);
+    expect(await store.listScheduled('prj_1', { mode: 'live', limit: 10 })).toEqual([]);
+
+    const due = await store.claimDueScheduled(new Date('2026-10-18T11:30:00Z'), 10);
+    expect(due.map((s) => [s.id, s.status])).toEqual([
+      ['sch_1', 'sending'],
+      ['sch_2', 'sending'],
+    ]);
+    expect(due[0]!.request).toEqual({ subject: 'S', to: ['a@x.com'] });
+    expect(await store.claimDueScheduled(new Date('2026-10-18T11:30:00Z'), 10)).toEqual([]);
+    // Stuck in "sending" for over 10 minutes (the server died): taken again.
+    expect((await store.claimDueScheduled(new Date('2026-10-18T11:41:00Z'), 10)).map((s) => s.id)).toEqual(['sch_1', 'sch_2']);
+
+    await store.finishScheduled('sch_1', { status: 'sent', messageId: 'sim_9' });
+    await store.finishScheduled('sch_2', { status: 'failed', error: 'No connections' });
+    expect(await store.getScheduled('prj_1', 'sch_2')).toMatchObject({ status: 'failed', error: 'No connections' });
+    expect(await store.getScheduled('prj_1', 'sch_1')).toMatchObject({ status: 'sent', messageId: 'sim_9' });
+    expect(await store.cancelScheduled('prj_1', 'sch_1')).toBe(false);
+    expect(await store.cancelScheduled('prj_other', 'sch_3')).toBe(false);
+    expect(await store.cancelScheduled('prj_1', 'sch_3')).toBe(true);
+    expect(await store.claimDueScheduled(new Date('2026-10-18T13:00:00Z'), 10)).toEqual([]);
+  });
+
   it('keeps templates, found by id or alias', async () => {
     const store = await open();
     await store.createProject(project());

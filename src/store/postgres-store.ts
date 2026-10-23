@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -134,6 +134,23 @@ CREATE TABLE IF NOT EXISTS usage (
   PRIMARY KEY (project_id, month)
 );
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
+CREATE TABLE IF NOT EXISTS scheduled_sends (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  mode text NOT NULL,
+  channel text NOT NULL,
+  request jsonb NOT NULL,
+  send_at timestamptz NOT NULL,
+  status text NOT NULL,
+  summary text NOT NULL,
+  recipients jsonb NOT NULL,
+  message_id text,
+  error text,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS scheduled_sends_due ON scheduled_sends (send_at) WHERE status IN ('pending', 'sending');
+CREATE INDEX IF NOT EXISTS scheduled_sends_project ON scheduled_sends (project_id, mode, send_at);
 CREATE TABLE IF NOT EXISTS templates (
   id text PRIMARY KEY,
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -509,6 +526,76 @@ export class PostgresStore implements SimStore {
     return rows[0] && { ...rows[0].body, timestamp: new Date(rows[0].body.timestamp) };
   }
 
+  async createScheduled(s: ScheduledSend): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO scheduled_sends (id, project_id, mode, channel, request, send_at, status, summary, recipients, message_id, error, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        s.id,
+        s.projectId,
+        s.mode,
+        s.channel,
+        JSON.stringify(s.request),
+        s.sendAt,
+        s.status,
+        s.summary,
+        JSON.stringify(s.recipients),
+        s.messageId ?? null,
+        s.error ?? null,
+        s.createdAt,
+        s.updatedAt,
+      ],
+    );
+  }
+
+  async listScheduled(projectId: string, query: { mode: Mode; status?: ScheduledSend['status']; limit: number }): Promise<ScheduledSend[]> {
+    const values: unknown[] = [projectId, query.mode, query.limit];
+    const status = query.status ? `AND status = $${values.push(query.status)}` : '';
+    const order = query.status === 'pending' ? 'send_at ASC' : 'send_at DESC';
+    const { rows } = await this.pool.query<ScheduledRow>(
+      `SELECT * FROM scheduled_sends WHERE project_id = $1 AND mode = $2 ${status} ORDER BY ${order} LIMIT $3`,
+      values,
+    );
+    return rows.map(toScheduled);
+  }
+
+  async getScheduled(projectId: string, id: string): Promise<ScheduledSend | undefined> {
+    const { rows } = await this.pool.query<ScheduledRow>('SELECT * FROM scheduled_sends WHERE id = $1 AND project_id = $2', [id, projectId]);
+    return rows[0] && toScheduled(rows[0]);
+  }
+
+  async cancelScheduled(projectId: string, id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      "UPDATE scheduled_sends SET status = 'canceled', updated_at = now() WHERE id = $1 AND project_id = $2 AND status = 'pending'",
+      [id, projectId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async claimDueScheduled(now: Date, limit: number): Promise<ScheduledSend[]> {
+    // SKIP LOCKED: servers claiming at the same moment take different rows instead of waiting for each other.
+    const { rows } = await this.pool.query<ScheduledRow>(
+      `UPDATE scheduled_sends SET status = 'sending', updated_at = $1
+       WHERE id IN (
+         SELECT id FROM scheduled_sends
+         WHERE send_at <= $1 AND (status = 'pending' OR (status = 'sending' AND updated_at < $1::timestamptz - interval '10 minutes'))
+         ORDER BY send_at LIMIT $2 FOR UPDATE SKIP LOCKED
+       )
+       RETURNING *`,
+      [now, limit],
+    );
+    return rows.map(toScheduled).sort((a, b) => a.sendAt.getTime() - b.sendAt.getTime());
+  }
+
+  async finishScheduled(id: string, outcome: { status: 'sent' | 'failed'; messageId?: string; error?: string }): Promise<void> {
+    await this.pool.query('UPDATE scheduled_sends SET status = $2, message_id = $3, error = $4, updated_at = now() WHERE id = $1', [
+      id,
+      outcome.status,
+      outcome.messageId ?? null,
+      outcome.error ?? null,
+    ]);
+  }
+
   async createTemplate(t: Template): Promise<void> {
     await this.pool.query(
       `INSERT INTO templates (id, project_id, alias, name, channel, subject, html, text, body, created_at, updated_at)
@@ -837,6 +924,7 @@ export class PostgresStore implements SimStore {
     const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1', [before]);
     await this.pool.query('DELETE FROM webhook_attempts WHERE created_at < $1', [before]);
     await this.pool.query('DELETE FROM idempotency_keys WHERE expires_at <= now()');
+    await this.pool.query("DELETE FROM scheduled_sends WHERE status IN ('sent', 'failed', 'canceled') AND updated_at < $1", [before]);
     await this.pool.query('DELETE FROM sessions WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM password_resets WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM smtp_attempts WHERE expires_at <= now()');
@@ -861,12 +949,46 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
+}
+
+interface ScheduledRow {
+  id: string;
+  project_id: string;
+  mode: Mode;
+  channel: 'email' | 'sms';
+  request: Record<string, unknown>;
+  send_at: Date;
+  status: ScheduledSend['status'];
+  summary: string;
+  recipients: string[];
+  message_id: string | null;
+  error: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function toScheduled(row: ScheduledRow): ScheduledSend {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    mode: row.mode,
+    channel: row.channel,
+    request: row.request,
+    sendAt: row.send_at,
+    status: row.status,
+    summary: row.summary,
+    recipients: row.recipients,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.message_id !== null && { messageId: row.message_id }),
+    ...(row.error !== null && { error: row.error }),
+  };
 }
 
 interface TemplateRow {

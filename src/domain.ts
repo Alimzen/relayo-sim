@@ -168,6 +168,26 @@ export interface SimMessage {
 /** A Relayo event produced by the simulator. `provider` is always `simulator`. */
 export type SimEvent = RelayoEvent & { projectId: string };
 
+/** A send asked for later (`sendAt`): the request as received, sent as is when its time comes. */
+export interface ScheduledSend {
+  id: string;
+  projectId: string;
+  mode: Mode;
+  channel: 'email' | 'sms';
+  request: Record<string, unknown>;
+  sendAt: Date;
+  status: 'pending' | 'sending' | 'sent' | 'canceled' | 'failed';
+  /** For lists: the subject (or the start of the SMS) and who it goes to. */
+  summary: string;
+  recipients: string[];
+  /** Once sent: the message it became. */
+  messageId?: string;
+  /** Why it could not be sent. */
+  error?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 /** A saved email or SMS that sends fill with variables (`{{name}}`). */
 export interface Template {
   id: string;

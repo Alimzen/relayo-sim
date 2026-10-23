@@ -59,6 +59,7 @@ Los envíos (`POST /v1/messages`, `POST /v1/sms`) aceptan `Idempotency-Key`: rep
 | `GET /v1/scenarios` | — | Catálogo |
 | `POST /v1/messages` | API key | Envío de email (202, `{ id, status: 'queued' }`) |
 | `GET`, `POST /v1/project/templates` · `GET`, `PATCH`, `DELETE /:ref` · `POST /:ref/preview` | API key | Plantillas (por id o alias). Los envíos aceptan `{ template, variables }`: `{{nombre}}`, `{{cliente.nombre}}`, y `{{{html}}}` sin escapar; si falta una variable, 422 |
+| `GET /v1/scheduled?status=` · `GET`, `DELETE /v1/scheduled/:id` | API key | Envíos con `sendAt` (ISO, hasta 30 días): se validan al llegar, salen a su hora (cada 15 s se revisan) y se pueden cancelar mientras están pendientes |
 | `GET /v1/project/webhook/deliveries` · `/deliveries/:id` · `/stats` | API key | Registro de entregas del webhook (`status=failed`, `before`): respuesta, error, intento, y el evento enviado |
 | `POST /v1/project/webhook/deliveries/:id/redeliver` · `/webhook/test` | API key | Reenvía un evento ahora, o envía uno de prueba (cabecera `Relayo-Test: true`) |
 | `POST /v1/sms` | API key | Envío de SMS: `{ from?, to, body, metadata?, relayoMessageId?, scenario? }` (202) |

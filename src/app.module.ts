@@ -21,11 +21,13 @@ import {
   ProjectController,
   ScenariosController,
   SmsController,
+  ScheduledController,
   TemplatesController,
   WebhookDeliveriesController,
 } from './api/controllers.js';
 import { TemplatesService } from './templates/templates.js';
 import { SendingService } from './api/sending.js';
+import { ScheduledSends } from './api/scheduled.js';
 import { LiveService } from './live/live.service.js';
 import { SecretBox } from './live/secrets.js';
 import { ManagedSending } from './live/managed.js';
@@ -59,11 +61,13 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
     @Inject(LiveService) private readonly live: LiveService,
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(AccountsService) private readonly accounts: AccountsService,
+    @Inject(ScheduledSends) private readonly scheduled: ScheduledSends,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     this.infra.onWebhookExhausted = (attempt) => void this.alertWebhookFailing(attempt);
     this.startRetention();
+    this.scheduled.start();
     await this.resealSecrets();
     await this.startSmtp();
   }
@@ -137,6 +141,7 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
   async onApplicationShutdown(): Promise<void> {
     clearInterval(this.tlsReload);
     clearInterval(this.purgeTimer);
+    await this.scheduled.stop();
     await this.smtp?.close();
     await this.infra.close();
   }
@@ -163,6 +168,7 @@ export class AppModule {
         ManagedReviewController,
         WebhookDeliveriesController,
         TemplatesController,
+        ScheduledController,
       ],
       providers: [
         { provide: SIM_CONFIG, useValue: config },
@@ -205,6 +211,7 @@ export class AppModule {
         },
         { provide: TemplatesService, useFactory: (store: SimStore) => new TemplatesService(store), inject: [SIM_STORE] },
         SendingService,
+        ScheduledSends,
         ProjectGuard,
         SessionGuard,
         AdminGuard,

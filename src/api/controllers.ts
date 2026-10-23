@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -20,7 +21,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { readAttachment, readContent } from '../capture/capture.js';
-import type { Mode, Project, SimEvent, Template, WebhookAttempt } from '../domain.js';
+import type { Mode, Project, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
+import { ScheduledSends } from './scheduled.js';
 import { TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
 import { attemptRecord, attemptWebhook, recordAttempt, webhookBody } from '../webhooks/webhooks.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
@@ -57,13 +59,17 @@ export class ScenariosController {
 @Controller('v1/sms')
 @UseGuards(ProjectGuard)
 export class SmsController {
-  constructor(@Inject(SendingService) private readonly sending: SendingService) {}
+  constructor(
+    @Inject(SendingService) private readonly sending: SendingService,
+    @Inject(ScheduledSends) private readonly scheduled: ScheduledSends,
+  ) {}
 
   /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
   @Post()
   @HttpCode(202)
   @UseInterceptors(IdempotencyInterceptor)
   async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendSmsBody) {
+    if (body?.sendAt !== undefined) return this.scheduled.schedule(project, mode, 'sms', body);
     return this.sending.sms(project, mode, body);
   }
 }
@@ -75,6 +81,7 @@ export class MessagesController {
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(SendingService) private readonly sending: SendingService,
+    @Inject(ScheduledSends) private readonly scheduled: ScheduledSends,
   ) {}
 
   /** Test keys: the simulator plays the scenario. Live keys: real delivery through the project's connections. */
@@ -82,6 +89,7 @@ export class MessagesController {
   @HttpCode(202)
   @UseInterceptors(IdempotencyInterceptor)
   async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendBody) {
+    if (body?.sendAt !== undefined) return this.scheduled.schedule(project, mode, 'email', body);
     return this.sending.email(project, mode, body);
   }
 
@@ -257,6 +265,48 @@ function urlChange(value: unknown, pattern: RegExp, error: string): string | nul
   if (typeof value !== 'string') return undefined;
   if (!pattern.test(value)) throw new BadRequestException(error);
   return value;
+}
+
+/** Sends waiting for their `sendAt`, and the ones already handled. */
+@Controller('v1/scheduled')
+@UseGuards(ProjectGuard)
+export class ScheduledController {
+  constructor(@Inject(SIM_STORE) private readonly store: SimStore) {}
+
+  /** `status=pending` (soonest first), `sent`, `failed` or `canceled`; all of them, newest first, without it. */
+  @Get()
+  async list(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Query('status') status?: string, @Query('limit') limit?: string) {
+    const statuses = ['pending', 'sending', 'sent', 'failed', 'canceled'];
+    if (status !== undefined && !statuses.includes(status)) throw new BadRequestException(`"status" must be one of ${statuses.join(', ')}`);
+    const data = await this.store.listScheduled(project.id, {
+      mode,
+      limit: Math.min(200, Math.max(1, Number(limit) || 100)),
+      ...(status && { status: status as ScheduledSend['status'] }),
+    });
+    return { data: data.map(publicScheduled) };
+  }
+
+  @Get(':id')
+  async get(@CurrentProject() project: Project, @Param('id') id: string) {
+    const send = await this.store.getScheduled(project.id, id);
+    if (!send) throw new NotFoundException('Envío programado no encontrado');
+    return { ...publicScheduled(send), request: send.request };
+  }
+
+  /** Cancels a send that has not left yet. */
+  @Delete(':id')
+  @HttpCode(204)
+  async cancel(@CurrentProject() project: Project, @Param('id') id: string) {
+    if (await this.store.cancelScheduled(project.id, id)) return;
+    const send = await this.store.getScheduled(project.id, id);
+    if (!send) throw new NotFoundException('Envío programado no encontrado');
+    throw new ConflictException(send.status === 'canceled' ? 'Ya estaba cancelado' : 'Ya se ha enviado (o se está enviando): no se puede cancelar');
+  }
+}
+
+function publicScheduled(send: ScheduledSend) {
+  const { projectId: _projectId, request: _request, ...rest } = send;
+  return rest;
 }
 
 /** Saved emails and SMS, filled with variables at send time. */

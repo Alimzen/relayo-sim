@@ -1,4 +1,4 @@
-import type { Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -18,6 +18,7 @@ export class MemoryStore implements SimStore {
   private readonly usage = new Map<string, number>();
   private readonly webhookAttempts: WebhookAttempt[] = [];
   private readonly templates = new Map<string, Template>();
+  private readonly scheduled = new Map<string, ScheduledSend>();
   private readonly idempotency = new Map<string, { fingerprint: string; response?: unknown; expires: number }>();
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
@@ -257,6 +258,9 @@ export class MemoryStore implements SimStore {
       messages++;
     }
     for (const [id, entry] of this.idempotency) if (entry.expires <= Date.now()) this.idempotency.delete(id);
+    for (const [id, send] of this.scheduled) {
+      if (send.status !== 'pending' && send.status !== 'sending' && send.updatedAt < before) this.scheduled.delete(id);
+    }
     const kept = this.webhookAttempts.filter((a) => a.createdAt >= before);
     this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
     const now = new Date();
@@ -281,6 +285,51 @@ export class MemoryStore implements SimStore {
       if (event) return event.projectId === projectId ? event : undefined;
     }
     return undefined;
+  }
+
+  async createScheduled(send: ScheduledSend): Promise<void> {
+    this.scheduled.set(send.id, structuredClone(send));
+  }
+
+  async listScheduled(projectId: string, query: { mode: Mode; status?: ScheduledSend['status']; limit: number }): Promise<ScheduledSend[]> {
+    return [...this.scheduled.values()]
+      .filter((s) => s.projectId === projectId && s.mode === query.mode && (!query.status || s.status === query.status))
+      .sort((a, b) =>
+        query.status === 'pending' ? a.sendAt.getTime() - b.sendAt.getTime() : b.sendAt.getTime() - a.sendAt.getTime(),
+      )
+      .slice(0, query.limit)
+      .map((s) => structuredClone(s));
+  }
+
+  async getScheduled(projectId: string, id: string): Promise<ScheduledSend | undefined> {
+    const send = this.scheduled.get(id);
+    return send?.projectId === projectId ? structuredClone(send) : undefined;
+  }
+
+  async cancelScheduled(projectId: string, id: string): Promise<boolean> {
+    const send = this.scheduled.get(id);
+    if (send?.projectId !== projectId || send.status !== 'pending') return false;
+    send.status = 'canceled';
+    send.updatedAt = new Date();
+    return true;
+  }
+
+  async claimDueScheduled(now: Date, limit: number): Promise<ScheduledSend[]> {
+    const stuck = now.getTime() - 10 * 60_000;
+    const due = [...this.scheduled.values()]
+      .filter((s) => s.sendAt <= now && (s.status === 'pending' || (s.status === 'sending' && s.updatedAt.getTime() < stuck)))
+      .sort((a, b) => a.sendAt.getTime() - b.sendAt.getTime())
+      .slice(0, limit);
+    for (const send of due) {
+      send.status = 'sending';
+      send.updatedAt = now;
+    }
+    return due.map((s) => structuredClone(s));
+  }
+
+  async finishScheduled(id: string, outcome: { status: 'sent' | 'failed'; messageId?: string; error?: string }): Promise<void> {
+    const send = this.scheduled.get(id);
+    if (send) Object.assign(send, outcome, { updatedAt: new Date() });
   }
 
   async createTemplate(template: Template): Promise<void> {

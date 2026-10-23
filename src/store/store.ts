@@ -1,4 +1,4 @@
-import type { Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -104,6 +104,20 @@ export interface SimStore {
   listMessages(projectId: string, query: MessageQuery): Promise<MessageListItem[]>;
   addEvent(event: SimEvent): Promise<void>;
   getEvent(projectId: string, eventId: string): Promise<SimEvent | undefined>;
+
+  // Scheduled sends
+  createScheduled(send: ScheduledSend): Promise<void>;
+  /** Soonest first for pending ones, newest first otherwise. */
+  listScheduled(projectId: string, query: { mode: Mode; status?: ScheduledSend['status']; limit: number }): Promise<ScheduledSend[]>;
+  getScheduled(projectId: string, id: string): Promise<ScheduledSend | undefined>;
+  /** Cancels a pending send; false when it is not pending (already sent, sending or canceled). */
+  cancelScheduled(projectId: string, id: string): Promise<boolean>;
+  /**
+   * Takes the sends whose time has come (pending, or stuck in `sending` for 10 minutes after a crash) and
+   * marks them `sending`, atomically: two servers never take the same one.
+   */
+  claimDueScheduled(now: Date, limit: number): Promise<ScheduledSend[]>;
+  finishScheduled(id: string, outcome: { status: 'sent' | 'failed'; messageId?: string; error?: string }): Promise<void>;
 
   // Templates
   createTemplate(template: Template): Promise<void>;
