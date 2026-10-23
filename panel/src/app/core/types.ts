@@ -199,6 +199,8 @@ export interface SendingDomain {
   verifiedAt: string | null;
   lastCheckedAt: string | null;
   records: Array<{ purpose: 'dkim' | 'spf' | 'dmarc'; type: string; host: string; value: string; required: boolean; ok: boolean }>;
+  /** The relay's own check of the domain (Amazon SES), when it keeps one. */
+  relay: { name: string; verified: boolean } | null;
   createdAt: string;
 }
 

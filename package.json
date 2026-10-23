@@ -25,6 +25,7 @@
     "@alimzen/relayo-ses": "^0.1.0",
     "@alimzen/relayo-smtp": "^0.2.1",
     "@alimzen/relayo-twilio": "^0.1.0",
+    "@aws-sdk/client-sesv2": "^3.1152.0",
     "@nestjs/common": "^12",
     "@nestjs/core": "^12",
     "@nestjs/platform-express": "^12",

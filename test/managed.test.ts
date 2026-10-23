@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import type { Connection, Project } from '../src/domain.js';
 import { ManagedSending } from '../src/live/managed.js';
+import { SesIdentities, type RelayIdentities } from '../src/live/relay-identities.js';
 import { SecretBox } from '../src/live/secrets.js';
 import { MemoryStore } from '../src/store/memory-store.js';
 
@@ -38,13 +39,14 @@ const project: Project = { id: 'prj_1', name: 'P', webhookSecret: 'whsec_x', cre
 const connection = { id: 'con_managed', projectId: 'prj_1', provider: 'managed' } as Connection;
 const message = (from: string): EmailMessage => ({ from: { address: from }, to: { address: 'ana@cliente.com' }, subject: 'Hola', text: 'Hola' });
 
-function setup(dns: Record<string, string[]> = {}, dailyLimit = 100) {
+function setup(dns: Record<string, string[]> = {}, dailyLimit = 100, identities?: RelayIdentities) {
   const store = new MemoryStore();
   const managed = new ManagedSending(
     store,
     new SecretBox('test-key'),
     { smtpUrl: `smtp://127.0.0.1:${relay.port}/?ignoreTLS=true`, spfInclude: 'amazonses.com', dailyLimit },
     async (host) => (dns[host] ?? []).map((r) => [r]),
+    identities,
   );
   return { store, managed };
 }
@@ -82,6 +84,66 @@ describe('managed sending', () => {
     const verified = await managed.verify(project, domain.id);
     expect(verified.checks).toEqual({ dkim: true, spf: true, dmarc: true });
     expect(verified.verifiedAt).toBeInstanceOf(Date);
+  });
+
+  it('registers each domain in Amazon SES with the same DKIM key, and waits for SES to accept it', async () => {
+    const dns: Record<string, string[]> = {};
+    const registered: Array<{ domain: string; selector: string; key: string }> = [];
+    let sesVerified = false;
+    const identities: RelayIdentities = {
+      name: 'Amazon SES',
+      create: async (domain, selector, key) => void registered.push({ domain, selector, key }),
+      verified: async () => sesVerified,
+    };
+    const { managed } = setup(dns, 100, identities);
+    const domain = await managed.addDomain(project, 'empresa.com');
+    expect(registered).toEqual([{ domain: 'empresa.com', selector: 'relayo', key: expect.stringContaining('BEGIN PRIVATE KEY') }]);
+    expect(domain.checks.relay).toBe(false);
+
+    dns['relayo._domainkey.empresa.com'] = [managed.records(domain)[0]!.value];
+    dns['empresa.com'] = ['v=spf1 include:amazonses.com ~all'];
+    const waiting = await managed.verify(project, domain.id);
+    expect(waiting.checks).toMatchObject({ dkim: true, spf: true, relay: false });
+    expect(waiting.verifiedAt).toBeUndefined();
+
+    sesVerified = true;
+    const verified = await managed.verify(project, domain.id);
+    expect(verified.checks.relay).toBe(true);
+    expect(verified.verifiedAt).toBeInstanceOf(Date);
+
+    // A relay that refuses the registration: the domain is not added.
+    const failing = setup({}, 100, { ...identities, create: async () => Promise.reject(new Error('AccessDenied')) });
+    await expect(failing.managed.addDomain(project, 'otra.com')).rejects.toThrow(/No se pudo registrar otra\.com en el relay \(Amazon SES\)/);
+    expect(await failing.store.listDomains(project.id)).toEqual([]);
+  });
+
+  it('talks to SES with Bring Your Own DKIM, tolerating domains it already has', async () => {
+    const sent: Array<{ name: string; input: Record<string, unknown> }> = [];
+    let answer: (name: string) => unknown = () => ({});
+    const client = {
+      send: async (command: { constructor: { name: string }; input: Record<string, unknown> }) => {
+        sent.push({ name: command.constructor.name, input: command.input });
+        const result = answer(command.constructor.name);
+        if (result instanceof Error) throw result;
+        return result;
+      },
+    };
+    const ses = new SesIdentities('eu-west-1', client as never);
+    const { privateKey } = await import('node:crypto').then((c) => c.generateKeyPairSync('rsa', { modulusLength: 2048 }));
+    await ses.create('empresa.com', 'relayo', privateKey.export({ type: 'pkcs8', format: 'pem' }).toString());
+    const input = sent[0]!.input as { EmailIdentity: string; DkimSigningAttributes: { DomainSigningSelector: string; DomainSigningPrivateKey: string } };
+    expect(sent[0]!.name).toBe('CreateEmailIdentityCommand');
+    expect(input.EmailIdentity).toBe('empresa.com');
+    expect(input.DkimSigningAttributes.DomainSigningSelector).toBe('relayo');
+    expect(input.DkimSigningAttributes.DomainSigningPrivateKey).toMatch(/^[A-Za-z0-9+/]+=*$/);
+
+    answer = () => Object.assign(new Error('exists'), { name: 'AlreadyExistsException' });
+    await expect(ses.create('empresa.com', 'relayo', privateKey.export({ type: 'pkcs8', format: 'pem' }).toString())).resolves.toBeUndefined();
+
+    answer = () => ({ VerifiedForSendingStatus: true });
+    expect(await ses.verified('empresa.com')).toBe(true);
+    answer = () => Object.assign(new Error('missing'), { name: 'NotFoundException' });
+    expect(await ses.verified('empresa.com')).toBe(false);
   });
 
   it('signs with the DKIM key of the verified sender domain, and refuses other senders', async () => {

@@ -25,6 +25,9 @@ services:
       MANAGED_DAILY_LIMIT: ${MANAGED_DAILY_LIMIT:-200}
       MANAGED_EVENTS_TOKEN: ${MANAGED_EVENTS_TOKEN:-}
       MANAGED_APPROVAL: ${MANAGED_APPROVAL:-manual}
+      MANAGED_SES_REGION: ${MANAGED_SES_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       # STARTTLS with Caddy's certificate for SIM_DOMAIN (copied by "certs"); re-read twice a day after renewals.
       TLS_CERT_FILE: /certs/smtp.crt
       TLS_KEY_FILE: /certs/smtp.key

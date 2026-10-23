@@ -47,6 +47,11 @@ export interface SimConfig {
     dailyLimit: number;
     /** Token in the URL where the relay's events arrive (`/v1/inbound/managed/<token>`), as Amazon SNS posts them. */
     eventsToken?: string;
+    /**
+     * AWS region of the relay when it is Amazon SES: each domain is then registered in SES (Bring Your Own
+     * DKIM) so SES accepts it as a sender. Credentials from the usual AWS variables.
+     */
+    sesRegion?: string;
     /** Whether an admin reviews each project before it can use the relay (`manual`, default), or every project can. */
     approval?: 'manual' | 'auto';
   };
@@ -81,6 +86,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
       smtpUrl: smtpUrl('MANAGED_SMTP_URL', env.MANAGED_SMTP_URL),
       dailyLimit: number(env.MANAGED_DAILY_LIMIT, 200),
       approval: env.MANAGED_APPROVAL === 'auto' ? 'auto' : 'manual',
+      ...(env.MANAGED_SES_REGION && { sesRegion: env.MANAGED_SES_REGION }),
       ...(env.MANAGED_SPF_INCLUDE && { spfInclude: env.MANAGED_SPF_INCLUDE }),
       ...(env.MANAGED_EVENTS_TOKEN && { eventsToken: env.MANAGED_EVENTS_TOKEN }),
     };

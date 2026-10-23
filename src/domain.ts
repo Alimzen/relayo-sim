@@ -58,7 +58,13 @@ export interface SendingDomain {
   /** PEM private key, encrypted with SECRETS_KEY. */
   dkimPrivateKey: string;
   /** What the last DNS check found. */
-  checks: { dkim: boolean; spf: boolean; dmarc: boolean };
+  checks: {
+    dkim: boolean;
+    spf: boolean;
+    dmarc: boolean;
+    /** Whether the relay (Amazon SES) accepts the domain; absent when the relay keeps no list of senders. */
+    relay?: boolean;
+  };
   /** Set once DKIM (and SPF, when the platform asks for it) check out. */
   verifiedAt?: Date;
   lastCheckedAt?: Date;

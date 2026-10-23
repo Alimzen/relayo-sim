@@ -5,6 +5,7 @@ import { smtp } from '@alimzen/relayo-smtp';
 import type { SimConfig } from '../config.js';
 import type { Connection, Project, SendingDomain } from '../domain.js';
 import type { SimStore } from '../store/store.js';
+import type { RelayIdentities } from './relay-identities.js';
 import type { SecretBox } from './secrets.js';
 
 export type ManagedConfig = NonNullable<SimConfig['managed']>;
@@ -34,6 +35,8 @@ export class ManagedSending {
     private readonly box: SecretBox,
     readonly config: ManagedConfig,
     private readonly resolveTxt: ResolveTxt = (host) => dns.resolveTxt(host),
+    /** The relay's own list of senders, when it keeps one (Amazon SES). */
+    readonly identities?: RelayIdentities,
   ) {}
 
   async addDomain(project: Project, input: unknown): Promise<SendingDomain> {
@@ -50,9 +53,19 @@ export class ManagedSending {
       selector: SELECTOR,
       dkimPublicKey: publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
       dkimPrivateKey: this.box.seal(privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()),
-      checks: { dkim: false, spf: false, dmarc: false },
+      checks: { dkim: false, spf: false, dmarc: false, ...(this.identities && { relay: false }) },
       createdAt: new Date(),
     };
+    if (this.identities) {
+      try {
+        await this.identities.create(domain, SELECTOR, privateKey.export({ type: 'pkcs8', format: 'pem' }).toString());
+      } catch (error) {
+        throw new ValidationError(`No se pudo registrar ${domain} en el relay (${this.identities.name}). Inténtalo de nuevo en unos minutos.`, {
+          provider: 'managed',
+          cause: error,
+        });
+      }
+    }
     await this.store.createDomain(record);
     return record;
   }
@@ -92,12 +105,21 @@ export class ManagedSending {
       txt(domain.domain),
       txt(`_dmarc.${domain.domain}`),
     ]);
+    const dkimOk = dkim.some((r) => r.replace(/\s+/g, '').includes(`p=${domain.dkimPublicKey}`));
+    // Added before the relay kept a list of senders: register it there now.
+    if (this.identities && domain.checks.relay === undefined) {
+      await this.identities.create(domain.domain, domain.selector, this.box.open<string>(domain.dkimPrivateKey)).catch(() => undefined);
+    }
+    // The relay checks the same DKIM record on its own schedule: ask it once ours is in DNS. Once it
+    // accepts the domain it keeps accepting it.
+    const relay = this.identities && (domain.checks.relay === true || (dkimOk && (await this.identities.verified(domain.domain).catch(() => false))));
     const checks = {
-      dkim: dkim.some((r) => r.replace(/\s+/g, '').includes(`p=${domain.dkimPublicKey}`)),
+      dkim: dkimOk,
       spf: !this.config.spfInclude || root.some((r) => /^v=spf1\b/i.test(r) && r.includes(`include:${this.config.spfInclude}`)),
       dmarc: dmarc.some((r) => /^v=DMARC1\b/i.test(r)),
+      ...(relay !== undefined && { relay }),
     };
-    const verified = checks.dkim && checks.spf;
+    const verified = checks.dkim && checks.spf && checks.relay !== false;
     await this.store.updateDomain(project.id, id, {
       checks,
       lastCheckedAt: new Date(),

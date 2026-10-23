@@ -112,6 +112,9 @@ const PURPOSE: Record<string, string> = { dkim: 'DKIM', spf: 'SPF', dmarc: 'DMAR
               </div>
               <footer class="card-foot">
                 <span class="muted small">
+                  @if (d.relay; as relay) {
+                    {{ relay.name }}: {{ relay.verified ? 'acepta el dominio.' : 'pendiente; lo comprueba con el mismo registro DKIM, unos minutos después de publicarlo.' }}
+                  }
                   @if (d.lastCheckedAt) {
                     Comprobado {{ ago(d.lastCheckedAt) }}.
                   }

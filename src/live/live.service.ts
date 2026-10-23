@@ -229,6 +229,7 @@ export class LiveService {
       verifiedAt: domain.verifiedAt ?? null,
       lastCheckedAt: domain.lastCheckedAt ?? null,
       records: this.managed ? this.managed.records(domain) : [],
+      relay: this.managed?.identities && domain.checks.relay !== undefined ? { name: this.managed.identities.name, verified: domain.checks.relay } : null,
       createdAt: domain.createdAt,
     };
   }

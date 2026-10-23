@@ -195,6 +195,7 @@ ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim 
 | `MANAGED_SMTP_URL` | — | Relay del envío de Relayo (p. ej. SMTP de Amazon SES). Sin él, la opción no aparece |
 | `MANAGED_SPF_INCLUDE` / `MANAGED_DAILY_LIMIT` | — / 200 | `include:` del SPF que se pide publicar, y envíos al día por proyecto |
 | `MANAGED_EVENTS_TOKEN` | — | Token de `/v1/inbound/managed/<token>`, donde SNS publica los eventos del relay |
+| `MANAGED_SES_REGION` | — | Si el relay es Amazon SES: cada dominio se registra en SES con la misma clave DKIM (BYODKIM), sin registros extra. Credenciales con `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (permisos `ses:CreateEmailIdentity` y `ses:GetEmailIdentity`) |
 | `MANAGED_APPROVAL` | `manual` | `auto` deja usar el envío de Relayo a todos los proyectos sin revisión |
 
 ## Despliegue

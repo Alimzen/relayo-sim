@@ -26,6 +26,7 @@ import {
 import { LiveService } from './live/live.service.js';
 import { SecretBox } from './live/secrets.js';
 import { ManagedSending } from './live/managed.js';
+import { SesIdentities } from './live/relay-identities.js';
 import { SIM_CONFIG, type SimConfig } from './config.js';
 import type { WebhookAttempt } from './domain.js';
 import { INFRASTRUCTURE, infrastructure, type Infrastructure } from './infrastructure.js';
@@ -192,7 +193,8 @@ export class AppModule {
           provide: LiveService,
           useFactory: (store: SimStore, dispatcher: WebhookDispatcher) => {
             const box = config.secretsKey ? new SecretBox(config.secretsKey, config.previousSecretsKeys) : undefined;
-            const managed = config.managed && box ? new ManagedSending(store, box, config.managed) : undefined;
+            const identities = config.managed?.sesRegion ? new SesIdentities(config.managed.sesRegion) : undefined;
+            const managed = config.managed && box ? new ManagedSending(store, box, config.managed, undefined, identities) : undefined;
             return new LiveService(store, dispatcher, box, managed, config.publicUrl);
           },
           inject: [SIM_STORE, WEBHOOK_DISPATCHER],
