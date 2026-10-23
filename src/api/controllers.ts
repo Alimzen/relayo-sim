@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   ConflictException,
+  HttpException,
   Controller,
   Delete,
   Get,
@@ -21,7 +22,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { readAttachment, readContent } from '../capture/capture.js';
-import type { Mode, Project, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
+import type { Mode, Project, ProjectRole, User, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
 import { ScheduledSends } from './scheduled.js';
 import { TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
 import { attemptRecord, attemptWebhook, recordAttempt, webhookBody } from '../webhooks/webhooks.js';
@@ -30,7 +31,8 @@ import { SMS_SCENARIOS } from '../scenarios/sms.js';
 import { SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
-import { AdminGuard, CurrentMode, CurrentProject, PlatformAdminGuard, ProjectGuard, SessionOnly } from './auth.js';
+import { AdminGuard, CurrentMode, CurrentProject, CurrentRole, CurrentUser, PlatformAdminGuard, ProjectAdmin, ProjectGuard, SessionGuard, SessionOnly } from './auth.js';
+import { TeamError, TeamService } from '../accounts/team.js';
 import { LiveService } from '../live/live.service.js';
 import { INFRASTRUCTURE, type Infrastructure } from '../infrastructure.js';
 import { AccountsService } from '../accounts/accounts.service.js';
@@ -187,6 +189,7 @@ export class ProjectController {
 
   /** `null` or `""` clears `webhookUrl` / `reportsSmtpUrl`; missing keys are left as they are. */
   @Patch()
+  @ProjectAdmin()
   async update(
     @CurrentProject() project: Project,
     @Body() body: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null },
@@ -265,6 +268,76 @@ function urlChange(value: unknown, pattern: RegExp, error: string): string | nul
   if (typeof value !== 'string') return undefined;
   if (!pattern.test(value)) throw new BadRequestException(error);
   return value;
+}
+
+/** Team errors as HTTP answers, with their (Spanish, user-facing) message. */
+async function teamCall<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof TeamError) throw new HttpException({ statusCode: error.status, message: error.message }, error.status);
+    throw error;
+  }
+}
+
+/** The people of a project. Seeing it is for everyone in it; changing it, for admins (or yourself, to leave). */
+@Controller('v1/project/team')
+@UseGuards(ProjectGuard)
+export class TeamController {
+  constructor(@Inject(TeamService) private readonly team: TeamService) {}
+
+  @Get()
+  async view(@CurrentProject() project: Project) {
+    return this.team.view(project);
+  }
+
+  @Post('invites')
+  @SessionOnly()
+  async invite(@CurrentProject() project: Project, @CurrentUser() user: User, @Body() body: { email?: unknown; role?: unknown }) {
+    const { id, email, role, expiresAt, createdAt } = await teamCall(() => this.team.invite(project, user, body ?? {}));
+    return { id, email, role, expiresAt, createdAt };
+  }
+
+  @Delete('invites/:id')
+  @SessionOnly()
+  @HttpCode(204)
+  async revoke(@CurrentProject() project: Project, @Param('id') id: string) {
+    await teamCall(() => this.team.revokeInvite(project, id));
+  }
+
+  @Patch('members/:userId')
+  @SessionOnly()
+  @HttpCode(204)
+  async changeRole(@CurrentProject() project: Project, @Param('userId') userId: string, @Body() body: { role?: unknown }) {
+    await teamCall(() => this.team.changeRole(project, userId, body?.role));
+  }
+
+  /** Removes someone (admins), or yourself: `me` leaves the project. */
+  @Delete('members/:userId')
+  @HttpCode(204)
+  async remove(@CurrentProject() project: Project, @CurrentUser() user: User | undefined, @CurrentRole() role: ProjectRole, @Param('userId') userId: string) {
+    if (!user) throw new BadRequestException('Sign in to the panel to manage the team');
+    await teamCall(() => this.team.remove(project, user, role, userId === 'me' ? user.id : userId));
+  }
+}
+
+/** Invitation links: what they are for (before signing in), and accepting them. */
+@Controller('v1/invites')
+export class InvitesController {
+  constructor(@Inject(TeamService) private readonly team: TeamService) {}
+
+  @Get(':token')
+  async describe(@Param('token') token: string) {
+    return teamCall(() => this.team.describe(token));
+  }
+
+  @Post('accept')
+  @HttpCode(200)
+  @UseGuards(SessionGuard)
+  async accept(@CurrentUser() user: User, @Body() body: { token?: unknown }) {
+    const { project, role, verified } = await teamCall(() => this.team.accept(user, body?.token));
+    return { project: publicProject(project, role), emailVerified: verified || !!user.emailVerifiedAt };
+  }
 }
 
 /** Sends waiting for their `sendAt`, and the ones already handled. */

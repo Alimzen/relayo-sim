@@ -56,6 +56,8 @@ Los envíos (`POST /v1/messages`, `POST /v1/sms`) aceptan `Idempotency-Key`: rep
 | `POST /v1/project/managed-access` | Sesión | Solicita el envío de Relayo para el proyecto |
 | `GET /v1/admin/managed` · `POST /v1/admin/managed/:projectId` | Admin | Solicitudes del envío de Relayo; `{ decision: 'approved' \| 'denied' }` |
 | `GET`, `POST /v1/projects` · `POST /v1/projects/claim` | Sesión | Proyectos del usuario |
+| `GET /v1/project/team` · `POST /invites` · `DELETE /invites/:id` · `PATCH`, `DELETE /members/:userId` | Sesión | Equipo del proyecto: invitar por email (admin o member), cambiar roles, quitar; `DELETE /members/me` para salir. Los miembros ven y envían, pero no tocan claves, conexiones, dominios ni ajustes |
+| `GET /v1/invites/:token` · `POST /v1/invites/accept` | — · Sesión | Invitación (7 días): qué es, y aceptarla con la cuenta de ese email |
 | `GET /v1/scenarios` | — | Catálogo |
 | `POST /v1/messages` | API key | Envío de email (202, `{ id, status: 'queued' }`) |
 | `GET`, `POST /v1/project/templates` · `GET`, `PATCH`, `DELETE /:ref` · `POST /:ref/preview` | API key | Plantillas (por id o alias). Los envíos aceptan `{ template, variables }`: `{{nombre}}`, `{{cliente.nombre}}`, y `{{{html}}}` sin escapar; si falta una variable, 422 |

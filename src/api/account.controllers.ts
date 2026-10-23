@@ -45,6 +45,11 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The projects a user owns or was invited to, each with their role. */
+async function projectsOf(store: SimStore, user: User) {
+  return (await store.listProjectsFor(user.id)).map(({ project, role }) => publicProject(project, role));
+}
+
 function requireClientHeader(req: AuthedRequest): void {
   if (!req.headers[CLIENT_HEADER]) throw new HttpException(`Missing ${CLIENT_HEADER} header`, 403);
 }
@@ -68,7 +73,7 @@ export class AuthController {
     requireClientHeader(req);
     const { user, token, project } = await run(() => this.accounts.signup(body ?? {}));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
-    return { user: this.accounts.present(user), projects: [publicProject(project)] };
+    return { user: this.accounts.present(user), projects: [publicProject(project, 'owner')] };
   }
 
   @Post('login')
@@ -77,7 +82,7 @@ export class AuthController {
     requireClientHeader(req);
     const { user, token } = await run(() => this.accounts.login(body ?? {}, req.ip ?? 'unknown'));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
-    return { user: this.accounts.present(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
+    return { user: this.accounts.present(user), projects: await projectsOf(this.store, user) };
   }
 
   @Post('logout')
@@ -91,7 +96,7 @@ export class AuthController {
   @Get('me')
   @UseGuards(SessionGuard)
   async me(@CurrentUser() user: User) {
-    return { user: this.accounts.present(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
+    return { user: this.accounts.present(user), projects: await projectsOf(this.store, user) };
   }
 
   @Patch('me')
@@ -131,7 +136,7 @@ export class AuthController {
     requireClientHeader(req);
     const { user, token } = await run(() => this.accounts.resetPassword(body ?? {}));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
-    return { user: this.accounts.present(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
+    return { user: this.accounts.present(user), projects: await projectsOf(this.store, user) };
   }
 
   /** Changes the password; every other session is signed out. */
@@ -154,7 +159,7 @@ export class ProjectsController {
 
   @Get()
   async list(@CurrentUser() user: User) {
-    return { data: (await this.store.listProjects(user.id)).map(publicProject) };
+    return { data: await projectsOf(this.store, user) };
   }
 
   /**
@@ -167,7 +172,7 @@ export class ProjectsController {
     if (!project) throw new BadRequestException('La API key no es válida.');
     if (project.ownerId && project.ownerId !== user.id) throw new BadRequestException('Ese proyecto ya pertenece a otra cuenta.');
     await this.store.updateProject(project.id, { ownerId: user.id });
-    return publicProject((await this.store.getProject(project.id))!);
+    return publicProject((await this.store.getProject(project.id))!, 'owner');
   }
 
   /** Creates a project with a first API key, shown only in this response. */
@@ -176,6 +181,6 @@ export class ProjectsController {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     if (!name || name.length > 80) throw new BadRequestException('El nombre del proyecto debe tener entre 1 y 80 caracteres.');
     const { project, apiKey } = await this.sim.createProject(name, { ownerId: user.id });
-    return { ...publicProject(project), apiKey };
+    return { ...publicProject(project, 'owner'), apiKey };
   }
 }

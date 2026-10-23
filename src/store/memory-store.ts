@@ -1,4 +1,4 @@
-import type { ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -19,6 +19,8 @@ export class MemoryStore implements SimStore {
   private readonly webhookAttempts: WebhookAttempt[] = [];
   private readonly templates = new Map<string, Template>();
   private readonly scheduled = new Map<string, ScheduledSend>();
+  private readonly members = new Map<string, ProjectMember>();
+  private readonly invites = new Map<string, ProjectInvite>();
   private readonly idempotency = new Map<string, { fingerprint: string; response?: unknown; expires: number }>();
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
@@ -75,6 +77,60 @@ export class MemoryStore implements SimStore {
     return [...this.projects.values()]
       .filter((p) => p.ownerId === ownerId)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async listProjectsFor(userId: string): Promise<Array<{ project: Project; role: ProjectRole }>> {
+    return [...this.projects.values()]
+      .flatMap((project): Array<{ project: Project; role: ProjectRole }> => {
+        if (project.ownerId === userId) return [{ project, role: 'owner' }];
+        const member = this.members.get(`${project.id}|${userId}`);
+        return member ? [{ project, role: member.role }] : [];
+      })
+      .sort((a, b) => a.project.createdAt.getTime() - b.project.createdAt.getTime());
+  }
+
+  async addMember(member: ProjectMember): Promise<void> {
+    this.members.set(`${member.projectId}|${member.userId}`, { ...member });
+  }
+
+  async getMember(projectId: string, userId: string): Promise<ProjectMember | undefined> {
+    return this.members.get(`${projectId}|${userId}`);
+  }
+
+  async listMembers(projectId: string): Promise<ProjectMember[]> {
+    return [...this.members.values()].filter((m) => m.projectId === projectId).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async updateMemberRole(projectId: string, userId: string, role: ProjectMember['role']): Promise<boolean> {
+    const member = this.members.get(`${projectId}|${userId}`);
+    if (!member) return false;
+    member.role = role;
+    return true;
+  }
+
+  async removeMember(projectId: string, userId: string): Promise<boolean> {
+    return this.members.delete(`${projectId}|${userId}`);
+  }
+
+  async createInvite(invite: ProjectInvite): Promise<void> {
+    this.invites.set(invite.id, { ...invite });
+  }
+
+  async listInvites(projectId: string): Promise<ProjectInvite[]> {
+    const now = Date.now();
+    return [...this.invites.values()]
+      .filter((i) => i.projectId === projectId && i.expiresAt.getTime() > now)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async findInvite(tokenHash: string): Promise<ProjectInvite | undefined> {
+    const invite = [...this.invites.values()].find((i) => i.tokenHash === tokenHash);
+    return invite && invite.expiresAt.getTime() > Date.now() ? invite : undefined;
+  }
+
+  async deleteInvite(projectId: string, id: string): Promise<boolean> {
+    if (this.invites.get(id)?.projectId !== projectId) return false;
+    return this.invites.delete(id);
   }
 
   async listManagedAccess(): Promise<Project[]> {
@@ -258,6 +314,7 @@ export class MemoryStore implements SimStore {
       messages++;
     }
     for (const [id, entry] of this.idempotency) if (entry.expires <= Date.now()) this.idempotency.delete(id);
+    for (const [id, invite] of this.invites) if (invite.expiresAt.getTime() <= Date.now()) this.invites.delete(id);
     for (const [id, send] of this.scheduled) {
       if (send.status !== 'pending' && send.status !== 'sending' && send.updatedAt < before) this.scheduled.delete(id);
     }

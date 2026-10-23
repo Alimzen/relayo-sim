@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -134,6 +134,25 @@ CREATE TABLE IF NOT EXISTS usage (
   PRIMARY KEY (project_id, month)
 );
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role text NOT NULL,
+  created_at timestamptz NOT NULL,
+  PRIMARY KEY (project_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS project_members_user ON project_members (user_id);
+CREATE TABLE IF NOT EXISTS project_invites (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  email text NOT NULL,
+  role text NOT NULL,
+  token_hash text NOT NULL UNIQUE,
+  invited_by text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS project_invites_project ON project_invites (project_id);
 CREATE TABLE IF NOT EXISTS scheduled_sends (
   id text PRIMARY KEY,
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -376,6 +395,71 @@ export class PostgresStore implements SimStore {
   async listProjects(ownerId: string): Promise<Project[]> {
     const { rows } = await this.pool.query<ProjectRow>('SELECT * FROM projects WHERE owner_id = $1 ORDER BY created_at', [ownerId]);
     return rows.map(toProject);
+  }
+
+  async listProjectsFor(userId: string): Promise<Array<{ project: Project; role: ProjectRole }>> {
+    const { rows } = await this.pool.query<ProjectRow & { member_role: ProjectRole | null }>(
+      `SELECT p.*, m.role AS member_role FROM projects p
+       LEFT JOIN project_members m ON m.project_id = p.id AND m.user_id = $1
+       WHERE p.owner_id = $1 OR m.user_id IS NOT NULL
+       ORDER BY p.created_at`,
+      [userId],
+    );
+    return rows.map((row) => ({ project: toProject(row), role: row.owner_id === userId ? 'owner' : row.member_role! }));
+  }
+
+  async addMember(m: ProjectMember): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO project_members (project_id, user_id, role, created_at) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+      [m.projectId, m.userId, m.role, m.createdAt],
+    );
+  }
+
+  async getMember(projectId: string, userId: string): Promise<ProjectMember | undefined> {
+    const { rows } = await this.pool.query<MemberRow>('SELECT * FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, userId]);
+    return rows[0] && toMember(rows[0]);
+  }
+
+  async listMembers(projectId: string): Promise<ProjectMember[]> {
+    const { rows } = await this.pool.query<MemberRow>('SELECT * FROM project_members WHERE project_id = $1 ORDER BY created_at', [projectId]);
+    return rows.map(toMember);
+  }
+
+  async updateMemberRole(projectId: string, userId: string, role: ProjectMember['role']): Promise<boolean> {
+    const { rowCount } = await this.pool.query('UPDATE project_members SET role = $3 WHERE project_id = $1 AND user_id = $2', [projectId, userId, role]);
+    return (rowCount ?? 0) > 0;
+  }
+
+  async removeMember(projectId: string, userId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query('DELETE FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, userId]);
+    return (rowCount ?? 0) > 0;
+  }
+
+  async createInvite(i: ProjectInvite): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO project_invites (id, project_id, email, role, token_hash, invited_by, expires_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [i.id, i.projectId, i.email, i.role, i.tokenHash, i.invitedBy, i.expiresAt, i.createdAt],
+    );
+  }
+
+  async listInvites(projectId: string): Promise<ProjectInvite[]> {
+    const { rows } = await this.pool.query<InviteRow>(
+      'SELECT * FROM project_invites WHERE project_id = $1 AND expires_at > now() ORDER BY created_at DESC',
+      [projectId],
+    );
+    return rows.map(toInvite);
+  }
+
+  async findInvite(tokenHash: string): Promise<ProjectInvite | undefined> {
+    const { rows } = await this.pool.query<InviteRow>('SELECT * FROM project_invites WHERE token_hash = $1 AND expires_at > now()', [tokenHash]);
+    return rows[0] && toInvite(rows[0]);
+  }
+
+  async deleteInvite(projectId: string, id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query('DELETE FROM project_invites WHERE id = $1 AND project_id = $2', [id, projectId]);
+    return (rowCount ?? 0) > 0;
   }
 
   async listManagedAccess(): Promise<Project[]> {
@@ -924,6 +1008,7 @@ export class PostgresStore implements SimStore {
     const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1', [before]);
     await this.pool.query('DELETE FROM webhook_attempts WHERE created_at < $1', [before]);
     await this.pool.query('DELETE FROM idempotency_keys WHERE expires_at <= now()');
+    await this.pool.query('DELETE FROM project_invites WHERE expires_at <= now()');
     await this.pool.query("DELETE FROM scheduled_sends WHERE status IN ('sent', 'failed', 'canceled') AND updated_at < $1", [before]);
     await this.pool.query('DELETE FROM sessions WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM password_resets WHERE expires_at <= now()');
@@ -949,13 +1034,44 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
+
+interface MemberRow {
+  project_id: string;
+  user_id: string;
+  role: ProjectMember['role'];
+  created_at: Date;
+}
+
+const toMember = (row: MemberRow): ProjectMember => ({ projectId: row.project_id, userId: row.user_id, role: row.role, createdAt: row.created_at });
+
+interface InviteRow {
+  id: string;
+  project_id: string;
+  email: string;
+  role: ProjectInvite['role'];
+  token_hash: string;
+  invited_by: string;
+  expires_at: Date;
+  created_at: Date;
+}
+
+const toInvite = (row: InviteRow): ProjectInvite => ({
+  id: row.id,
+  projectId: row.project_id,
+  email: row.email,
+  role: row.role,
+  tokenHash: row.token_hash,
+  invitedBy: row.invited_by,
+  expiresAt: row.expires_at,
+  createdAt: row.created_at,
+});
 
 interface ScheduledRow {
   id: string;

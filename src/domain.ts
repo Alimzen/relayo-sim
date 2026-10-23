@@ -168,6 +168,34 @@ export interface SimMessage {
 /** A Relayo event produced by the simulator. `provider` is always `simulator`. */
 export type SimEvent = RelayoEvent & { projectId: string };
 
+/**
+ * What a person can do in a project. The owner (`Project.ownerId`) and admins manage everything; members see
+ * the project, send and edit templates, but not keys, credentials or settings.
+ */
+export type ProjectRole = 'owner' | 'admin' | 'member';
+
+/** Someone other than the owner with access to a project. */
+export interface ProjectMember {
+  projectId: string;
+  userId: string;
+  role: Exclude<ProjectRole, 'owner'>;
+  createdAt: Date;
+}
+
+/** An emailed invitation to join a project, accepted with the link's token. */
+export interface ProjectInvite {
+  id: string;
+  projectId: string;
+  /** Lowercased: only the account with this email can accept it. */
+  email: string;
+  role: Exclude<ProjectRole, 'owner'>;
+  /** SHA-256 of the token in the link. */
+  tokenHash: string;
+  invitedBy: string;
+  expiresAt: Date;
+  createdAt: Date;
+}
+
 /** A send asked for later (`sendAt`): the request as received, sent as is when its time comes. */
 export interface ScheduledSend {
   id: string;

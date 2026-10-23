@@ -308,6 +308,44 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
   });
 
+  it('keeps project members and invitations, and lists projects with each role', async () => {
+    const store = await open();
+    await store.createUser(user);
+    await store.createUser({ ...user, id: 'usr_2', email: 'luis@empresa.com', name: 'Luis' });
+    await store.createProject({ ...project('prj_a'), ownerId: 'usr_1' });
+    await store.createProject({ ...project('prj_b'), ownerId: 'usr_2', createdAt: new Date('2026-10-18T11:00:00Z') });
+
+    await store.addMember({ projectId: 'prj_b', userId: 'usr_1', role: 'member', createdAt: new Date('2026-10-18T12:00:00Z') });
+    expect((await store.listProjectsFor('usr_1')).map((p) => [p.project.id, p.role])).toEqual([
+      ['prj_a', 'owner'],
+      ['prj_b', 'member'],
+    ]);
+    expect(await store.updateMemberRole('prj_b', 'usr_1', 'admin')).toBe(true);
+    expect(await store.getMember('prj_b', 'usr_1')).toMatchObject({ role: 'admin' });
+    expect((await store.listMembers('prj_b')).map((m) => m.userId)).toEqual(['usr_1']);
+    expect(await store.updateMemberRole('prj_b', 'usr_nope', 'admin')).toBe(false);
+    expect(await store.removeMember('prj_b', 'usr_1')).toBe(true);
+    expect((await store.listProjectsFor('usr_1')).map((p) => p.project.id)).toEqual(['prj_a']);
+
+    const invite = {
+      id: 'inv_1',
+      projectId: 'prj_a',
+      email: 'eva@empresa.com',
+      role: 'member' as const,
+      tokenHash: 'h1',
+      invitedBy: 'usr_1',
+      expiresAt: new Date(Date.now() + 60_000),
+      createdAt: new Date('2026-10-18T10:00:00Z'),
+    };
+    await store.createInvite(invite);
+    await store.createInvite({ ...invite, id: 'inv_2', tokenHash: 'h2', expiresAt: new Date(Date.now() - 1) });
+    expect((await store.listInvites('prj_a')).map((i) => i.id)).toEqual(['inv_1']);
+    expect(await store.findInvite('h1')).toMatchObject({ id: 'inv_1', email: 'eva@empresa.com' });
+    expect(await store.findInvite('h2')).toBeUndefined();
+    expect(await store.deleteInvite('prj_b', 'inv_1')).toBe(false);
+    expect(await store.deleteInvite('prj_a', 'inv_1')).toBe(true);
+  });
+
   it('claims due scheduled sends once, and cancels only pending ones', async () => {
     const store = await open();
     await store.createProject(project());

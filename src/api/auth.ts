@@ -13,7 +13,8 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AccountsService, SESSION_COOKIE } from '../accounts/accounts.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
-import type { Mode, Project, User } from '../domain.js';
+import type { Mode, Project, ProjectRole, User } from '../domain.js';
+import { isAdminRole, TeamService } from '../accounts/team.js';
 import { SimulationService } from '../simulation/simulation.service.js';
 
 /** Header the panel sends with the project it is working on. */
@@ -36,11 +37,17 @@ export interface AuthedRequest {
   auth?: 'key' | 'session';
   /** Test or live: from the API key, or from the panel's mode header. */
   mode?: Mode;
+  /** The signed-in person's role in the project (API keys act with full access). */
+  projectRole?: ProjectRole;
 }
 
 const SESSION_ONLY = 'relayo:session-only';
 /** Marks endpoints that API keys cannot use: managing keys and secrets needs a signed-in person. */
 export const SessionOnly = () => SetMetadata(SESSION_ONLY, true);
+
+const PROJECT_ADMIN = 'relayo:project-admin';
+/** Marks endpoints only the project's owner and admins can use from the panel (session-only ones too). */
+export const ProjectAdmin = () => SetMetadata(PROJECT_ADMIN, true);
 
 function header(req: AuthedRequest, name: string): string | undefined {
   const value = req.headers[name];
@@ -99,11 +106,15 @@ export class ProjectGuard implements CanActivate {
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(AccountsService) private readonly accounts: AccountsService,
     @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(TeamService) private readonly team: TeamService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
-    const sessionOnly = this.reflector.getAllAndOverride<boolean>(SESSION_ONLY, [context.getHandler(), context.getClass()]);
+    const targets = [context.getHandler(), context.getClass()];
+    const sessionOnly = this.reflector.getAllAndOverride<boolean>(SESSION_ONLY, targets);
+    // Keys, credentials and settings: the owner and admins only.
+    const adminOnly = sessionOnly || this.reflector.getAllAndOverride<boolean>(PROJECT_ADMIN, targets);
     const key = bearer(req);
 
     if (key) {
@@ -118,9 +129,13 @@ export class ProjectGuard implements CanActivate {
 
     if (!(await authenticateSession(this.accounts, req))) throw new UnauthorizedException('Missing or invalid API key');
     checkCsrf(req);
-    const project = await this.accounts.ownedProject(req.user!, header(req, PROJECT_HEADER));
-    if (!project) throw new NotFoundException('Project not found');
-    req.project = project;
+    const access = await this.team.access(req.user!, header(req, PROJECT_HEADER));
+    if (!access) throw new NotFoundException('Project not found');
+    if (adminOnly && !isAdminRole(access.role)) {
+      throw new ForbiddenException('Solo los administradores del proyecto pueden hacer esto: pídeselo a quien te invitó.');
+    }
+    req.project = access.project;
+    req.projectRole = access.role;
     req.mode = header(req, MODE_HEADER) === 'live' ? 'live' : 'test';
     req.auth = 'session';
     return true;
@@ -175,6 +190,11 @@ export const SessionHash = createParamDecorator(
 );
 
 /** The mode of the request: test (simulated) or live (real delivery). */
+/** The signed-in person's role in the project; `owner` for API keys, which act with full access. */
+export const CurrentRole = createParamDecorator(
+  (_: unknown, context: ExecutionContext) => context.switchToHttp().getRequest<AuthedRequest>().projectRole ?? 'owner',
+);
+
 export const CurrentMode = createParamDecorator(
   (_: unknown, context: ExecutionContext) => context.switchToHttp().getRequest<AuthedRequest>().mode ?? 'test',
 );

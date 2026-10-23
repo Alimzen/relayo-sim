@@ -236,6 +236,11 @@ export class AccountsService {
     return { user, token: await this.startSession(user.id) };
   }
 
+  /** Sends one of the platform's own emails (invitations...). */
+  async deliver(mail: MailToSend): Promise<void> {
+    await this.mailer.send(mail);
+  }
+
   /** Emails a link that proves the address is the user's. */
   async sendVerification(user: User): Promise<void> {
     if (user.emailVerifiedAt) return;
@@ -309,13 +314,6 @@ ${lines.map((l) => `<p>${escape(l)}</p>`).join('\n')}
 <p><a href="${escape(link)}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Ver las entregas</a></p>
 </div>`,
     });
-  }
-
-  /** The user's project with this id, if they own it. */
-  async ownedProject(user: User, projectId: string | undefined): Promise<Project | undefined> {
-    if (!projectId) return undefined;
-    const project = await this.store.getProject(projectId);
-    return project?.ownerId === user.id ? project : undefined;
   }
 
   private async startSession(userId: string): Promise<string> {

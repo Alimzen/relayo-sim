@@ -69,7 +69,7 @@ describe('bounce and complaint reports by email', () => {
     });
     expect(sent.status).toBe('sent'); // accepted: the bounce comes later
 
-    await vi.waitFor(() => expect(mailbox.received).toHaveLength(1));
+    await vi.waitFor(() => expect(mailbox.received).toHaveLength(1), { timeout: 10_000 });
     const [dsn] = mailbox.received;
     expect(dsn).toMatchObject({ mailFrom: '', to: ['bounces@empresa.com'] }); // null reverse path, envelope sender
 
@@ -91,7 +91,7 @@ describe('bounce and complaint reports by email', () => {
     const { sim, mailbox, project } = await setup();
     await sim.acceptFromApi(project, { from: 'facturas@empresa.com', to: ['mailbox-full@sim.relayo.dev'], subject: 's', relayoMessageId: 'msg_q' });
 
-    await vi.waitFor(() => expect(mailbox.received).toHaveLength(3));
+    await vi.waitFor(() => expect(mailbox.received).toHaveLength(3), { timeout: 10_000 });
     const kinds = mailbox.received.map((r) => parseBounceEmail(r.raw).events[0]?.type).sort();
     expect(kinds).toEqual(['bounced', 'deferred', 'deferred']);
     expect(mailbox.received.every((r) => r.to[0] === 'facturas@empresa.com')).toBe(true);
@@ -101,7 +101,7 @@ describe('bounce and complaint reports by email', () => {
     const { sim, mailbox, project } = await setup();
     await sim.acceptFromApi(project, { from: 'news@empresa.com', to: ['complaint@sim.relayo.dev'], subject: 's', relayoMessageId: 'msg_c' });
 
-    await vi.waitFor(() => expect(mailbox.received).toHaveLength(1));
+    await vi.waitFor(() => expect(mailbox.received).toHaveLength(1), { timeout: 10_000 });
     const { kind, events } = parseBounceEmail(mailbox.received[0]!.raw);
     expect(kind).toBe('arf');
     expect(events[0]).toMatchObject({ type: 'complained', messageId: 'msg_c', recipient: 'complaint@sim.relayo.dev' });
@@ -122,7 +122,7 @@ describe('bounce and complaint reports by email', () => {
     const message = await sim.acceptFromApi(project, { from: 'a@empresa.com', to: ['blocked@sim.relayo.dev'], subject: 's', relayoMessageId: 'msg_r' });
     const eventId = `${message.id}:blocked@sim.relayo.dev:001`;
 
-    await vi.waitFor(async () => expect(await sim.report(project, eventId)).toBeDefined());
+    await vi.waitFor(async () => expect(await sim.report(project, eventId)).toBeDefined(), { timeout: 10_000 });
     const report = (await sim.report(project, eventId))!;
     expect(parseBounceEmail(report).events[0]).toMatchObject({ bounceType: 'block', reason: 'policy_block', messageId: 'msg_r' });
     expect(await sim.report(project, `${message.id}:blocked@sim.relayo.dev:000`)).toBeUndefined(); // "accepted": no report

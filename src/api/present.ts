@@ -1,9 +1,10 @@
-import type { ApiKey, Project, SimMessage } from '../domain.js';
+import type { ApiKey, Project, ProjectRole, SimMessage } from '../domain.js';
 import { maskSmtpUrl } from '../reports/sender.js';
 
 /** A project as the API shows it: no secrets, SMTP password masked. */
-export function publicProject(project: Project) {
+export function publicProject(project: Project, role?: ProjectRole) {
   return {
+    ...(role && { role }),
     id: project.id,
     name: project.name,
     webhookUrl: project.webhookUrl ?? null,

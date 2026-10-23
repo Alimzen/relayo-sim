@@ -21,12 +21,15 @@ import {
   ProjectController,
   ScenariosController,
   SmsController,
+  InvitesController,
   ScheduledController,
+  TeamController,
   TemplatesController,
   WebhookDeliveriesController,
 } from './api/controllers.js';
 import { TemplatesService } from './templates/templates.js';
 import { SendingService } from './api/sending.js';
+import { TeamService } from './accounts/team.js';
 import { ScheduledSends } from './api/scheduled.js';
 import { LiveService } from './live/live.service.js';
 import { SecretBox } from './live/secrets.js';
@@ -169,6 +172,8 @@ export class AppModule {
         WebhookDeliveriesController,
         TemplatesController,
         ScheduledController,
+        TeamController,
+        InvitesController,
       ],
       providers: [
         { provide: SIM_CONFIG, useValue: config },
@@ -211,6 +216,12 @@ export class AppModule {
         },
         { provide: TemplatesService, useFactory: (store: SimStore) => new TemplatesService(store), inject: [SIM_STORE] },
         SendingService,
+        {
+          provide: TeamService,
+          useFactory: (store: SimStore, accounts: AccountsService) =>
+            new TeamService(store, (mail) => accounts.deliver(mail), config.publicUrl ?? `http://localhost:${config.httpPort}`),
+          inject: [SIM_STORE, AccountsService],
+        },
         ScheduledSends,
         ProjectGuard,
         SessionGuard,

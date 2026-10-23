@@ -1,4 +1,4 @@
-import type { ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -55,6 +55,22 @@ export interface SimStore {
   createProject(project: Project): Promise<void>;
   getProject(id: string): Promise<Project | undefined>;
   listProjects(ownerId: string): Promise<Project[]>;
+  /** Projects a user owns or is a member of, with their role, oldest first. */
+  listProjectsFor(userId: string): Promise<Array<{ project: Project; role: ProjectRole }>>;
+
+  // Teams
+  addMember(member: ProjectMember): Promise<void>;
+  getMember(projectId: string, userId: string): Promise<ProjectMember | undefined>;
+  /** Oldest first. */
+  listMembers(projectId: string): Promise<ProjectMember[]>;
+  updateMemberRole(projectId: string, userId: string, role: ProjectMember['role']): Promise<boolean>;
+  removeMember(projectId: string, userId: string): Promise<boolean>;
+  createInvite(invite: ProjectInvite): Promise<void>;
+  /** Invitations that have not expired, newest first. */
+  listInvites(projectId: string): Promise<ProjectInvite[]>;
+  /** The invitation of a token, if it has not expired. */
+  findInvite(tokenHash: string): Promise<ProjectInvite | undefined>;
+  deleteInvite(projectId: string, id: string): Promise<boolean>;
   /** Projects that asked for Relayo's own sending (whatever the answer), newest first. */
   listManagedAccess(): Promise<Project[]>;
   /** `null` clears an optional field; missing keys are left as they are. */
