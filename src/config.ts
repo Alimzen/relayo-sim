@@ -78,14 +78,14 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
   else if (env.NODE_ENV !== 'production') config.secretsKey = 'relayo-development-only-insecure-key';
   if (env.MANAGED_SMTP_URL) {
     config.managed = {
-      smtpUrl: env.MANAGED_SMTP_URL,
+      smtpUrl: smtpUrl('MANAGED_SMTP_URL', env.MANAGED_SMTP_URL),
       dailyLimit: number(env.MANAGED_DAILY_LIMIT, 200),
       approval: env.MANAGED_APPROVAL === 'auto' ? 'auto' : 'manual',
       ...(env.MANAGED_SPF_INCLUDE && { spfInclude: env.MANAGED_SPF_INCLUDE }),
       ...(env.MANAGED_EVENTS_TOKEN && { eventsToken: env.MANAGED_EVENTS_TOKEN }),
     };
   }
-  if (env.MAIL_URL) config.mail = { url: env.MAIL_URL, from: env.MAIL_FROM ?? 'Relayo Sim <no-reply@localhost>' };
+  if (env.MAIL_URL) config.mail = { url: smtpUrl('MAIL_URL', env.MAIL_URL), from: env.MAIL_FROM ?? 'Relayo Sim <no-reply@localhost>' };
   if (env.SMTP_PORT !== 'off') config.smtpPort = number(env.SMTP_PORT, 2525);
   if (env.DATABASE_URL) config.databaseUrl = env.DATABASE_URL;
   if (env.REDIS_URL) config.redisUrl = env.REDIS_URL;
@@ -93,4 +93,24 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
   if (env.TLS_KEY && env.TLS_CERT) config.tls = { key: env.TLS_KEY, cert: env.TLS_CERT };
   else if (env.TLS_KEY_FILE && env.TLS_CERT_FILE) config.tls = { keyFile: env.TLS_KEY_FILE, certFile: env.TLS_CERT_FILE };
   return config;
+}
+
+/**
+ * Checks an SMTP url from the environment at start, with a message that says how to fix it: a wrong one
+ * would otherwise fail later with an obscure error from the mail library.
+ */
+export function smtpUrl(name: string, value: string): string {
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    // reported below
+  }
+  if (!url || (url.protocol !== 'smtp:' && url.protocol !== 'smtps:') || !url.hostname) {
+    throw new Error(
+      `${name} must look like smtp://user:password@host:587 (STARTTLS) or smtps://user:password@host:465 (TLS); ` +
+        'write @ : / # ? inside the user or password as %40 %3A %2F %23 %3F',
+    );
+  }
+  return value;
 }
