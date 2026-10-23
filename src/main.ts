@@ -67,14 +67,16 @@ async function bootstrap(): Promise<void> {
 
   // --- Landing and panel --------------------------------------------------------------------------
 
-  // The landing page (landing/) is served at / exactly, with its assets under /site/.
+  // The landing page (landing/) is served at / exactly, with the legal pages and its assets under /site/.
   const landingDir = process.env.LANDING_DIR ?? join(process.cwd(), 'landing');
+  const landingPages: Record<string, string> = { '/': 'index.html', '/terminos': 'terminos.html', '/privacidad': 'privacidad.html' };
   if (existsSync(join(landingDir, 'index.html'))) {
     app.useStaticAssets(landingDir, { prefix: '/site/', index: false, maxAge: '1d' });
     app.use((req: Request, res: Response, next: NextFunction) => {
-      if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path !== '/') return next();
+      const page = landingPages[req.path];
+      if ((req.method !== 'GET' && req.method !== 'HEAD') || !page || !existsSync(join(landingDir, page))) return next();
       res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(join(landingDir, 'index.html'));
+      res.sendFile(join(landingDir, page));
     });
   }
 
@@ -85,7 +87,7 @@ async function bootstrap(): Promise<void> {
     app.useStaticAssets(panelDir, { index: false, maxAge: '1h' });
     // Client-side routes (/messages/123...) get the app shell.
     app.use((req: Request, res: Response, next: NextFunction) => {
-      if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/v1') || req.path === '/health') return next();
+      if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/v1') || req.path.startsWith('/health')) return next();
       res.sendFile(join(panelDir, 'index.html'));
     });
   }

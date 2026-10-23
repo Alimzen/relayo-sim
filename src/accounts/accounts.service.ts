@@ -262,6 +262,32 @@ export class AccountsService {
     return { ...user, emailVerifiedAt: verified };
   }
 
+  /** Tells a project's owner the answer to their request for Relayo's own sending. */
+  async notifyManagedDecision(user: User, project: Project, decision: 'approved' | 'denied'): Promise<void> {
+    const link = `${this.options.publicUrl ?? ''}/domains`;
+    const approved = decision === 'approved';
+    const lines = approved
+      ? [
+          `El envío de Relayo está aprobado para tu proyecto «${project.name}».`,
+          'Verifica el dominio de tu remitente y actívalo en Conexiones (proveedor «Envío de Relayo»):',
+        ]
+      : [
+          `Hemos revisado tu solicitud del envío de Relayo para el proyecto «${project.name}» y no podemos activarlo.`,
+          'Puedes seguir enviando en vivo con tu propio proveedor desde Conexiones:',
+        ];
+    const escape = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+    await this.mailer.send({
+      to: user.email,
+      subject: approved ? 'Envío de Relayo aprobado' : 'Tu solicitud del envío de Relayo',
+      text: [`Hola, ${user.name}:`, '', ...lines, '', link].join('\n'),
+      html: `<div style="font-family:system-ui,sans-serif;max-width:480px;color:#18181b;line-height:1.5">
+<p>Hola, ${escape(user.name)}:</p>
+${lines.map((l) => `<p>${escape(l)}</p>`).join('\n')}
+<p><a href="${escape(link)}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Abrir el panel</a></p>
+</div>`,
+    });
+  }
+
   /** The user's project with this id, if they own it. */
   async ownedProject(user: User, projectId: string | undefined): Promise<Project | undefined> {
     if (!projectId) return undefined;

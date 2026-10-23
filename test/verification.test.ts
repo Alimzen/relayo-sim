@@ -58,6 +58,18 @@ describe('email verification', () => {
     expect(sent).toHaveLength(3);
   });
 
+  it('tells the owner the answer to their request for Relayo\'s own sending', async () => {
+    const { accounts, sent } = setup(false);
+    const { user, project } = await accounts.signup({ email: 'eva@empresa.com', name: 'Eva', password: 'una-clave-larga' });
+    await accounts.notifyManagedDecision(user, project, 'approved');
+    await accounts.notifyManagedDecision(user, project, 'denied');
+    expect(sent.map((m) => [m.to, m.subject])).toEqual([
+      ['eva@empresa.com', 'Envío de Relayo aprobado'],
+      ['eva@empresa.com', 'Tu solicitud del envío de Relayo'],
+    ]);
+    expect(sent[0]!.text).toContain('https://relayo.alimzen.com/domains');
+  });
+
   it('starts accounts verified when the platform cannot send email', async () => {
     const { accounts, sent } = setup(false);
     const { user } = await accounts.signup({ email: 'eva@empresa.com', name: 'Eva', password: 'una-clave-larga' });

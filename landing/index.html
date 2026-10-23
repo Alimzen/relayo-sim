@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Relayo Sim · Simulador de entrega de correo</title>
-<meta name="description" content="Rebotes, quejas, greylisting y bloqueos bajo demanda. Relayo Sim responde como los servidores de correo reales para que pruebes tu aplicación antes de producción.">
+<title>Relayo · Prueba y envía correo y SMS</title>
+<meta name="description" content="Rebotes, quejas, greylisting y bloqueos bajo demanda para probar tu aplicación, y el mismo código para enviar de verdad por tus proveedores, con failover y eventos normalizados.">
 <meta property="og:title" content="Relayo Sim · Simulador de entrega de correo">
 <meta property="og:description" content="Rebotes, quejas, greylisting y bloqueos bajo demanda, para tus tests y tu CI.">
 <link rel="icon" href="/favicon.ico">
@@ -190,6 +190,12 @@ section.alt { background: var(--bg-2); }
 .work h3 { font-size: 15px; margin-bottom: 6px; }
 .work p { font-size: 14px; color: var(--text-2); }
 
+.live-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.live-list li { border: 1px solid var(--border); border-radius: 10px; padding: 18px; background: var(--surface); font-size: 14.5px; color: var(--text-2); }
+.live-list strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+.keys { display: grid; gap: 10px; margin-top: 18px; font-size: 14.5px; }
+.keys div { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: baseline; color: var(--text-2); }
+
 .final { text-align: center; }
 .final h2 { font-size: 34px; letter-spacing: -0.02em; font-weight: 650; }
 .final p { margin: 12px auto 0; color: var(--text-2); max-width: 520px; font-size: 17px; }
@@ -202,7 +208,7 @@ footer a { color: var(--text-2); }
 
 @media (max-width: 960px) {
   .hero .wrap, .split, .ci { grid-template-columns: minmax(0, 1fr); }
-  .groups { grid-template-columns: minmax(0, 1fr); }
+  .groups, .live-list { grid-template-columns: minmax(0, 1fr); }
   .works { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nav { display: none; }
   h1 { font-size: 38px; }
@@ -233,6 +239,7 @@ footer a { color: var(--text-2); }
       <a href="#escenarios">Escenarios</a>
       <a href="#bandeja">Bandeja</a>
       <a href="#ci">CI</a>
+      <a href="#en-vivo">En vivo</a>
       <a href="https://github.com/Alimzen/relayo">Documentación</a>
     </nav>
     <div class="actions" data-guest>
@@ -428,7 +435,48 @@ $ echo $?
     </div>
   </section>
 
-  <section class="band alt">
+  <section class="band alt" id="en-vivo">
+    <div class="wrap split">
+      <div>
+        <p class="label">En vivo</p>
+        <h2 style="font-size:32px;line-height:1.2;letter-spacing:-0.02em;font-weight:650">Cuando funcione, envía de verdad. Sin cambiar el código.</h2>
+        <p style="margin-top:12px;color:var(--text-2);font-size:17px">
+          Cada proyecto tiene claves de prueba y en vivo. Conecta tus proveedores en el panel y la misma llamada entrega
+          correos y SMS reales, con los eventos ya normalizados en tu webhook.
+        </p>
+        <div class="keys">
+          <div><code>rly_test_…</code><span>Simula: escenarios, rebotes, quejas. No sale nada.</span></div>
+          <div><code>rly_live_…</code><span>Entrega por tus conexiones, en orden y con failover.</span></div>
+        </div>
+      </div>
+      <figure class="window" style="margin:0">
+        <div class="window-bar"><span></span><span></span><span></span><b>relayo.ts</b></div>
+<pre><code><span class="k">import</span> {
+  relayoCloud,
+  relayoCloudSms,
+} <span class="k">from</span> <span class="s">'@alimzen/relayo-cloud'</span>;
+
+<span class="k">const</span> options = { apiKey: process.env.RELAYO_API_KEY };
+<span class="k">const</span> relayo = createRelayo({
+  email: relayoCloud(options),
+  sms: relayoCloudSms(options),
+});
+
+<span class="c">// Igual con rly_test_ y con rly_live_</span>
+<span class="k">await</span> relayo.email.send(factura);</code></pre>
+      </figure>
+    </div>
+    <div class="wrap" style="margin-top:32px">
+      <ul class="live-list">
+        <li><strong>Tus proveedores</strong>SES, SendGrid, Resend, Postmark, Mailgun o SMTP para el correo; Twilio para SMS. Credenciales cifradas.</li>
+        <li><strong>Failover</strong>Si uno falla, el siguiente. Una conexión que falla seguido se aparta un rato sola.</li>
+        <li><strong>Supresiones</strong>Rebotes duros, quejas y bajas no se vuelven a intentar, sea cual sea el proveedor.</li>
+        <li><strong>Envío de Relayo</strong>¿Sin proveedor? Verifica tu dominio y envía por el nuestro, firmado con DKIM.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band">
     <div class="wrap">
       <div class="section-head">
         <p class="label">Funciona con lo que ya usas</p>
@@ -462,6 +510,8 @@ $ echo $?
     <div class="links">
       <a href="https://github.com/Alimzen/relayo">GitHub</a>
       <a href="https://www.npmjs.com/org/alimzen">npm</a>
+      <a href="/terminos">Términos</a>
+      <a href="/privacidad">Privacidad</a>
       <a href="/login">Entrar</a>
     </div>
   </div>

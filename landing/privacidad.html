@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad · Relayo</title>
+<meta name="description" content="Qué datos trata Relayo, para qué, durante cuánto tiempo y cómo ejercer tus derechos.">
+<link rel="icon" href="/favicon.ico">
+<!-- Fields in [brackets] (class="fill") must be completed by the owner before opening the beta. -->
+<style>
+@font-face { font-family: 'Inter Variable'; src: url('/site/inter.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+:root {
+  color-scheme: light;
+  --bg: #ffffff; --text: #18181b; --text-2: #3f3f46; --muted: #71717a; --border: #e4e4e7; --link: #2563eb;
+  --code-bg: #f4f4f5; --fill: #a16207; --fill-bg: #fefce8; --primary: #18181b; --primary-text: #ffffff;
+  font-family: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0e0e10; --text: #ececef; --text-2: #c9c9cf; --muted: #8e8e96; --border: #26262b; --link: #6ea2ff;
+    --code-bg: #1d1d21; --fill: #facc15; --fill-bg: #2a230b; --primary: #ececef; --primary-text: #111113;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+a { color: var(--link); }
+code { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; font-size: 13.5px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.top { border-bottom: 1px solid var(--border); }
+.top div, main, footer div { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+.top div { display: flex; align-items: center; height: 60px; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 600; color: var(--text); text-decoration: none; }
+.brand-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; background: var(--primary); color: var(--primary-text); }
+main { padding-top: 40px; padding-bottom: 64px; }
+h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 650; margin: 0 0 8px; }
+.updated { color: var(--muted); font-size: 14px; margin: 0 0 32px; }
+h2 { font-size: 20px; letter-spacing: -0.01em; font-weight: 650; margin: 36px 0 10px; }
+p, li { color: var(--text-2); }
+ul { padding-left: 22px; }
+li { margin: 6px 0; }
+strong { color: var(--text); font-weight: 600; }
+.fill { color: var(--fill); background: var(--fill-bg); padding: 0 4px; border-radius: 4px; font-weight: 500; }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 12px 0; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--border); color: var(--text-2); }
+th { color: var(--text); font-weight: 600; }
+.table-wrap { overflow-x: auto; }
+footer { border-top: 1px solid var(--border); padding: 24px 0 40px; font-size: 14px; color: var(--muted); }
+footer div { display: flex; flex-wrap: wrap; gap: 20px; }
+@media (max-width: 640px) { h1 { font-size: 28px; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <a class="brand" href="/" aria-label="Relayo, inicio">
+      <span class="brand-mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span>
+      <span>Relayo</span>
+    </a>
+  </div>
+</header>
+
+<main>
+  <h1>Política de privacidad</h1>
+  <p class="updated">Última actualización: 23 de octubre de 2026</p>
+
+  <p>
+    Esta política explica qué datos personales trata Relayo (el panel, la API y los servidores SMTP de
+    <code>relayo.alimzen.com</code>), para qué, durante cuánto tiempo y cómo ejercer tus derechos. La librería open
+    source <code>@alimzen/relayo</code> se ejecuta en tus sistemas y no nos envía ningún dato.
+  </p>
+
+  <h2>1. Quién es el responsable</h2>
+  <ul>
+    <li>Titular: <span class="fill">[Nombre o razón social]</span>, <span class="fill">[NIF]</span>.</li>
+    <li>Domicilio: <span class="fill">[Dirección postal]</span>.</li>
+    <li>Contacto para privacidad: <span class="fill">[email de contacto]</span>.</li>
+  </ul>
+
+  <h2>2. Qué datos tratamos y para qué</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Datos</th><th>Para qué</th><th>Base legal</th></tr></thead>
+      <tbody>
+        <tr><td>Tu cuenta: nombre, email y contraseña (guardada solo como hash scrypt).</td><td>Darte acceso, verificar tu email y recuperar tu contraseña.</td><td>Ejecución del contrato.</td></tr>
+        <tr><td>Proyectos, claves de API (solo su hash) y configuración: webhooks, conexiones, dominios.</td><td>Prestar el servicio que configuras.</td><td>Ejecución del contrato.</td></tr>
+        <tr><td>Credenciales de tus proveedores (SES, SendGrid, Twilio…), cifradas con AES-256-GCM.</td><td>Entregar tus envíos en vivo por esos proveedores.</td><td>Ejecución del contrato.</td></tr>
+        <tr><td>Los mensajes que envías: remitente, destinatarios, asunto, contenido, metadatos y sus eventos (entregado, rebote, queja…).</td><td>Simularlos o entregarlos, mostrártelos en el panel y avisar a tu webhook.</td><td>Ejecución del contrato (ver el punto 3).</td></tr>
+        <tr><td>Datos técnicos: dirección IP, fecha y ruta de cada petición.</td><td>Seguridad, límites contra el abuso y diagnóstico de errores.</td><td>Interés legítimo.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>No usamos tus datos para publicidad ni los vendemos. No tomamos decisiones automatizadas con efectos sobre ti.</p>
+
+  <h2>3. Los datos de tus destinatarios</h2>
+  <p>
+    Cuando envías mensajes a terceros (tus clientes o usuarios), <strong>tú eres el responsable</strong> de esos datos y
+    Relayo actúa como <strong>encargado del tratamiento</strong> (art. 28 del RGPD): los tratamos solo para simular o
+    entregar tus mensajes y registrar sus eventos, siguiendo tus instrucciones, y no los usamos para nada más. Tú
+    garantizas que tienes una base legal para escribir a esas personas. Si necesitas un contrato de encargo firmado,
+    escríbenos.
+  </p>
+
+  <h2>4. Cuánto tiempo los guardamos</h2>
+  <ul>
+    <li><strong>Mensajes, su contenido y sus eventos:</strong> 7 días; después se borran solos.</li>
+    <li><strong>Lista de supresión</strong> (direcciones y números que rebotaron, se quejaron o se dieron de baja): mientras exista el proyecto, para no volver a escribirles.</li>
+    <li><strong>Cuenta, proyectos y conexiones:</strong> hasta que los borres o pidas borrar tu cuenta.</li>
+    <li><strong>Enlaces de verificación y de contraseña:</strong> 24 horas y 1 hora, y se invalidan al usarse.</li>
+    <li><strong>Copias de seguridad:</strong> se rotan cada 14 días.</li>
+  </ul>
+
+  <h2>5. Con quién los compartimos</h2>
+  <ul>
+    <li>Alojamiento del servicio: <span class="fill">[proveedor de alojamiento, país]</span>.</li>
+    <li>Correos del propio servicio (verificación, contraseña): <span class="fill">[proveedor de correo]</span>.</li>
+    <li>Envío de Relayo, si lo usas: <span class="fill">[proveedor del relay, p. ej. Amazon SES, región]</span>.</li>
+    <li>Los proveedores que conectes a tu proyecto: los eliges tú, y tu relación con ellos se rige por sus condiciones.</li>
+  </ul>
+  <p>
+    Si alguno de ellos trata datos fuera del Espacio Económico Europeo, lo hace con garantías adecuadas (cláusulas
+    contractuales tipo de la Comisión Europea u otra garantía válida). <span class="fill">[Revisar según los proveedores elegidos]</span>
+  </p>
+
+  <h2>6. Cookies y almacenamiento local</h2>
+  <p>
+    Solo usamos una cookie técnica, <code>relayo_session</code>, para mantener tu sesión en el panel, y el almacenamiento
+    local del navegador para recordar el proyecto y el modo que elegiste. No usamos cookies de analítica ni de
+    publicidad, por eso no te pedimos consentimiento para ellas.
+  </p>
+
+  <h2>7. Seguridad</h2>
+  <p>
+    Todo el tráfico va cifrado (HTTPS y STARTTLS), las contraseñas y claves de API se guardan como hash, las
+    credenciales de proveedores se cifran con una clave que no está en la base de datos, y el contenido de los correos
+    capturados se muestra aislado, sin ejecutar scripts.
+  </p>
+
+  <h2>8. Tus derechos</h2>
+  <p>
+    Puedes pedir el acceso, la rectificación, la supresión, la portabilidad, la limitación o la oposición al tratamiento
+    de tus datos escribiendo a <span class="fill">[email de contacto]</span>. Te responderemos en un mes como máximo. Si no
+    estás de acuerdo con la respuesta, puedes reclamar ante la Agencia Española de Protección de Datos
+    (<a href="https://www.aepd.es">aepd.es</a>) o la autoridad de tu país.
+  </p>
+
+  <h2>9. Cambios</h2>
+  <p>Si cambiamos esta política de forma relevante, te avisaremos por email o en el panel antes de que se aplique.</p>
+</main>
+
+<footer>
+  <div><a href="/">Inicio</a><a href="/terminos">Términos</a><span>© Alimzen · Relayo</span></div>
+</footer>
+</body>
+</html>

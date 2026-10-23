@@ -1885,6 +1885,10 @@ pre {
   gap: 8px;
 }
 
+.usage + .usage {
+  margin-top: 14px;
+}
+
 .usage-row {
   display: flex;
   justify-content: space-between;

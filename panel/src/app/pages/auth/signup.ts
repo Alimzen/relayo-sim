@@ -50,6 +50,11 @@ import { safeNext } from './login';
             <span class="hint">Al menos {{ minPassword() }} caracteres.</span>
           </div>
 
+          <p class="hint">
+            Al crear la cuenta aceptas los <a href="/terminos" target="_blank" rel="noopener">términos</a> y la
+            <a href="/privacidad" target="_blank" rel="noopener">política de privacidad</a>.
+          </p>
+
           <button class="btn btn-primary btn-block" type="submit" [disabled]="busy()">
             {{ busy() ? 'Creando cuenta…' : 'Crear cuenta' }}
           </button>

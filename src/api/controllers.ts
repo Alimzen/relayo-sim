@@ -28,6 +28,7 @@ import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js
 import { AdminGuard, CurrentMode, CurrentProject, PlatformAdminGuard, ProjectGuard, SessionOnly } from './auth.js';
 import { LiveError, LiveService } from '../live/live.service.js';
 import { INFRASTRUCTURE, type Infrastructure } from '../infrastructure.js';
+import { AccountsService } from '../accounts/accounts.service.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
 
 type Address = string | { address: string; name?: string };
@@ -458,6 +459,7 @@ export class ManagedReviewController {
     @Inject(LiveService) private readonly live: LiveService,
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(SimulationService) private readonly sim: SimulationService,
+    @Inject(AccountsService) private readonly accounts: AccountsService,
   ) {}
 
   /** Every project that asked, with its owner and this month's usage, pending ones first. */
@@ -483,7 +485,11 @@ export class ManagedReviewController {
   @Post(':projectId')
   @HttpCode(200)
   async decide(@Param('projectId') projectId: string, @Body() body: { decision?: unknown }) {
-    return publicProject(await liveCall(() => this.live.decideManagedAccess(projectId, body?.decision)));
+    const project = await liveCall(() => this.live.decideManagedAccess(projectId, body?.decision));
+    const owner = project.ownerId ? await this.store.getUser(project.ownerId) : undefined;
+    // The answer stands even if the email cannot be sent: the panel shows it too.
+    if (owner) await this.accounts.notifyManagedDecision(owner, project, project.managedAccess as 'approved' | 'denied').catch(() => undefined);
+    return publicProject(project);
   }
 }
 
