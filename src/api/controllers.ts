@@ -6,7 +6,6 @@ import {
   Get,
   Header,
   HttpCode,
-  HttpException,
   Inject,
   NotFoundException,
   Param,
@@ -20,85 +19,26 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
-import { composeMessage, quotedHeaders, readAttachment, readContent, readHeaders, type ApiAttachment, type MailAddress } from '../capture/capture.js';
+import { readAttachment, readContent } from '../capture/capture.js';
 import type { Mode, Project, SimEvent, Template, WebhookAttempt } from '../domain.js';
-import { TemplateError, TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
+import { TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
 import { attemptRecord, attemptWebhook, recordAttempt, webhookBody } from '../webhooks/webhooks.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
-import { isSmsScenario, PHONE, SMS_SCENARIOS } from '../scenarios/sms.js';
-import { QuotaExceededError, SimulationService } from '../simulation/simulation.service.js';
+import { SMS_SCENARIOS } from '../scenarios/sms.js';
+import { SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
 import { AdminGuard, CurrentMode, CurrentProject, PlatformAdminGuard, ProjectGuard, SessionOnly } from './auth.js';
-import { LiveError, LiveService } from '../live/live.service.js';
+import { LiveService } from '../live/live.service.js';
 import { INFRASTRUCTURE, type Infrastructure } from '../infrastructure.js';
 import { AccountsService } from '../accounts/accounts.service.js';
 import { IdempotencyInterceptor } from './idempotency.js';
+import { liveCall, renderTemplate, SendingService, variablesOf, type SendBody, type SendSmsBody } from './sending.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
 
-type Address = string | { address: string; name?: string };
-
-/** Body of `POST /v1/messages`. Mirrors Relayo's EmailMessage. */
-export interface SendBody {
-  from: Address;
-  to: Address | Address[];
-  cc?: Address[];
-  bcc?: Address[];
-  subject: string;
-  html?: string;
-  text?: string;
-  replyTo?: Address;
-  headers?: Record<string, string>;
-  /** Content in base64. */
-  attachments?: ApiAttachment[];
-  metadata?: Record<string, string>;
-  tags?: string[];
-  /** Relayo's message id, so events come back with it. */
-  relayoMessageId?: string;
-  /** A saved template (alias or id) for subject, html and text; fields given here win over it. */
-  template?: string;
-  variables?: Record<string, unknown>;
-}
-
-const EMAIL = /^[^\s@]+@[^\s@]+$/;
 const EVENT_TYPES: ReadonlySet<string> = new Set<SimEvent['type']>([
   'accepted', 'delivered', 'deferred', 'bounced', 'complained', 'rejected', 'opened', 'clicked', 'unsubscribed', 'failed',
 ]);
-const addressOf = (value: Address) => (typeof value === 'string' ? value : value?.address);
-/** A Relayo recipient from an API address. */
-const recipientOf = (value: Address) =>
-  typeof value === 'string' ? { address: value } : { address: value.address, ...(value.name && { name: value.name }) };
-
-/** Simulator-only headers are not passed on to real providers. */
-const withoutSimHeaders = (headers: Record<string, string>) =>
-  Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'x-sim-scenario'));
-
-/** Runs a live operation, answering its errors with their status and message. */
-async function liveCall<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    if (error instanceof LiveError) throw new HttpException({ statusCode: error.status, message: error.message }, error.status);
-    throw error;
-  }
-}
-
-/** The address with its display name, for the captured message's headers. */
-const display = (value: Address): MailAddress =>
-  typeof value === 'string' || !value.name ? addressOf(value) : { name: value.name, address: value.address };
-
-function checkAttachments(value: unknown): ApiAttachment[] | undefined {
-  if (value === undefined) return undefined;
-  const ok =
-    Array.isArray(value) &&
-    value.every(
-      (a: Partial<ApiAttachment>) =>
-        a && typeof a.filename === 'string' && a.filename && typeof a.content === 'string' &&
-        (a.contentType === undefined || typeof a.contentType === 'string') && (a.cid === undefined || typeof a.cid === 'string'),
-    );
-  if (!ok) throw new BadRequestException('"attachments" must be a list of { filename, content (base64), contentType?, cid? }');
-  return value as ApiAttachment[];
-}
 
 @Controller('v1')
 export class ScenariosController {
@@ -114,83 +54,17 @@ export class ScenariosController {
   }
 }
 
-/** Body of `POST /v1/sms`. Mirrors Relayo's SmsMessage. */
-export interface SendSmsBody {
-  from?: string;
-  to: Address | Address[];
-  body: string;
-  metadata?: Record<string, string>;
-  tags?: string[];
-  /** Relayo's message id, so events come back with it. */
-  relayoMessageId?: string;
-  /** Scenario for every recipient, instead of the magic numbers. */
-  scenario?: string;
-  /** A saved SMS template (alias or id) for the text, instead of `body`. */
-  template?: string;
-  variables?: Record<string, unknown>;
-}
-
-/** Sender ids: a phone number, or up to 11 letters and digits (alphanumeric sender id). */
-const SENDER = /^(\+[1-9]\d{7,14}|[A-Za-z0-9 ]{1,11})$/;
-
 @Controller('v1/sms')
 @UseGuards(ProjectGuard)
 export class SmsController {
-  constructor(
-    @Inject(SimulationService) private readonly sim: SimulationService,
-    @Inject(LiveService) private readonly live: LiveService,
-    @Inject(TemplatesService) private readonly templates: TemplatesService,
-  ) {}
+  constructor(@Inject(SendingService) private readonly sending: SendingService) {}
 
   /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
   @Post()
   @HttpCode(202)
   @UseInterceptors(IdempotencyInterceptor)
-  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() input: SendSmsBody) {
-    const body = input?.template === undefined ? input : { ...input, body: input.body ?? (await renderTemplate(() => this.templates.renderSms(project, String(input.template), variablesOf(input)))).body };
-    const to = (Array.isArray(body?.to) ? body.to : [body?.to]).map((a) => addressOf(a as Address)?.trim());
-    if (!to.length || to.some((n) => !n || !PHONE.test(n))) {
-      throw new BadRequestException('"to" must contain phone numbers in E.164 format, e.g. +12015550100');
-    }
-    if (typeof body.body !== 'string' || !body.body.trim()) throw new BadRequestException('"body" is required');
-    if (body.body.length > 1600) throw new BadRequestException('"body" can have at most 1600 characters');
-    const from = body.from?.trim() || 'RelayoSim';
-    if (!SENDER.test(from)) throw new BadRequestException('"from" must be a phone number (E.164) or an alphanumeric sender id of up to 11 characters');
-    if (body.scenario !== undefined && (typeof body.scenario !== 'string' || !isSmsScenario(body.scenario.trim().toLowerCase()))) {
-      throw new BadRequestException(`Unknown SMS scenario "${String(body.scenario)}"`);
-    }
-
-    try {
-      await this.sim.reserve(project, mode);
-    } catch (error) {
-      if (error instanceof QuotaExceededError) throw new HttpException({ statusCode: 429, message: error.message }, 429);
-      throw error;
-    }
-
-    if (mode === 'live') {
-      const live = await liveCall(() =>
-        this.live.sendSms(project, {
-          ...(body.from?.trim() && { from: body.from.trim() }),
-          to: to as string[],
-          body: body.body,
-          ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
-          ...(body.metadata && { metadata: body.metadata }),
-          ...(body.tags && { tags: body.tags }),
-        }),
-      );
-      return { id: live.id, status: 'queued', recipients: live.recipients };
-    }
-
-    const message = await this.sim.acceptSms(project, {
-      from,
-      to: to as string[],
-      body: body.body,
-      ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
-      ...(body.metadata && { metadata: body.metadata }),
-      ...(body.tags && { tags: body.tags }),
-      ...(body.scenario && { scenario: body.scenario }),
-    });
-    return { id: message.id, status: 'queued', recipients: message.recipients };
+  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendSmsBody) {
+    return this.sending.sms(project, mode, body);
   }
 }
 
@@ -200,98 +74,15 @@ export class MessagesController {
   constructor(
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(SIM_STORE) private readonly store: SimStore,
-    @Inject(LiveService) private readonly live: LiveService,
-    @Inject(TemplatesService) private readonly templates: TemplatesService,
+    @Inject(SendingService) private readonly sending: SendingService,
   ) {}
 
   /** Test keys: the simulator plays the scenario. Live keys: real delivery through the project's connections. */
   @Post()
   @HttpCode(202)
   @UseInterceptors(IdempotencyInterceptor)
-  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() input: SendBody) {
-    const body = input?.template === undefined ? input : ({ ...(await renderTemplate(() => this.templates.renderEmail(project, String(input.template), variablesOf(input)))), ...withoutUndefined(input) } as SendBody);
-    const from = addressOf(body?.from);
-    const to = [...(Array.isArray(body?.to) ? body.to : [body?.to]), ...(body?.cc ?? []), ...(body?.bcc ?? [])].map(addressOf);
-    if (!from || !EMAIL.test(from)) throw new BadRequestException('"from" must be an email address');
-    if (!to.length || to.some((a) => !a || !EMAIL.test(a))) throw new BadRequestException('"to" must contain email addresses');
-    if (typeof body.subject !== 'string') throw new BadRequestException('"subject" is required');
-
-    const scenarioHeader = Object.entries(body.headers ?? {}).find(([k]) => k.toLowerCase() === 'x-sim-scenario')?.[1];
-    const attachments = checkAttachments(body.attachments);
-    if (body.headers !== undefined && (typeof body.headers !== 'object' || Object.values(body.headers).some((v) => typeof v !== 'string'))) {
-      throw new BadRequestException('"headers" must map names to strings');
-    }
-
-    try {
-      await this.sim.reserve(project, mode);
-    } catch (error) {
-      if (error instanceof QuotaExceededError) throw new HttpException({ statusCode: 429, message: error.message }, 429);
-      throw error;
-    }
-
-    // Capture the email the provider would have sent, as SMTP mail is captured.
-    const toList = Array.isArray(body.to) ? body.to : [body.to];
-    const raw = await composeMessage({
-      from: display(body.from),
-      to: toList.map((a) => display(a)),
-      ...(body.cc?.length && { cc: body.cc.map((a) => display(a)) }),
-      ...(body.replyTo && { replyTo: display(body.replyTo) }),
-      subject: body.subject,
-      ...(typeof body.text === 'string' && { text: body.text }),
-      ...(typeof body.html === 'string' && { html: body.html }),
-      headers: {
-        ...body.headers,
-        ...(body.relayoMessageId && { 'X-Relayo-Message-ID': body.relayoMessageId }),
-        ...(body.metadata && { 'X-Relayo-Metadata': Buffer.from(JSON.stringify(body.metadata)).toString('base64url') }),
-      },
-      ...(attachments && { attachments }),
-    });
-
-    if (mode === 'live') {
-      const message = await liveCall(() =>
-        this.live.sendEmail(project, {
-          via: 'api',
-          raw,
-          headers: quotedHeaders(readHeaders(raw.toString('utf8'))),
-          ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
-          message: {
-            from: recipientOf(body.from),
-            to: toList.map(recipientOf),
-            ...(body.cc?.length && { cc: body.cc.map(recipientOf) }),
-            ...(body.bcc?.length && { bcc: body.bcc.map(recipientOf) }),
-            ...(body.replyTo && { replyTo: recipientOf(body.replyTo) }),
-            subject: body.subject,
-            ...(typeof body.text === 'string' && { text: body.text }),
-            ...(typeof body.html === 'string' && { html: body.html }),
-            ...(body.headers && Object.keys(body.headers).length && { headers: withoutSimHeaders(body.headers) }),
-            ...(attachments?.length && {
-              attachments: attachments.map((a) => ({
-                filename: a.filename,
-                content: Buffer.from(a.content, 'base64'),
-                ...(a.contentType && { contentType: a.contentType }),
-                ...(a.cid && { cid: a.cid }),
-              })),
-            }),
-            ...(body.metadata && { metadata: body.metadata }),
-            ...(body.tags && { tags: body.tags }),
-          },
-        }),
-      );
-      return { id: message.id, status: 'queued', recipients: message.recipients };
-    }
-
-    const message = await this.sim.acceptFromApi(project, {
-      raw,
-      headers: quotedHeaders(readHeaders(raw.toString('utf8'))),
-      from,
-      to: to as string[],
-      subject: body.subject,
-      ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
-      ...(body.metadata && { metadata: body.metadata }),
-      ...(body.tags && { tags: body.tags }),
-      ...(scenarioHeader && { scenarioHeader }),
-    });
-    return { id: message.id, status: 'queued', recipients: message.recipients };
+  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendBody) {
+    return this.sending.email(project, mode, body);
   }
 
   /** Newest first. `q` searches subject, sender and recipients; `status` keeps messages with that event type. */
@@ -466,28 +257,6 @@ function urlChange(value: unknown, pattern: RegExp, error: string): string | nul
   if (typeof value !== 'string') return undefined;
   if (!pattern.test(value)) throw new BadRequestException(error);
   return value;
-}
-
-/** Template errors as HTTP answers, with their (Spanish, user-facing) message. */
-async function renderTemplate<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    if (error instanceof TemplateError) throw new HttpException({ statusCode: error.status, message: error.message }, error.status);
-    throw error;
-  }
-}
-
-function variablesOf(body: { variables?: unknown }): Record<string, unknown> {
-  if (body.variables === undefined) return {};
-  if (body.variables === null || typeof body.variables !== 'object' || Array.isArray(body.variables)) {
-    throw new BadRequestException('"variables" must be an object');
-  }
-  return body.variables as Record<string, unknown>;
-}
-
-function withoutUndefined<T extends object>(value: T): Partial<T> {
-  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
 /** Saved emails and SMS, filled with variables at send time. */

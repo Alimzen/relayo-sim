@@ -25,6 +25,7 @@ import {
   WebhookDeliveriesController,
 } from './api/controllers.js';
 import { TemplatesService } from './templates/templates.js';
+import { SendingService } from './api/sending.js';
 import { LiveService } from './live/live.service.js';
 import { SecretBox } from './live/secrets.js';
 import { ManagedSending } from './live/managed.js';
@@ -203,6 +204,7 @@ export class AppModule {
           inject: [SIM_STORE, WEBHOOK_DISPATCHER],
         },
         { provide: TemplatesService, useFactory: (store: SimStore) => new TemplatesService(store), inject: [SIM_STORE] },
+        SendingService,
         ProjectGuard,
         SessionGuard,
         AdminGuard,
