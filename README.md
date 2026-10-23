@@ -43,6 +43,8 @@ sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
 
 «API key» = `Authorization: Bearer <clave>`, o sesión del panel con `X-Relayo-Project`.
 
+Los envíos (`POST /v1/messages`, `POST /v1/sms`) aceptan `Idempotency-Key`: repetir la petición con la misma clave en 24 h devuelve la primera respuesta (con `Idempotent-Replayed: true`) sin enviar otra vez; la misma clave con otro cuerpo da 422, y mientras la primera sigue en curso, 409. Los drivers `@alimzen/relayo-simulator` y `@alimzen/relayo-cloud` la mandan solos con el id del mensaje.
+
 | Método y ruta | Auth | |
 | --- | --- | --- |
 | `GET /health` | — | 200 si PostgreSQL y Redis responden, 503 si no (`checks` dice cuál); para monitores de disponibilidad |
@@ -56,6 +58,8 @@ sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
 | `GET`, `POST /v1/projects` · `POST /v1/projects/claim` | Sesión | Proyectos del usuario |
 | `GET /v1/scenarios` | — | Catálogo |
 | `POST /v1/messages` | API key | Envío de email (202, `{ id, status: 'queued' }`) |
+| `GET /v1/project/webhook/deliveries` · `/deliveries/:id` · `/stats` | API key | Registro de entregas del webhook (`status=failed`, `before`): respuesta, error, intento, y el evento enviado |
+| `POST /v1/project/webhook/deliveries/:id/redeliver` · `/webhook/test` | API key | Reenvía un evento ahora, o envía uno de prueba (cabecera `Relayo-Test: true`) |
 | `POST /v1/sms` | API key | Envío de SMS: `{ from?, to, body, metadata?, relayoMessageId?, scenario? }` (202) |
 | `GET /v1/messages?limit=&before=&q=&status=` | API key | Últimos mensajes, con búsqueda y filtro por tipo de evento |
 | `GET /v1/messages/:id` | API key | Mensaje con su línea de tiempo |

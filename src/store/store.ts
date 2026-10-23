@@ -105,6 +105,21 @@ export interface SimStore {
   addEvent(event: SimEvent): Promise<void>;
   getEvent(projectId: string, eventId: string): Promise<SimEvent | undefined>;
 
+  // Idempotency keys
+  /**
+   * Takes a key for a request, or says how it was used: by a request with this fingerprint or another, and
+   * its answer once it finished. Expired keys can be taken again.
+   */
+  claimIdempotencyKey(
+    projectId: string,
+    key: string,
+    fingerprint: string,
+    ttlMs: number,
+  ): Promise<{ claimed: true } | { claimed: false; fingerprint: string; response?: unknown }>;
+  completeIdempotencyKey(projectId: string, key: string, response: unknown): Promise<void>;
+  /** Frees a key whose request failed, so it can be retried. */
+  releaseIdempotencyKey(projectId: string, key: string): Promise<void>;
+
   // Webhook delivery log
   addWebhookAttempt(attempt: WebhookAttempt): Promise<void>;
   /** Newest first. `failed`: only attempts that did not get a 2xx. */

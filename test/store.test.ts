@@ -308,6 +308,22 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
   });
 
+  it('claims idempotency keys once until they expire', async () => {
+    const store = await open();
+    await store.createProject(project());
+    expect(await store.claimIdempotencyKey('prj_1', 'k1', 'fp1', 60_000)).toEqual({ claimed: true });
+    expect(await store.claimIdempotencyKey('prj_1', 'k1', 'fp1', 60_000)).toEqual({ claimed: false, fingerprint: 'fp1' });
+    await store.completeIdempotencyKey('prj_1', 'k1', { id: 'sim_1', status: 'queued' });
+    expect(await store.claimIdempotencyKey('prj_1', 'k1', 'fp2', 60_000)).toEqual({ claimed: false, fingerprint: 'fp1', response: { id: 'sim_1', status: 'queued' } });
+
+    await store.releaseIdempotencyKey('prj_1', 'k1');
+    expect(await store.claimIdempotencyKey('prj_1', 'k1', 'fp2', 60_000)).toEqual({ claimed: true });
+
+    expect(await store.claimIdempotencyKey('prj_1', 'short', 'fp', 1)).toEqual({ claimed: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await store.claimIdempotencyKey('prj_1', 'short', 'other', 60_000)).toEqual({ claimed: true });
+  });
+
   it('finds an event by id, only in its project', async () => {
     const store = await open();
     await store.createProject(project());

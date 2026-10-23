@@ -134,6 +134,14 @@ CREATE TABLE IF NOT EXISTS usage (
   PRIMARY KEY (project_id, month)
 );
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  key text NOT NULL,
+  fingerprint text NOT NULL,
+  response jsonb,
+  expires_at timestamptz NOT NULL,
+  PRIMARY KEY (project_id, key)
+);
 CREATE TABLE IF NOT EXISTS webhook_attempts (
   id text PRIMARY KEY,
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -487,6 +495,38 @@ export class PostgresStore implements SimStore {
     return rows[0] && { ...rows[0].body, timestamp: new Date(rows[0].body.timestamp) };
   }
 
+  async claimIdempotencyKey(
+    projectId: string,
+    key: string,
+    fingerprint: string,
+    ttlMs: number,
+  ): Promise<{ claimed: true } | { claimed: false; fingerprint: string; response?: unknown }> {
+    // Takes the key if it is new or expired, atomically: two requests at once cannot both take it.
+    const claimed = await this.pool.query(
+      `INSERT INTO idempotency_keys (project_id, key, fingerprint, response, expires_at)
+       VALUES ($1, $2, $3, NULL, now() + $4 * interval '1 millisecond')
+       ON CONFLICT (project_id, key) DO UPDATE SET fingerprint = $3, response = NULL, expires_at = now() + $4 * interval '1 millisecond'
+         WHERE idempotency_keys.expires_at <= now()
+       RETURNING key`,
+      [projectId, key, fingerprint, ttlMs],
+    );
+    if (claimed.rowCount) return { claimed: true };
+    const { rows } = await this.pool.query<{ fingerprint: string; response: unknown }>(
+      'SELECT fingerprint, response FROM idempotency_keys WHERE project_id = $1 AND key = $2',
+      [projectId, key],
+    );
+    const row = rows[0]!;
+    return { claimed: false, fingerprint: row.fingerprint, ...(row.response !== null && { response: row.response }) };
+  }
+
+  async completeIdempotencyKey(projectId: string, key: string, response: unknown): Promise<void> {
+    await this.pool.query('UPDATE idempotency_keys SET response = $3 WHERE project_id = $1 AND key = $2', [projectId, key, JSON.stringify(response ?? null)]);
+  }
+
+  async releaseIdempotencyKey(projectId: string, key: string): Promise<void> {
+    await this.pool.query('DELETE FROM idempotency_keys WHERE project_id = $1 AND key = $2', [projectId, key]);
+  }
+
   async addWebhookAttempt(a: WebhookAttempt): Promise<void> {
     await this.pool.query(
       `INSERT INTO webhook_attempts (id, project_id, event_id, event_type, recipient, url, attempt, max_attempts, trigger, ok, status_code, error,
@@ -751,6 +791,7 @@ export class PostgresStore implements SimStore {
     // Events and captured content go with their message (ON DELETE CASCADE).
     const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1', [before]);
     await this.pool.query('DELETE FROM webhook_attempts WHERE created_at < $1', [before]);
+    await this.pool.query('DELETE FROM idempotency_keys WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM sessions WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM password_resets WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM smtp_attempts WHERE expires_at <= now()');
@@ -775,7 +816,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 

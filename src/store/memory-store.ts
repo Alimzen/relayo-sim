@@ -17,6 +17,7 @@ export class MemoryStore implements SimStore {
   private readonly domains = new Map<string, SendingDomain>();
   private readonly usage = new Map<string, number>();
   private readonly webhookAttempts: WebhookAttempt[] = [];
+  private readonly idempotency = new Map<string, { fingerprint: string; response?: unknown; expires: number }>();
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
   // --- Accounts ---------------------------------------------------------------------------------
@@ -254,6 +255,7 @@ export class MemoryStore implements SimStore {
       this.contents.delete(id);
       messages++;
     }
+    for (const [id, entry] of this.idempotency) if (entry.expires <= Date.now()) this.idempotency.delete(id);
     const kept = this.webhookAttempts.filter((a) => a.createdAt >= before);
     this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
     const now = new Date();
@@ -278,6 +280,30 @@ export class MemoryStore implements SimStore {
       if (event) return event.projectId === projectId ? event : undefined;
     }
     return undefined;
+  }
+
+  async claimIdempotencyKey(
+    projectId: string,
+    key: string,
+    fingerprint: string,
+    ttlMs: number,
+  ): Promise<{ claimed: true } | { claimed: false; fingerprint: string; response?: unknown }> {
+    const id = `${projectId}|${key}`;
+    const existing = this.idempotency.get(id);
+    if (existing && existing.expires > Date.now()) {
+      return { claimed: false, fingerprint: existing.fingerprint, ...(existing.response !== undefined && { response: existing.response }) };
+    }
+    this.idempotency.set(id, { fingerprint, expires: Date.now() + ttlMs });
+    return { claimed: true };
+  }
+
+  async completeIdempotencyKey(projectId: string, key: string, response: unknown): Promise<void> {
+    const entry = this.idempotency.get(`${projectId}|${key}`);
+    if (entry) entry.response = JSON.parse(JSON.stringify(response ?? null));
+  }
+
+  async releaseIdempotencyKey(projectId: string, key: string): Promise<void> {
+    this.idempotency.delete(`${projectId}|${key}`);
   }
 
   async addWebhookAttempt(attempt: WebhookAttempt): Promise<void> {

@@ -16,6 +16,7 @@ import {
   Req,
   Res,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
@@ -31,6 +32,7 @@ import { AdminGuard, CurrentMode, CurrentProject, PlatformAdminGuard, ProjectGua
 import { LiveError, LiveService } from '../live/live.service.js';
 import { INFRASTRUCTURE, type Infrastructure } from '../infrastructure.js';
 import { AccountsService } from '../accounts/accounts.service.js';
+import { IdempotencyInterceptor } from './idempotency.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
 
 type Address = string | { address: string; name?: string };
@@ -135,6 +137,7 @@ export class SmsController {
   /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
   @Post()
   @HttpCode(202)
+  @UseInterceptors(IdempotencyInterceptor)
   async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendSmsBody) {
     const to = (Array.isArray(body?.to) ? body.to : [body?.to]).map((a) => addressOf(a as Address)?.trim());
     if (!to.length || to.some((n) => !n || !PHONE.test(n))) {
@@ -194,6 +197,7 @@ export class MessagesController {
   /** Test keys: the simulator plays the scenario. Live keys: real delivery through the project's connections. */
   @Post()
   @HttpCode(202)
+  @UseInterceptors(IdempotencyInterceptor)
   async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendBody) {
     const from = addressOf(body?.from);
     const to = [...(Array.isArray(body?.to) ? body.to : [body?.to]), ...(body?.cc ?? []), ...(body?.bcc ?? [])].map(addressOf);
