@@ -1,4 +1,4 @@
-import type { ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -6,6 +6,7 @@ export interface ProjectChanges {
   reportsSmtpUrl?: string | null;
   webhookSecret?: string;
   ownerId?: string;
+  managedAccess?: ManagedAccess | null;
 }
 
 export interface MessageQuery {
@@ -28,7 +29,7 @@ export interface SimStore {
   createUser(user: User): Promise<void>;
   findUserByEmail(email: string): Promise<User | undefined>;
   getUser(id: string): Promise<User | undefined>;
-  updateUser(id: string, changes: Partial<Pick<User, 'name' | 'passwordHash'>>): Promise<void>;
+  updateUser(id: string, changes: Partial<Pick<User, 'name' | 'passwordHash' | 'emailVerifiedAt'>>): Promise<void>;
   createSession(session: Session): Promise<void>;
   /** The session with this token hash, if it has not expired. */
   getSession(idHash: string): Promise<Session | undefined>;
@@ -36,13 +37,18 @@ export interface SimStore {
   /** Ends every session of a user except, optionally, one (e.g. after a password change). */
   deleteUserSessions(userId: string, except?: string): Promise<void>;
   createPasswordReset(reset: PasswordReset): Promise<void>;
-  /** Consumes a reset token: returns its user if it exists and has not expired, and deletes it either way. */
-  usePasswordReset(tokenHash: string): Promise<string | undefined>;
+  /**
+   * Consumes an emailed token of a purpose (password reset by default): returns its user if it exists and has
+   * not expired, and deletes it either way.
+   */
+  usePasswordReset(tokenHash: string, purpose?: 'reset' | 'verify'): Promise<string | undefined>;
 
   // Projects and keys
   createProject(project: Project): Promise<void>;
   getProject(id: string): Promise<Project | undefined>;
   listProjects(ownerId: string): Promise<Project[]>;
+  /** Projects that asked for Relayo's own sending (whatever the answer), newest first. */
+  listManagedAccess(): Promise<Project[]>;
   /** `null` clears an optional field; missing keys are left as they are. */
   updateProject(id: string, changes: ProjectChanges): Promise<void>;
   createApiKey(key: ApiKey): Promise<void>;

@@ -138,7 +138,7 @@ describe('managed sending', () => {
 });
 
 describe('managed sending in the API', () => {
-  it('is offered only when the platform configures it, once per project', async () => {
+  it('is offered only when the platform configures it, after an admin approves the project, once per project', async () => {
     const app = await NestFactory.create(
       AppModule.forRoot({
         httpPort: 0,
@@ -148,6 +148,7 @@ describe('managed sending in the API', () => {
         signup: true,
         secureCookies: false,
         secretsKey: 'k',
+        adminToken: 'admin-secret',
         managed: { smtpUrl: `smtp://127.0.0.1:${relay.port}`, dailyLimit: 10 },
       }),
       { logger: false },
@@ -171,6 +172,20 @@ describe('managed sending in the API', () => {
 
       const providers = (await (await call('GET', '/v1/project/providers')).json()) as { data: Array<{ name: string }> };
       expect(providers.data[0]!.name).toBe('managed');
+      // An admin reviews the project first.
+      expect((await call('POST', '/v1/project/connections', { provider: 'managed' })).status).toBe(403);
+      expect(await (await call('POST', '/v1/project/managed-access')).json()).toEqual({ access: 'requested' });
+      expect((await call('GET', '/v1/admin/managed')).status).toBe(403);
+      const admin = (method: string, path: string, body?: unknown) =>
+        fetch(`${base}${path}`, {
+          method,
+          headers: { authorization: 'Bearer admin-secret', 'content-type': 'application/json' },
+          ...(body !== undefined && { body: JSON.stringify(body) }),
+        });
+      const requests = (await (await admin('GET', '/v1/admin/managed')).json()) as { data: Array<{ project: { id: string; managedAccess: string } }> };
+      expect(requests.data.map((r) => r.project)).toEqual([expect.objectContaining({ id: projectId, managedAccess: 'requested' })]);
+      expect((await admin('POST', `/v1/admin/managed/${projectId}`, { decision: 'approved' })).status).toBe(200);
+
       expect((await call('POST', '/v1/project/connections', { provider: 'managed' })).status).toBe(201);
       expect((await call('POST', '/v1/project/connections', { provider: 'managed' })).status).toBe(409);
 

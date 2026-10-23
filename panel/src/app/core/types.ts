@@ -16,7 +16,20 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  /** Live mode needs it. */
+  emailVerified: boolean;
+  /** Reviews requests for Relayo's own sending. */
+  admin: boolean;
   createdAt: string;
+}
+
+export type ManagedAccess = 'requested' | 'approved' | 'denied';
+
+export interface ManagedRequest {
+  project: Project;
+  owner: { email: string; name: string; createdAt: string } | null;
+  domains: Array<{ domain: string; verified: boolean }>;
+  usage: number;
 }
 
 export interface Project {
@@ -25,6 +38,7 @@ export interface Project {
   webhookUrl: string | null;
   /** Shown without its password. */
   reportsSmtpUrl: string | null;
+  managedAccess: ManagedAccess | null;
   createdAt: string;
 }
 

@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
 
@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS reports_smtp_url text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS managed_access text;
+-- Accounts created before email verification existed count as verified (the default fills them once).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz DEFAULT now();
+ALTER TABLE users ALTER COLUMN email_verified_at DROP DEFAULT;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id text REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE projects ALTER COLUMN api_key_hash DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS projects_owner ON projects (owner_id);
@@ -122,6 +126,7 @@ CREATE TABLE IF NOT EXISTS password_resets (
   user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at timestamptz NOT NULL
 );
+ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'reset';
 CREATE TABLE IF NOT EXISTS usage (
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   month text NOT NULL,
@@ -141,6 +146,7 @@ interface UserRow {
   email: string;
   name: string;
   password_hash: string;
+  email_verified_at: Date | null;
   created_at: Date;
 }
 
@@ -151,6 +157,7 @@ interface ProjectRow {
   webhook_url: string | null;
   webhook_secret: string;
   reports_smtp_url: string | null;
+  managed_access: ManagedAccess | null;
   created_at: Date;
 }
 
@@ -237,11 +244,12 @@ export class PostgresStore implements SimStore {
   // --- Accounts ---------------------------------------------------------------------------------
 
   async createUser(u: User): Promise<void> {
-    await this.pool.query('INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)', [
+    await this.pool.query('INSERT INTO users (id, email, name, password_hash, email_verified_at, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
       u.id,
       u.email.toLowerCase(),
       u.name,
       u.passwordHash,
+      u.emailVerifiedAt ?? null,
       u.createdAt,
     ]);
   }
@@ -256,12 +264,11 @@ export class PostgresStore implements SimStore {
     return rows[0] && toUser(rows[0]);
   }
 
-  async updateUser(id: string, changes: Partial<Pick<User, 'name' | 'passwordHash'>>): Promise<void> {
-    await this.pool.query('UPDATE users SET name = COALESCE($2, name), password_hash = COALESCE($3, password_hash) WHERE id = $1', [
-      id,
-      changes.name ?? null,
-      changes.passwordHash ?? null,
-    ]);
+  async updateUser(id: string, changes: Partial<Pick<User, 'name' | 'passwordHash' | 'emailVerifiedAt'>>): Promise<void> {
+    await this.pool.query(
+      'UPDATE users SET name = COALESCE($2, name), password_hash = COALESCE($3, password_hash), email_verified_at = COALESCE($4, email_verified_at) WHERE id = $1',
+      [id, changes.name ?? null, changes.passwordHash ?? null, changes.emailVerifiedAt ?? null],
+    );
   }
 
   async createSession(s: Session): Promise<void> {
@@ -294,8 +301,8 @@ export class PostgresStore implements SimStore {
 
   async createProject(p: Project): Promise<void> {
     await this.pool.query(
-      'INSERT INTO projects (id, name, owner_id, webhook_url, webhook_secret, reports_smtp_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [p.id, p.name, p.ownerId ?? null, p.webhookUrl ?? null, p.webhookSecret, p.reportsSmtpUrl ?? null, p.createdAt],
+      'INSERT INTO projects (id, name, owner_id, webhook_url, webhook_secret, reports_smtp_url, managed_access, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      [p.id, p.name, p.ownerId ?? null, p.webhookUrl ?? null, p.webhookSecret, p.reportsSmtpUrl ?? null, p.managedAccess ?? null, p.createdAt],
     );
   }
 
@@ -309,8 +316,13 @@ export class PostgresStore implements SimStore {
     return rows.map(toProject);
   }
 
+  async listManagedAccess(): Promise<Project[]> {
+    const { rows } = await this.pool.query<ProjectRow>('SELECT * FROM projects WHERE managed_access IS NOT NULL ORDER BY created_at DESC');
+    return rows.map(toProject);
+  }
+
   async updateProject(id: string, changes: ProjectChanges): Promise<void> {
-    const columns = { name: 'name', webhookUrl: 'webhook_url', reportsSmtpUrl: 'reports_smtp_url', webhookSecret: 'webhook_secret', ownerId: 'owner_id' } as const;
+    const columns = { name: 'name', webhookUrl: 'webhook_url', reportsSmtpUrl: 'reports_smtp_url', webhookSecret: 'webhook_secret', ownerId: 'owner_id', managedAccess: 'managed_access' } as const;
     const sets: string[] = [];
     const values: unknown[] = [id];
     for (const [key, column] of Object.entries(columns) as Array<[keyof ProjectChanges, string]>) {
@@ -605,17 +617,18 @@ export class PostgresStore implements SimStore {
   }
 
   async createPasswordReset(reset: PasswordReset): Promise<void> {
-    await this.pool.query('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES ($1, $2, $3)', [
+    await this.pool.query('INSERT INTO password_resets (token_hash, user_id, expires_at, purpose) VALUES ($1, $2, $3, $4)', [
       reset.tokenHash,
       reset.userId,
       reset.expiresAt,
+      reset.purpose ?? 'reset',
     ]);
   }
 
-  async usePasswordReset(tokenHash: string): Promise<string | undefined> {
+  async usePasswordReset(tokenHash: string, purpose: 'reset' | 'verify' = 'reset'): Promise<string | undefined> {
     const { rows } = await this.pool.query<{ user_id: string; expires_at: Date }>(
-      'DELETE FROM password_resets WHERE token_hash = $1 RETURNING user_id, expires_at',
-      [tokenHash],
+      'DELETE FROM password_resets WHERE token_hash = $1 AND purpose = $2 RETURNING user_id, expires_at',
+      [tokenHash, purpose],
     );
     return rows[0] && rows[0].expires_at > new Date() ? rows[0].user_id : undefined;
   }
@@ -674,7 +687,14 @@ function escapeLike(value: string): string {
 }
 
 function toUser(row: UserRow): User {
-  return { id: row.id, email: row.email, name: row.name, passwordHash: row.password_hash, createdAt: row.created_at };
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    passwordHash: row.password_hash,
+    createdAt: row.created_at,
+    ...(row.email_verified_at && { emailVerifiedAt: row.email_verified_at }),
+  };
 }
 
 function toProject(row: ProjectRow): Project {
@@ -686,6 +706,7 @@ function toProject(row: ProjectRow): Project {
     ...(row.owner_id && { ownerId: row.owner_id }),
     ...(row.webhook_url && { webhookUrl: row.webhook_url }),
     ...(row.reports_smtp_url && { reportsSmtpUrl: row.reports_smtp_url }),
+    ...(row.managed_access && { managedAccess: row.managed_access }),
   };
 }
 

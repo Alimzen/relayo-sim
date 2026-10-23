@@ -16,6 +16,7 @@ import {
   LucideMenu,
   LucidePlus,
   LucideSettings,
+  LucideShieldCheck,
   LucideTriangleAlert,
   LucideUser,
   LucideWebhook,
@@ -49,6 +50,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
     LucideMenu,
     LucidePlus,
     LucideSettings,
+    LucideShieldCheck,
     LucideTriangleAlert,
     LucideUser,
     LucideWebhook,
@@ -119,6 +121,10 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
           <a class="nav-link" routerLink="/suppressions" routerLinkActive="active"><svg lucideShieldBan [size]="16"></svg>Supresiones</a>
           <a class="nav-link" routerLink="/webhooks" routerLinkActive="active"><svg lucideWebhook [size]="16"></svg>Webhooks</a>
           <a class="nav-link" routerLink="/settings" routerLinkActive="active"><svg lucideSettings [size]="16"></svg>Ajustes</a>
+          @if (session.user()?.admin) {
+            <p class="nav-section">Plataforma</p>
+            <a class="nav-link" routerLink="/admin" routerLinkActive="active"><svg lucideShieldCheck [size]="16"></svg>Administración</a>
+          }
         </nav>
 
         <div class="sidebar-foot user-button">
@@ -149,6 +155,13 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
           <button type="button" class="icon-button" (click)="drawer.set(true)" aria-label="Abrir menú"><svg lucideMenu [size]="18"></svg></button>
           <app-brand />
         </header>
+        @if (session.user() && !session.user()!.emailVerified) {
+          <div class="verify-banner" role="status">
+            <svg lucideMail [size]="14"></svg>
+            <span>Confirma tu email (<strong>{{ session.user()!.email }}</strong>) para usar el modo en vivo.</span>
+            <button type="button" class="link-button" (click)="resend()" [disabled]="busy()">Reenviar enlace</button>
+          </div>
+        }
         @if (session.mode() === 'live') {
           <div class="live-banner" role="status">
             <svg lucideZap [size]="14"></svg>
@@ -305,6 +318,13 @@ export class Shell {
       this.session.addProject(project);
       this.closeModal();
       this.toasts.show(`Proyecto «${project.name}» vinculado a tu cuenta`);
+    });
+  }
+
+  protected async resend(): Promise<void> {
+    await this.run(async () => {
+      await this.api.resendVerification();
+      this.toasts.show('Enlace enviado: revisa tu bandeja de entrada');
     });
   }
 

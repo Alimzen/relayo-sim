@@ -33,7 +33,7 @@ export class MemoryStore implements SimStore {
     return this.users.get(id);
   }
 
-  async updateUser(id: string, changes: Partial<Pick<User, 'name' | 'passwordHash'>>): Promise<void> {
+  async updateUser(id: string, changes: Partial<Pick<User, 'name' | 'passwordHash' | 'emailVerifiedAt'>>): Promise<void> {
     const user = this.users.get(id);
     if (user) this.users.set(id, { ...user, ...changes });
   }
@@ -73,6 +73,10 @@ export class MemoryStore implements SimStore {
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
+  async listManagedAccess(): Promise<Project[]> {
+    return [...this.projects.values()].filter((p) => p.managedAccess).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
   async updateProject(id: string, changes: ProjectChanges): Promise<void> {
     const project = this.projects.get(id);
     if (!project) return;
@@ -85,6 +89,8 @@ export class MemoryStore implements SimStore {
       if (value === null) delete next[key];
       else if (value !== undefined) next[key] = value;
     }
+    if (changes.managedAccess === null) delete next.managedAccess;
+    else if (changes.managedAccess !== undefined) next.managedAccess = changes.managedAccess;
     this.projects.set(id, next);
   }
 
@@ -203,10 +209,11 @@ export class MemoryStore implements SimStore {
     this.resets.set(reset.tokenHash, reset);
   }
 
-  async usePasswordReset(tokenHash: string): Promise<string | undefined> {
+  async usePasswordReset(tokenHash: string, purpose: 'reset' | 'verify' = 'reset'): Promise<string | undefined> {
     const reset = this.resets.get(tokenHash);
+    if (!reset || (reset.purpose ?? 'reset') !== purpose) return undefined;
     this.resets.delete(tokenHash);
-    return reset && reset.expiresAt > new Date() ? reset.userId : undefined;
+    return reset.expiresAt > new Date() ? reset.userId : undefined;
   }
 
   async incrementUsage(projectId: string, month: string): Promise<number> {

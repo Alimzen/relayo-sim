@@ -8,6 +8,8 @@ export interface User {
   name: string;
   /** `scrypt$N$r$p$salt$hash`, see accounts/password.ts. */
   passwordHash: string;
+  /** When the user proved the email is theirs; live mode needs it. */
+  emailVerifiedAt?: Date;
   createdAt: Date;
 }
 
@@ -79,6 +81,8 @@ export interface PasswordReset {
   tokenHash: string;
   userId: string;
   expiresAt: Date;
+  /** What the emailed token does: reset the password (default) or verify the email. */
+  purpose?: 'reset' | 'verify';
 }
 
 /**
@@ -113,8 +117,12 @@ export interface Project {
    * reports (ARF) the simulator sends to each message's envelope sender.
    */
   reportsSmtpUrl?: string;
+  /** Relayo's own sending is reviewed by an admin before a project can use it. */
+  managedAccess?: ManagedAccess;
   createdAt: Date;
 }
+
+export type ManagedAccess = 'requested' | 'approved' | 'denied';
 
 export interface SimRecipient {
   address: string;

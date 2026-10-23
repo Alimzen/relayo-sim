@@ -219,6 +219,37 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect(await store.usePasswordReset('nope')).toBeUndefined();
   });
 
+  it('keeps verification tokens apart from reset tokens, and marks emails verified', async () => {
+    const store = await open();
+    await store.createUser(user);
+    expect((await store.getUser('usr_1'))?.emailVerifiedAt).toBeUndefined();
+    await store.createPasswordReset({ tokenHash: 'v1', userId: 'usr_1', expiresAt: new Date(Date.now() + 60_000), purpose: 'verify' });
+
+    expect(await store.usePasswordReset('v1')).toBeUndefined();
+    expect(await store.usePasswordReset('v1', 'verify')).toBe('usr_1');
+    expect(await store.usePasswordReset('v1', 'verify')).toBeUndefined();
+
+    const at = new Date('2026-10-20T10:00:00Z');
+    await store.updateUser('usr_1', { emailVerifiedAt: at });
+    await store.updateUser('usr_1', { name: 'Ana P.' });
+    expect(await store.getUser('usr_1')).toMatchObject({ name: 'Ana P.', emailVerifiedAt: at });
+  });
+
+  it('keeps the review of Relayo\'s own sending per project', async () => {
+    const store = await open();
+    await store.createProject(project('prj_a'));
+    await store.createProject({ ...project('prj_b'), createdAt: new Date('2026-10-19T10:00:00Z'), managedAccess: 'requested' });
+    await store.createProject(project('prj_c'));
+    await store.updateProject('prj_a', { managedAccess: 'approved' });
+
+    expect((await store.listManagedAccess()).map((p) => [p.id, p.managedAccess])).toEqual([
+      ['prj_b', 'requested'],
+      ['prj_a', 'approved'],
+    ]);
+    await store.updateProject('prj_a', { managedAccess: null });
+    expect((await store.getProject('prj_a'))?.managedAccess).toBeUndefined();
+  });
+
   it('counts usage per project and month', async () => {
     const store = await open();
     await store.createProject(project());

@@ -10,9 +10,10 @@ import {
 } from '@nestjs/common';
 import { AccountsService } from './accounts/accounts.service.js';
 import { AuthController, ProjectsController } from './api/account.controllers.js';
-import { AdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
+import { AdminGuard, PlatformAdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
 import {
   AdminController,
+  ManagedReviewController,
   ConnectionsController,
   HealthController,
   InboundController,
@@ -130,6 +131,7 @@ export class AppModule {
         InboundController,
         ProjectController,
         AdminController,
+        ManagedReviewController,
       ],
       providers: [
         { provide: SIM_CONFIG, useValue: config },
@@ -154,6 +156,9 @@ export class AppModule {
               signup: config.signup,
               publicUrl: config.publicUrl ?? `http://localhost:${config.httpPort}`,
               mailer: config.mail ? new SmtpMailer(config.mail.url, config.mail.from) : new LogMailer(),
+              // Without a real mailer the verification link could not reach anyone.
+              requireVerification: !!config.mail,
+              ...(config.adminEmails && { adminEmails: config.adminEmails }),
             }),
           inject: [SIM_STORE, SimulationService],
         },
@@ -169,6 +174,7 @@ export class AppModule {
         ProjectGuard,
         SessionGuard,
         AdminGuard,
+        PlatformAdminGuard,
         Lifecycle,
       ],
     };

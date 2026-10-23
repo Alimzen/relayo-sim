@@ -13,7 +13,7 @@ import {
   type SmsMessage,
   type WebhookRequest,
 } from '@alimzen/relayo';
-import type { Connection, Project, SimEvent, SimMessage, SuppressionReason } from '../domain.js';
+import type { Connection, ManagedAccess, Project, SimEvent, SimMessage, SuppressionReason } from '../domain.js';
 import type { SimStore } from '../store/store.js';
 import type { WebhookDispatcher } from '../webhooks/webhooks.js';
 import { ses } from '@alimzen/relayo-ses';
@@ -88,8 +88,40 @@ export class LiveService {
     return this.box;
   }
 
+  /** Live mode needs the owner's email verified. Projects without an owner were created by an operator. */
+  async assertCanGoLive(project: Project): Promise<void> {
+    if (!project.ownerId) return;
+    const owner = await this.store.getUser(project.ownerId);
+    if (!owner?.emailVerifiedAt) {
+      throw new LiveError('Confirma tu email para usar el modo en vivo: revisa tu bandeja de entrada o pide otro enlace desde el panel.', 403);
+    }
+  }
+
+  /** Asks for Relayo's own sending. Approved at once when the platform does not review requests. */
+  async requestManagedAccess(project: Project): Promise<ManagedAccess> {
+    if (!this.managed) throw new LiveError('El envío de Relayo no está disponible en este servidor', 400);
+    await this.assertCanGoLive(project);
+    if (project.managedAccess === 'denied') {
+      throw new LiveError('La solicitud del envío de Relayo fue rechazada. Puedes seguir usando tus propias conexiones.', 403);
+    }
+    if (project.managedAccess) return project.managedAccess;
+    const access: ManagedAccess = this.managed.config.approval === 'auto' ? 'approved' : 'requested';
+    await this.store.updateProject(project.id, { managedAccess: access });
+    return access;
+  }
+
+  /** An admin's answer to a request; `denied` also stops a project that was already sending. */
+  async decideManagedAccess(projectId: string, decision: unknown): Promise<Project> {
+    if (decision !== 'approved' && decision !== 'denied') throw new LiveError('"decision" must be approved or denied', 400);
+    const project = await this.store.getProject(projectId);
+    if (!project) throw new LiveError('Proyecto no encontrado', 404);
+    await this.store.updateProject(projectId, { managedAccess: decision });
+    return { ...project, managedAccess: decision };
+  }
+
   async createConnection(project: Project, input: { name?: unknown; provider?: unknown; values?: unknown }): Promise<Connection> {
     const box = this.requireBox();
+    await this.assertCanGoLive(project);
     if (input.provider === 'managed') return this.createManagedConnection(project, input.name);
     const spec = typeof input.provider === 'string' ? PROVIDERS_BY_NAME.get(input.provider as never) : undefined;
     if (!spec) throw new LiveError('Proveedor desconocido', 400);
@@ -116,6 +148,14 @@ export class LiveService {
 
   private async createManagedConnection(project: Project, name: unknown): Promise<Connection> {
     if (!this.managed) throw new LiveError('El envío de Relayo no está disponible en este servidor', 400);
+    if (project.managedAccess !== 'approved') {
+      throw new LiveError(
+        project.managedAccess === 'requested'
+          ? 'Tu solicitud del envío de Relayo está pendiente de revisión.'
+          : 'Solicita el envío de Relayo antes de activarlo.',
+        403,
+      );
+    }
     const existing = await this.store.listConnections(project.id, 'email');
     if (existing.some((c) => c.provider === 'managed')) throw new LiveError('El envío de Relayo ya está activado en este proyecto', 409);
     const connection: Connection = {
@@ -262,9 +302,16 @@ export class LiveService {
    * message; throws a `LiveError` when no connection could deliver it.
    */
   async sendEmail(project: Project, input: LiveEmail, only?: Connection): Promise<SimMessage> {
-    const connections = only ? [only] : await this.store.listConnections(project.id, 'email');
+    const all = only ? [only] : await this.store.listConnections(project.id, 'email');
+    // Relayo's relay only for projects an admin approved (or that were not stopped since).
+    const connections = all.filter((c) => c.provider !== 'managed' || project.managedAccess === 'approved');
     if (!connections.length) {
-      throw new LiveError('Este proyecto no tiene conexiones de email para el modo en vivo: añade una en Conexiones.', 400);
+      throw new LiveError(
+        all.length
+          ? 'El envío de Relayo no está aprobado para este proyecto: espera la revisión o añade una conexión propia.'
+          : 'Este proyecto no tiene conexiones de email para el modo en vivo: añade una en Conexiones.',
+        all.length ? 403 : 400,
+      );
     }
 
     const { message } = input;

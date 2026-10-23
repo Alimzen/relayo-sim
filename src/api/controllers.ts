@@ -25,7 +25,7 @@ import { isSmsScenario, PHONE, SMS_SCENARIOS } from '../scenarios/sms.js';
 import { QuotaExceededError, SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
-import { AdminGuard, CurrentMode, CurrentProject, ProjectGuard, SessionOnly } from './auth.js';
+import { AdminGuard, CurrentMode, CurrentProject, PlatformAdminGuard, ProjectGuard, SessionOnly } from './auth.js';
 import { LiveError, LiveService } from '../live/live.service.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
 
@@ -359,6 +359,7 @@ export class ProjectController {
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(SIM_CONFIG) private readonly config: SimConfig,
+    @Inject(LiveService) private readonly live: LiveService,
   ) {}
 
   @Get()
@@ -415,6 +416,7 @@ export class ProjectController {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     if (!name || name.length > 60) throw new BadRequestException('El nombre de la clave debe tener entre 1 y 60 caracteres.');
     if (body.mode !== undefined && body.mode !== 'test' && body.mode !== 'live') throw new BadRequestException('"mode" must be test or live');
+    if (body.mode === 'live') await liveCall(() => this.live.assertCanGoLive(project));
     const { key, apiKey } = await this.sim.createApiKey(project.id, name, body.mode === 'live' ? 'live' : 'test');
     return { ...publicKey(key), apiKey };
   }
@@ -445,6 +447,43 @@ function urlChange(value: unknown, pattern: RegExp, error: string): string | nul
   if (typeof value !== 'string') return undefined;
   if (!pattern.test(value)) throw new BadRequestException(error);
   return value;
+}
+
+/** Platform admins (ADMIN_EMAILS, or the admin token): review of Relayo's own sending. */
+@Controller('v1/admin/managed')
+@UseGuards(PlatformAdminGuard)
+export class ManagedReviewController {
+  constructor(
+    @Inject(LiveService) private readonly live: LiveService,
+    @Inject(SIM_STORE) private readonly store: SimStore,
+    @Inject(SimulationService) private readonly sim: SimulationService,
+  ) {}
+
+  /** Every project that asked, with its owner and this month's usage, pending ones first. */
+  @Get()
+  async list() {
+    const projects = await this.store.listManagedAccess();
+    const rows = await Promise.all(
+      projects.map(async (project) => {
+        const owner = project.ownerId ? await this.store.getUser(project.ownerId) : undefined;
+        const domains = await this.store.listDomains(project.id);
+        return {
+          project: publicProject(project),
+          owner: owner ? { email: owner.email, name: owner.name, createdAt: owner.createdAt } : null,
+          domains: domains.map((d) => ({ domain: d.domain, verified: !!d.verifiedAt })),
+          usage: (await this.sim.usage(project)).messages,
+        };
+      }),
+    );
+    const rank = (access: string | null) => (access === 'requested' ? 0 : 1);
+    return { data: rows.sort((a, b) => rank(a.project.managedAccess) - rank(b.project.managedAccess)) };
+  }
+
+  @Post(':projectId')
+  @HttpCode(200)
+  async decide(@Param('projectId') projectId: string, @Body() body: { decision?: unknown }) {
+    return publicProject(await liveCall(() => this.live.decideManagedAccess(projectId, body?.decision)));
+  }
 }
 
 /** For operators: creates projects outside any account (scripts, CI, migrations). */
@@ -490,7 +529,19 @@ export class ConnectionsController {
   /** Domains for Relayo's managed sending, with the DNS records each one needs. */
   @Get('domains')
   async domains(@CurrentProject() project: Project) {
-    return { available: Boolean(this.live.managed), data: (await this.store.listDomains(project.id)).map((d) => this.live.publicDomain(d)) };
+    return {
+      available: Boolean(this.live.managed),
+      access: project.managedAccess ?? null,
+      data: (await this.store.listDomains(project.id)).map((d) => this.live.publicDomain(d)),
+    };
+  }
+
+  /** Asks for Relayo's own sending; an admin reviews the request unless MANAGED_APPROVAL=auto. */
+  @Post('managed-access')
+  @SessionOnly()
+  @HttpCode(200)
+  async requestManagedAccess(@CurrentProject() project: Project) {
+    return { access: await liveCall(() => this.live.requestManagedAccess(project)) };
   }
 
   @Post('domains')

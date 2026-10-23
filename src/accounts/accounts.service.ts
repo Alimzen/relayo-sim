@@ -23,10 +23,19 @@ export interface PublicUser {
   id: string;
   email: string;
   name: string;
+  emailVerified: boolean;
+  admin: boolean;
   createdAt: Date;
 }
 
-export const publicUser = ({ id, email, name, createdAt }: User): PublicUser => ({ id, email, name, createdAt });
+export const publicUser = ({ id, email, name, createdAt, emailVerifiedAt }: User, admin = false): PublicUser => ({
+  id,
+  email,
+  name,
+  emailVerified: !!emailVerifiedAt,
+  admin,
+  createdAt,
+});
 
 /**
  * Counts attempts in a time window, per account and per IP. Logins: 10 failures per account and 50 per IP
@@ -70,15 +79,22 @@ export interface AccountsOptions {
   mailer?: Mailer;
   /** Public address of the panel, for the link in reset emails. */
   publicUrl?: string;
+  /** New accounts must verify their email before using live mode. Only makes sense with a real mailer. */
+  requireVerification?: boolean;
+  /** Emails of the platform's admins (review of Relayo's own sending). */
+  adminEmails?: string[];
 }
 
 export const RESET_MINUTES = 60;
+export const VERIFY_HOURS = 24;
 
 /** Users, passwords and browser sessions for the panel. API keys keep working for the API and SMTP. */
 export class AccountsService {
   private readonly limiter = new AttemptLimiter();
   /** Reset emails: 3 per account and 20 per IP an hour, so the form cannot be used to flood someone's inbox. */
   private readonly resetLimiter = new AttemptLimiter(3, 20, 60 * 60_000);
+  /** Verification emails: 3 an hour per account. */
+  private readonly verifyLimiter = new AttemptLimiter(3, 3, 60 * 60_000);
   private readonly mailer: Mailer;
 
 
@@ -95,6 +111,20 @@ export class AccountsService {
     return this.options.signup ?? true;
   }
 
+  /** Whether new accounts must verify their email; without it they start verified. */
+  get verificationRequired(): boolean {
+    return this.options.requireVerification ?? false;
+  }
+
+  isAdmin(user: User): boolean {
+    return !!user.emailVerifiedAt && (this.options.adminEmails ?? []).includes(user.email.toLowerCase());
+  }
+
+  /** The user as the panel sees it. */
+  present(user: User): PublicUser {
+    return publicUser(user, this.isAdmin(user));
+  }
+
   /** Creates the account with a first project, and signs it in. */
   async signup(input: { email?: unknown; name?: unknown; password?: unknown }): Promise<{ user: User; token: string; project: Project }> {
     if (!this.signupOpen) throw new AccountError('El registro está cerrado.', 403);
@@ -106,9 +136,19 @@ export class AccountsService {
     checkPassword(password);
     if (await this.store.findUserByEmail(email)) throw new AccountError('Ya existe una cuenta con ese email.', 409);
 
-    const user: User = { id: `usr_${randomUUID()}`, email, name, passwordHash: await hashPassword(password), createdAt: new Date() };
+    const now = new Date();
+    const user: User = {
+      id: `usr_${randomUUID()}`,
+      email,
+      name,
+      passwordHash: await hashPassword(password),
+      createdAt: now,
+      ...(!this.verificationRequired && { emailVerifiedAt: now }),
+    };
     await this.store.createUser(user);
     const { project } = await this.sim.createProject('Mi primer proyecto', { ownerId: user.id });
+    // The account works without it (test mode); a mail failure must not fail the sign-up.
+    if (this.verificationRequired) await this.sendVerification(user).catch(() => undefined);
     return { user, project, token: await this.startSession(user.id) };
   }
 
@@ -196,6 +236,32 @@ export class AccountsService {
     return { user, token: await this.startSession(user.id) };
   }
 
+  /** Emails a link that proves the address is the user's. */
+  async sendVerification(user: User): Promise<void> {
+    if (user.emailVerifiedAt) return;
+    this.verifyLimiter.check(`email:${user.email}`);
+    this.verifyLimiter.fail(`email:${user.email}`);
+    const token = randomBytes(32).toString('base64url');
+    await this.store.createPasswordReset({
+      tokenHash: hashToken(token),
+      userId: user.id,
+      expiresAt: new Date(Date.now() + VERIFY_HOURS * 3_600_000),
+      purpose: 'verify',
+    });
+    await this.mailer.send(verifyEmail(user, `${this.options.publicUrl ?? ''}/verify-email?token=${token}`));
+  }
+
+  /** Marks the email of the token's user as verified. */
+  async verifyEmail(input: { token?: unknown }): Promise<User> {
+    const token = typeof input.token === 'string' ? input.token : '';
+    const userId = token ? await this.store.usePasswordReset(hashToken(token), 'verify') : undefined;
+    const user = userId && (await this.store.getUser(userId));
+    if (!user) throw new AccountError('El enlace no es válido o ha caducado. Pide uno nuevo desde el panel.', 400);
+    const verified = user.emailVerifiedAt ?? new Date();
+    await this.store.updateUser(user.id, { emailVerifiedAt: verified });
+    return { ...user, emailVerifiedAt: verified };
+  }
+
   /** The user's project with this id, if they own it. */
   async ownedProject(user: User, projectId: string | undefined): Promise<Project | undefined> {
     if (!projectId) return undefined;
@@ -240,6 +306,29 @@ function resetEmail(user: User, link: string): MailToSend {
 <p>Alguien (esperamos que tú) pidió restablecer la contraseña de tu cuenta de Relayo Sim.</p>
 <p><a href="${escape(link)}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Elegir una contraseña nueva</a></p>
 <p style="color:#71717a;font-size:13px">El enlace sirve una sola vez y caduca en ${RESET_MINUTES} minutos. Si no lo pediste, ignora este correo: tu contraseña no cambia.</p>
+</div>`,
+  };
+}
+
+function verifyEmail(user: User, link: string): MailToSend {
+  const escape = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  return {
+    to: user.email,
+    subject: 'Confirma tu email en Relayo',
+    text: [
+      `Hola, ${user.name}:`,
+      '',
+      'Confirma que este email es tuyo para usar el modo en vivo de Relayo (envíos reales):',
+      '',
+      link,
+      '',
+      `El enlace caduca en ${VERIFY_HOURS} horas. Si no creaste una cuenta en Relayo, ignora este correo.`,
+    ].join('\n'),
+    html: `<div style="font-family:system-ui,sans-serif;max-width:480px;color:#18181b;line-height:1.5">
+<p>Hola, ${escape(user.name)}:</p>
+<p>Confirma que este email es tuyo para usar el modo en vivo de Relayo (envíos reales).</p>
+<p><a href="${escape(link)}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Confirmar email</a></p>
+<p style="color:#71717a;font-size:13px">El enlace caduca en ${VERIFY_HOURS} horas. Si no creaste una cuenta en Relayo, ignora este correo.</p>
 </div>`,
   };
 }

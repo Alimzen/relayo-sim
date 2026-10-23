@@ -142,6 +142,26 @@ export class AdminGuard implements CanActivate {
   }
 }
 
+/** Platform admins: a verified user listed in ADMIN_EMAILS, or the admin token (scripts). */
+@Injectable()
+export class PlatformAdminGuard implements CanActivate {
+  constructor(
+    @Inject(SIM_CONFIG) private readonly config: SimConfig,
+    @Inject(AccountsService) private readonly accounts: AccountsService,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest<AuthedRequest>();
+    const given = Buffer.from(bearer(req) ?? '');
+    const expected = Buffer.from(this.config.adminToken ?? '');
+    if (this.config.adminToken && given.length === expected.length && timingSafeEqual(given, expected)) return true;
+    if (!(await authenticateSession(this.accounts, req))) throw new UnauthorizedException('Sign in first');
+    checkCsrf(req);
+    if (!this.accounts.isAdmin(req.user!)) throw new ForbiddenException('Solo para administradores de la plataforma');
+    return true;
+  }
+}
+
 export const CurrentProject = createParamDecorator(
   (_: unknown, context: ExecutionContext) => context.switchToHttp().getRequest<AuthedRequest>().project!,
 );

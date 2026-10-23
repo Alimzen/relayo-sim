@@ -1417,6 +1417,36 @@ pre {
   color: var(--tone-info);
 }
 
+.callout-good {
+  background: var(--tone-good-bg);
+  color: var(--tone-good);
+}
+
+.callout-critical {
+  background: var(--tone-critical-bg);
+  color: var(--tone-critical);
+}
+
+.access-request {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.access-request p {
+  margin: 0;
+  flex: 1 1 320px;
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-end {
+  justify-content: flex-end;
+}
+
 .callout svg {
   flex: none;
   margin-top: 2px;
@@ -2013,6 +2043,35 @@ pre {
   color: var(--tone-good);
   background: var(--tone-good-bg);
   border-bottom: 1px solid var(--border);
+}
+
+.verify-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 16px;
+  font-size: 13px;
+  color: var(--tone-warning);
+  background: var(--tone-warning-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .connection {

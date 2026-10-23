@@ -10,6 +10,8 @@ export interface SimConfig {
   redisUrl?: string;
   /** Token for admin endpoints (creating projects). Without it they are disabled. */
   adminToken?: string;
+  /** Users who review requests for Relayo's own sending (verified emails, lowercased). */
+  adminEmails?: string[];
   timeScale: number;
   maxHangMs: number;
   /** Whether anyone can create an account in the panel. */
@@ -43,6 +45,8 @@ export interface SimConfig {
     dailyLimit: number;
     /** Token in the URL where the relay's events arrive (`/v1/inbound/managed/<token>`), as Amazon SNS posts them. */
     eventsToken?: string;
+    /** Whether an admin reviews each project before it can use the relay (`manual`, default), or every project can. */
+    approval?: 'manual' | 'auto';
   };
 }
 
@@ -56,6 +60,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
     timeScale: number(env.TIME_SCALE, 1),
     maxHangMs: number(env.SMTP_MAX_HANG_MS, 120_000),
     signup: env.SIGNUP !== 'closed',
+    adminEmails: (env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
     secureCookies: env.COOKIE_SECURE === 'true' || (env.COOKIE_SECURE !== 'false' && env.NODE_ENV === 'production'),
     retentionDays: number(env.RETENTION_DAYS, 7),
     limits: { monthlyMessages: number(env.MONTHLY_MESSAGE_LIMIT, 0), messagesPerMinute: number(env.MESSAGES_PER_MINUTE, 0) },
@@ -67,6 +72,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
     config.managed = {
       smtpUrl: env.MANAGED_SMTP_URL,
       dailyLimit: number(env.MANAGED_DAILY_LIMIT, 200),
+      approval: env.MANAGED_APPROVAL === 'auto' ? 'auto' : 'manual',
       ...(env.MANAGED_SPF_INCLUDE && { spfInclude: env.MANAGED_SPF_INCLUDE }),
       ...(env.MANAGED_EVENTS_TOKEN && { eventsToken: env.MANAGED_EVENTS_TOKEN }),
     };

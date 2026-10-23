@@ -12,7 +12,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { AccountError, AccountsService, publicUser, SESSION_COOKIE, SESSION_DAYS, MIN_PASSWORD } from '../accounts/accounts.service.js';
+import { AccountError, AccountsService, SESSION_COOKIE, SESSION_DAYS, MIN_PASSWORD } from '../accounts/accounts.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import type { User } from '../domain.js';
 import { SimulationService } from '../simulation/simulation.service.js';
@@ -68,7 +68,7 @@ export class AuthController {
     requireClientHeader(req);
     const { user, token, project } = await run(() => this.accounts.signup(body ?? {}));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
-    return { user: publicUser(user), projects: [publicProject(project)] };
+    return { user: this.accounts.present(user), projects: [publicProject(project)] };
   }
 
   @Post('login')
@@ -77,7 +77,7 @@ export class AuthController {
     requireClientHeader(req);
     const { user, token } = await run(() => this.accounts.login(body ?? {}, req.ip ?? 'unknown'));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
-    return { user: publicUser(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
+    return { user: this.accounts.present(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
   }
 
   @Post('logout')
@@ -91,13 +91,29 @@ export class AuthController {
   @Get('me')
   @UseGuards(SessionGuard)
   async me(@CurrentUser() user: User) {
-    return { user: publicUser(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
+    return { user: this.accounts.present(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
   }
 
   @Patch('me')
   @UseGuards(SessionGuard)
   async updateMe(@CurrentUser() user: User, @Body() body: { name?: unknown }) {
-    return { user: publicUser(await run(() => this.accounts.updateProfile(user, body ?? {}))) };
+    return { user: this.accounts.present(await run(() => this.accounts.updateProfile(user, body ?? {}))) };
+  }
+
+  /** Confirms the email with the token from the verification link. */
+  @Post('verify')
+  @HttpCode(200)
+  async verify(@Req() req: AuthedRequest, @Body() body: { token?: unknown }) {
+    requireClientHeader(req);
+    return { user: this.accounts.present(await run(() => this.accounts.verifyEmail(body ?? {}))) };
+  }
+
+  /** Sends the verification link again. */
+  @Post('verify/resend')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async resendVerification(@CurrentUser() user: User) {
+    await run(() => this.accounts.sendVerification(user));
   }
 
   /** Emails a reset link. Always 204, whether the account exists or not. */
@@ -115,7 +131,7 @@ export class AuthController {
     requireClientHeader(req);
     const { user, token } = await run(() => this.accounts.resetPassword(body ?? {}));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
-    return { user: publicUser(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
+    return { user: this.accounts.present(user), projects: (await this.store.listProjects(user.id)).map(publicProject) };
   }
 
   /** Changes the password; every other session is signed out. */

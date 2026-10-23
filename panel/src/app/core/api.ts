@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -66,6 +66,13 @@ export class Api {
     this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/reset', { token, password });
   updateMe = (name: string) => this.call<{ user: User }>('PATCH', '/v1/auth/me', { name });
   changePassword = (current: string, next: string) => this.call<void>('POST', '/v1/auth/password', { current, next });
+  verifyEmail = (token: string) => this.call<{ user: User }>('POST', '/v1/auth/verify', { token });
+  resendVerification = () => this.call<void>('POST', '/v1/auth/verify/resend');
+
+  // Platform admin
+  managedRequests = () => this.call<{ data: ManagedRequest[] }>('GET', '/v1/admin/managed').then((r) => r.data);
+  decideManagedAccess = (projectId: string, decision: 'approved' | 'denied') =>
+    this.call<Project>('POST', `/v1/admin/managed/${encodeURIComponent(projectId)}`, { decision });
 
   // Projects
   projects = () => this.call<{ data: Project[] }>('GET', '/v1/projects').then((r) => r.data);
@@ -89,7 +96,8 @@ export class Api {
   reorderConnections = (ids: string[]) => this.call<void>('POST', '/v1/project/connections/order', { ids });
   testConnection = (id: string, body: { to: string; from?: string }) =>
     this.call<{ id: string }>('POST', `/v1/project/connections/${encodeURIComponent(id)}/test`, body);
-  domains = () => this.call<{ available: boolean; data: SendingDomain[] }>('GET', '/v1/project/domains');
+  domains = () => this.call<{ available: boolean; access: ManagedAccess | null; data: SendingDomain[] }>('GET', '/v1/project/domains');
+  requestManagedAccess = () => this.call<{ access: ManagedAccess }>('POST', '/v1/project/managed-access');
   addDomain = (domain: string) => this.call<SendingDomain>('POST', '/v1/project/domains', { domain });
   verifyDomain = (id: string) => this.call<SendingDomain>('POST', `/v1/project/domains/${encodeURIComponent(id)}/verify`);
   deleteDomain = (id: string) => this.call<void>('DELETE', `/v1/project/domains/${encodeURIComponent(id)}`);

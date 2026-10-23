@@ -41,6 +41,11 @@ export const routes: Routes = [
     title: page('Nueva contraseña'),
   },
   {
+    path: 'verify-email',
+    loadComponent: () => import('./pages/auth/verify-email').then((m) => m.VerifyEmailPage),
+    title: page('Confirmar email'),
+  },
+  {
     path: '',
     canActivate: [signedIn],
     loadComponent: () => import('./layout/shell').then((m) => m.Shell),
@@ -60,6 +65,7 @@ export const routes: Routes = [
       { path: 'webhooks', loadComponent: () => import('./pages/webhooks').then((m) => m.WebhooksPage), title: page('Webhooks') },
       { path: 'settings', loadComponent: () => import('./pages/settings').then((m) => m.SettingsPage), title: page('Ajustes') },
       { path: 'account', loadComponent: () => import('./pages/account').then((m) => m.AccountPage), title: page('Cuenta') },
+      { path: 'admin', loadComponent: () => import('./pages/admin').then((m) => m.AdminPage), title: page('Administración') },
       { path: '', pathMatch: 'full', redirectTo: 'overview' },
     ],
   },

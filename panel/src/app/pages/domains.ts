@@ -30,6 +30,32 @@ const PURPOSE: Record<string, string> = { dkim: 'DKIM', spf: 'SPF', dmarc: 'DMAR
         </div>
       } @else {
         <div class="stack">
+          @switch (access()) {
+            @case ('approved') {
+              <div class="callout callout-good">
+                El envío de Relayo está aprobado para este proyecto. Verifica tu dominio y actívalo en
+                <a routerLink="/connections">Conexiones</a> (proveedor «Envío de Relayo»).
+              </div>
+            }
+            @case ('requested') {
+              <div class="callout">Tu solicitud del envío de Relayo está pendiente de revisión. Mientras tanto, ya puedes preparar tu dominio.</div>
+            }
+            @case ('denied') {
+              <div class="callout callout-critical">
+                La solicitud del envío de Relayo fue rechazada. Puedes enviar con tu propio proveedor desde
+                <a routerLink="/connections">Conexiones</a>.
+              </div>
+            }
+            @default {
+              <div class="card card-pad row access-request">
+                <p class="text-2">
+                  El envío de Relayo se revisa por proyecto antes de activarlo, para proteger la reputación que comparten todos
+                  sus usuarios. Pídelo y prepara tu dominio mientras tanto.
+                </p>
+                <button type="button" class="btn btn-primary" (click)="request()" [disabled]="busy()">Solicitar el envío de Relayo</button>
+              </div>
+            }
+          }
           <form class="card card-pad row domain-add" (ngSubmit)="add()">
             <input class="input" name="domain" [(ngModel)]="domain" placeholder="tudominio.com" aria-label="Dominio" />
             <button type="submit" class="btn btn-primary" [disabled]="busy() || !domain.trim()"><svg lucidePlus [size]="15"></svg>Añadir dominio</button>
@@ -112,6 +138,7 @@ export class DomainsPage {
   private readonly toasts = inject(Toasts);
   protected readonly domains = signal<SendingDomain[] | null>(null);
   protected readonly available = signal<boolean | null>(null);
+  protected readonly access = signal<'requested' | 'approved' | 'denied' | null>(null);
   protected readonly removing = signal<SendingDomain | null>(null);
   protected readonly busy = signal(false);
   protected readonly ago = (value: string) => timeAgo(value);
@@ -123,6 +150,14 @@ export class DomainsPage {
 
   protected purpose(value: string): string {
     return PURPOSE[value] ?? value;
+  }
+
+  protected async request(): Promise<void> {
+    await this.run(async () => {
+      const { access } = await this.api.requestManagedAccess();
+      this.access.set(access);
+      this.toasts.show(access === 'approved' ? 'Envío de Relayo aprobado' : 'Solicitud enviada: te avisaremos al revisarla');
+    });
   }
 
   protected async add(): Promise<void> {
@@ -153,8 +188,9 @@ export class DomainsPage {
 
   private async load(): Promise<void> {
     try {
-      const { available, data } = await this.api.domains();
+      const { available, access, data } = await this.api.domains();
       this.available.set(available);
+      this.access.set(access);
       this.domains.set(data);
     } catch (error) {
       this.domains.update((d) => d ?? []);
