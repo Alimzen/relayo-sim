@@ -33,6 +33,8 @@ export interface SimConfig {
    * fixed, insecure key so live mode can be tried locally.
    */
   secretsKey?: string;
+  /** Former keys (SECRETS_KEY_PREVIOUS): their secrets still open, and are sealed again with `secretsKey` at start. */
+  previousSecretsKeys?: string[];
   /**
    * Relayo's managed sending: the platform's own SMTP relay (Amazon SES SMTP, for example), offered to
    * projects that send from a verified domain of theirs.
@@ -71,6 +73,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
     publicUrl: (env.PUBLIC_URL ?? `http://localhost:${number(env.PORT, 3000)}`).replace(/\/+$/, ''),
   };
   if (env.SECRETS_KEY) config.secretsKey = env.SECRETS_KEY;
+  const previous = (env.SECRETS_KEY_PREVIOUS ?? '').split(',').map((k) => k.trim()).filter(Boolean);
+  if (previous.length) config.previousSecretsKeys = previous;
   else if (env.NODE_ENV !== 'production') config.secretsKey = 'relayo-development-only-insecure-key';
   if (env.MANAGED_SMTP_URL) {
     config.managed = {

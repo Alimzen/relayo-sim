@@ -93,6 +93,30 @@ export class LiveService {
     return this.box;
   }
 
+  /**
+   * Seals every stored secret with the current SECRETS_KEY, after a key change (the old key in
+   * SECRETS_KEY_PREVIOUS). Values that no key opens are counted and left as they are.
+   */
+  async resealSecrets(): Promise<{ resealed: number; unreadable: number }> {
+    if (!this.box) return { resealed: 0, unreadable: 0 };
+    let resealed = 0;
+    let unreadable = 0;
+    for (const item of await this.store.listSealed()) {
+      let fresh: string | undefined;
+      try {
+        fresh = this.box.reseal(item.value);
+      } catch {
+        unreadable++;
+        continue;
+      }
+      if (fresh) {
+        await this.store.updateSealed(item, fresh);
+        resealed++;
+      }
+    }
+    return { resealed, unreadable };
+  }
+
   /** Live mode needs the owner's email verified. Projects without an owner were created by an operator. */
   async assertCanGoLive(project: Project): Promise<void> {
     if (!project.ownerId) return;

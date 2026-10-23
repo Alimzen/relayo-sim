@@ -1,7 +1,7 @@
 import pg from 'pg';
 import type { ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
-import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
+import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
 /** Idempotent: safe to run on every start, on new and existing databases. */
 const SCHEMA = `
@@ -582,6 +582,22 @@ export class PostgresStore implements SimStore {
   async getDomain(projectId: string, id: string): Promise<SendingDomain | undefined> {
     const { rows } = await this.pool.query<DomainRow>('SELECT * FROM sending_domains WHERE id = $1 AND project_id = $2', [id, projectId]);
     return rows[0] && toDomain(rows[0]);
+  }
+
+  async listSealed(): Promise<SealedValue[]> {
+    const { rows } = await this.pool.query<{ kind: SealedValue['kind']; project_id: string; id: string; value: string }>(
+      `SELECT 'connection' AS kind, project_id, id, secrets AS value FROM connections
+       UNION ALL SELECT 'domain' AS kind, project_id, id, dkim_private_key AS value FROM sending_domains`,
+    );
+    return rows.map((r) => ({ kind: r.kind, projectId: r.project_id, id: r.id, value: r.value }));
+  }
+
+  async updateSealed(item: SealedValue, value: string): Promise<void> {
+    const sql =
+      item.kind === 'connection'
+        ? 'UPDATE connections SET secrets = $3 WHERE id = $1 AND project_id = $2'
+        : 'UPDATE sending_domains SET dkim_private_key = $3 WHERE id = $1 AND project_id = $2';
+    await this.pool.query(sql, [item.id, item.projectId, value]);
   }
 
   async updateDomain(projectId: string, id: string, changes: Partial<Pick<SendingDomain, 'checks' | 'verifiedAt' | 'lastCheckedAt'>>): Promise<void> {

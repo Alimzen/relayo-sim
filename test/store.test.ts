@@ -235,6 +235,45 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect(await store.getUser('usr_1')).toMatchObject({ name: 'Ana P.', emailVerifiedAt: at });
   });
 
+  it('lists and replaces the encrypted values of connections and domains', async () => {
+    const store = await open();
+    await store.createProject(project());
+    await store.createConnection({
+      id: 'con_1',
+      projectId: 'prj_1',
+      name: 'SMTP',
+      channel: 'email',
+      provider: 'smtp',
+      settings: { host: 'smtp.empresa.com' },
+      secrets: 'v1.sealed-1',
+      priority: 0,
+      inboundToken: 'tok_1',
+      createdAt: new Date('2026-10-18T10:00:00Z'),
+    });
+    await store.createDomain({
+      id: 'dom_1',
+      projectId: 'prj_1',
+      domain: 'empresa.com',
+      selector: 'relayo',
+      dkimPublicKey: 'pub',
+      dkimPrivateKey: 'v1.sealed-2',
+      checks: { dkim: false, spf: false, dmarc: false },
+      createdAt: new Date('2026-10-18T10:00:00Z'),
+    });
+
+    const sealed = await store.listSealed();
+    expect(sealed.map((s) => [s.kind, s.id, s.value]).sort()).toEqual([
+      ['connection', 'con_1', 'v1.sealed-1'],
+      ['domain', 'dom_1', 'v1.sealed-2'],
+    ]);
+    for (const item of sealed) await store.updateSealed(item, `${item.value}-new`);
+    expect((await store.getConnection('prj_1', 'con_1'))?.secrets).toBe('v1.sealed-1-new');
+    expect((await store.getDomain('prj_1', 'dom_1'))?.dkimPrivateKey).toBe('v1.sealed-2-new');
+    // The project in the item must match.
+    await store.updateSealed({ ...sealed[0]!, projectId: 'prj_other' }, 'stolen');
+    expect((await store.listSealed()).map((s) => s.value)).not.toContain('stolen');
+  });
+
   it('keeps the review of Relayo\'s own sending per project', async () => {
     const store = await open();
     await store.createProject(project('prj_a'));

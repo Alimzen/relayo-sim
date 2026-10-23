@@ -21,6 +21,14 @@ export interface MessageQuery {
   mode?: Mode;
 }
 
+/** An encrypted value in the store: a connection's credentials or a domain's DKIM private key. */
+export interface SealedValue {
+  kind: 'connection' | 'domain';
+  projectId: string;
+  id: string;
+  value: string;
+}
+
 export const SIM_STORE = Symbol.for('relayo-sim:store');
 
 /** Persistence for accounts, projects, messages and their event timelines. */
@@ -78,6 +86,9 @@ export interface SimStore {
   getDomain(projectId: string, id: string): Promise<SendingDomain | undefined>;
   updateDomain(projectId: string, id: string, changes: Partial<Pick<SendingDomain, 'checks' | 'verifiedAt' | 'lastCheckedAt'>>): Promise<void>;
   deleteDomain(projectId: string, id: string): Promise<boolean>;
+  /** Every encrypted value, to seal them again after SECRETS_KEY changes. */
+  listSealed(): Promise<SealedValue[]>;
+  updateSealed(item: SealedValue, value: string): Promise<void>;
   /** A message by its id alone, whatever project it belongs to (events of Relayo's managed sending). */
   findMessage(id: string): Promise<SimMessage | undefined>;
   /** Records which connection delivered a live message, and the provider's id for it. */

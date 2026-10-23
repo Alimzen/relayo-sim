@@ -57,7 +57,17 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
 
   async onApplicationBootstrap(): Promise<void> {
     this.startRetention();
+    await this.resealSecrets();
     await this.startSmtp();
+  }
+
+  /** After a SECRETS_KEY change: moves every stored secret to the new key, so the old one can be dropped. */
+  private async resealSecrets(): Promise<void> {
+    if (!this.config.previousSecretsKeys?.length) return;
+    const { resealed, unreadable } = await this.live.resealSecrets();
+    this.logger.log(`SECRETS_KEY rotation: ${resealed} secrets sealed with the new key`);
+    if (unreadable) this.logger.warn(`SECRETS_KEY rotation: ${unreadable} secrets open with no key; their connections need their credentials again`);
+    else this.logger.log('SECRETS_KEY rotation: every secret uses the new key, SECRETS_KEY_PREVIOUS can be removed');
   }
 
   /** Deletes messages older than RETENTION_DAYS (and expired sessions and tokens): at start, then every hour. */
@@ -165,7 +175,7 @@ export class AppModule {
         {
           provide: LiveService,
           useFactory: (store: SimStore, dispatcher: WebhookDispatcher) => {
-            const box = config.secretsKey ? new SecretBox(config.secretsKey) : undefined;
+            const box = config.secretsKey ? new SecretBox(config.secretsKey, config.previousSecretsKeys) : undefined;
             const managed = config.managed && box ? new ManagedSending(store, box, config.managed) : undefined;
             return new LiveService(store, dispatcher, box, managed, config.publicUrl);
           },

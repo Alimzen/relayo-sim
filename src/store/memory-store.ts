@@ -1,6 +1,6 @@
 import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
-import type { MessageQuery, ProjectChanges, SimStore } from './store.js';
+import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
 /** In-process store for tests and local runs without a database. Nothing survives a restart. */
 export class MemoryStore implements SimStore {
@@ -194,6 +194,23 @@ export class MemoryStore implements SimStore {
   async deleteDomain(projectId: string, id: string): Promise<boolean> {
     if (!(await this.getDomain(projectId, id))) return false;
     return this.domains.delete(id);
+  }
+
+  async listSealed(): Promise<SealedValue[]> {
+    return [
+      ...[...this.connections.values()].map((c) => ({ kind: 'connection' as const, projectId: c.projectId, id: c.id, value: c.secrets })),
+      ...[...this.domains.values()].map((d) => ({ kind: 'domain' as const, projectId: d.projectId, id: d.id, value: d.dkimPrivateKey })),
+    ];
+  }
+
+  async updateSealed(item: SealedValue, value: string): Promise<void> {
+    if (item.kind === 'connection') {
+      const connection = this.connections.get(item.id);
+      if (connection?.projectId === item.projectId) this.connections.set(item.id, { ...connection, secrets: value });
+    } else {
+      const domain = this.domains.get(item.id);
+      if (domain?.projectId === item.projectId) this.domains.set(item.id, { ...domain, dkimPrivateKey: value });
+    }
   }
 
   async findMessage(id: string): Promise<SimMessage | undefined> {
