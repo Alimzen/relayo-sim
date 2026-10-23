@@ -25,6 +25,37 @@ export interface User {
 
 export type ManagedAccess = 'requested' | 'approved' | 'denied';
 
+/** One POST of an event to the project's webhook. */
+export interface WebhookDelivery {
+  id: string;
+  eventId: string;
+  eventType: EventType;
+  recipient: string;
+  url: string;
+  attempt: number;
+  maxAttempts: number;
+  trigger: 'auto' | 'redeliver' | 'test';
+  ok: boolean;
+  statusCode?: number;
+  error?: string;
+  responseBody?: string;
+  durationMs: number;
+  willRetry: boolean;
+  createdAt: string;
+}
+
+export interface WebhookDeliveryDetail extends WebhookDelivery {
+  /** The event as it was sent; null once its message is past retention (or for test events). */
+  event: Record<string, unknown> | null;
+}
+
+export interface WebhookStats {
+  since: string;
+  ok: number;
+  failed: number;
+  latest: WebhookDelivery | null;
+}
+
 export interface ManagedRequest {
   project: Project;
   owner: { email: string; name: string; createdAt: string } | null;

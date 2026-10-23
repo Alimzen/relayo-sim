@@ -1,5 +1,5 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { SimEvent } from '../domain.js';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import type { SimEvent, WebhookAttempt } from '../domain.js';
 
 export const WEBHOOK_DISPATCHER = Symbol.for('relayo-sim:webhooks');
 export const SIGNATURE_HEADER = 'relayo-signature';
@@ -33,21 +33,92 @@ export function verifyWebhookSignature(body: string, header: string | undefined,
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
+export const WEBHOOK_TIMEOUT_MS = 10_000;
+
+/** What one POST of an event got back. */
+export interface DeliveryResult {
+  ok: boolean;
+  statusCode?: number;
+  error?: string;
+  responseBody?: string;
+  durationMs: number;
+}
+
+/** POSTs one event and says what happened. Never throws: a failure is a result. */
+export async function attemptWebhook(
+  event: SimEvent,
+  target: { url: string; secret: string },
+  doFetch = fetch,
+  extraHeaders: Record<string, string> = {},
+): Promise<DeliveryResult> {
+  const body = webhookBody(event);
+  const started = Date.now();
+  try {
+    const response = await doFetch(target.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'RelayoSim/0.1',
+        'Relayo-Event-Id': event.id,
+        [SIGNATURE_HEADER]: signWebhook(body, target.secret),
+        ...extraHeaders,
+      },
+      body,
+      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+    });
+    const text = await response.text().catch(() => '');
+    return {
+      ok: response.ok,
+      statusCode: response.status,
+      durationMs: Date.now() - started,
+      ...(text && { responseBody: text.slice(0, 2048) }),
+    };
+  } catch (error) {
+    return { ok: false, error: describeFailure(error), durationMs: Date.now() - started };
+  }
+}
+
 /** POSTs one event. Throws on network errors and non-2xx answers so the caller can retry. */
 export async function deliverWebhook(event: SimEvent, target: { url: string; secret: string }, doFetch = fetch): Promise<void> {
-  const body = webhookBody(event);
-  const response = await doFetch(target.url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': 'RelayoSim/0.1',
-      'Relayo-Event-Id': event.id,
-      [SIGNATURE_HEADER]: signWebhook(body, target.secret),
-    },
-    body,
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw new Error(`Webhook answered ${response.status}`);
+  const result = await attemptWebhook(event, target, doFetch);
+  if (!result.ok) throw new Error(result.error ?? `Webhook answered ${result.statusCode}`);
+}
+
+/** Network failures as people read them: fetch hides the reason (ECONNREFUSED, a bad certificate) in `cause`. */
+function describeFailure(error: unknown): string {
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return `No answer in ${WEBHOOK_TIMEOUT_MS / 1000} s`;
+  }
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined;
+  return cause ?? (error instanceof Error ? error.message : String(error));
+}
+
+/** Stores one try in the project's delivery log. */
+export type WebhookLog = (attempt: WebhookAttempt) => Promise<void>;
+
+/** The log entry for one try of an event. */
+export function attemptRecord(
+  event: SimEvent,
+  url: string,
+  result: DeliveryResult,
+  info: Pick<WebhookAttempt, 'attempt' | 'maxAttempts' | 'trigger' | 'willRetry'>,
+): WebhookAttempt {
+  return {
+    id: `wha_${randomUUID()}`,
+    projectId: event.projectId,
+    eventId: event.id,
+    eventType: event.type,
+    recipient: event.recipient,
+    url,
+    ...info,
+    ...result,
+    createdAt: new Date(),
+  };
+}
+
+/** Logging must never break deliveries: a failed write is dropped. */
+export async function recordAttempt(log: WebhookLog | undefined, attempt: WebhookAttempt): Promise<void> {
+  await log?.(attempt).catch(() => undefined);
 }
 
 export interface RetryPolicy {
@@ -67,15 +138,17 @@ export class MemoryDispatcher implements WebhookDispatcher {
   constructor(
     private readonly retry: RetryPolicy = DEFAULT_RETRY,
     private readonly doFetch: typeof fetch = fetch,
+    private readonly log?: WebhookLog,
   ) {}
 
   async dispatch(event: SimEvent, target: { url: string; secret: string }): Promise<void> {
     const attempt = async (n: number): Promise<void> => {
-      try {
-        await deliverWebhook(event, target, this.doFetch);
-      } catch (error) {
-        if (n >= this.retry.attempts) {
-          this.failures.push({ event, error });
+      const result = await attemptWebhook(event, target, this.doFetch);
+      const willRetry = !result.ok && n < this.retry.attempts;
+      await recordAttempt(this.log, attemptRecord(event, target.url, result, { attempt: n, maxAttempts: this.retry.attempts, trigger: 'auto', willRetry }));
+      if (!result.ok) {
+        if (!willRetry) {
+          this.failures.push({ event, error: new Error(result.error ?? `Webhook answered ${result.statusCode}`) });
           return;
         }
         const timer = setTimeout(() => {

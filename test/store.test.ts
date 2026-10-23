@@ -274,6 +274,49 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listSealed()).map((s) => s.value)).not.toContain('stolen');
   });
 
+  it('keeps the webhook delivery log, newest first, with failures and stats', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const attempt = (id: string, at: string, ok: boolean) => ({
+      id,
+      projectId: 'prj_1',
+      eventId: 'evt_1',
+      eventType: 'bounced' as const,
+      recipient: 'ana@x.com',
+      url: 'https://app.example/hooks',
+      attempt: 1,
+      maxAttempts: 8,
+      trigger: 'auto' as const,
+      ok,
+      durationMs: 42,
+      willRetry: !ok,
+      createdAt: new Date(at),
+      ...(ok ? { statusCode: 200 } : { error: 'No answer in 10 s' }),
+    });
+    await store.addWebhookAttempt(attempt('wha_1', '2026-10-18T10:00:00Z', false));
+    await store.addWebhookAttempt({ ...attempt('wha_2', '2026-10-18T10:01:00Z', true), responseBody: 'ok' });
+    await store.addWebhookAttempt({ ...attempt('wha_3', '2026-10-18T10:02:00Z', true), projectId: 'prj_other' }).catch(() => undefined);
+
+    expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2', 'wha_1']);
+    expect((await store.listWebhookAttempts('prj_1', { limit: 10, failed: true })).map((a) => a.id)).toEqual(['wha_1']);
+    expect((await store.listWebhookAttempts('prj_1', { limit: 10, before: new Date('2026-10-18T10:01:00Z') })).map((a) => a.id)).toEqual(['wha_1']);
+    expect(await store.getWebhookAttempt('prj_1', 'wha_2')).toMatchObject({ statusCode: 200, responseBody: 'ok', willRetry: false });
+    expect(await store.getWebhookAttempt('prj_1', 'wha_1')).toMatchObject({ error: 'No answer in 10 s', willRetry: true });
+    expect(await store.webhookStats('prj_1', new Date('2026-10-18T00:00:00Z'))).toEqual({ ok: 1, failed: 1 });
+
+    await store.purge(new Date('2026-10-18T10:00:30Z'));
+    expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
+  });
+
+  it('finds an event by id, only in its project', async () => {
+    const store = await open();
+    await store.createProject(project());
+    await store.saveMessage(message('sim_1', '2026-10-18T10:00:00Z'));
+    await store.addEvent(event('evt_1', 'sim_1', 'bounced', '2026-10-18T10:00:01Z'));
+    expect(await store.getEvent('prj_1', 'evt_1')).toMatchObject({ type: 'bounced', timestamp: new Date('2026-10-18T10:00:01Z') });
+    expect(await store.getEvent('prj_other', 'evt_1')).toBeUndefined();
+  });
+
   it('keeps the review of Relayo\'s own sending per project', async () => {
     const store = await open();
     await store.createProject(project('prj_a'));

@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -134,6 +134,25 @@ CREATE TABLE IF NOT EXISTS usage (
   PRIMARY KEY (project_id, month)
 );
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
+CREATE TABLE IF NOT EXISTS webhook_attempts (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  event_id text NOT NULL,
+  event_type text NOT NULL,
+  recipient text NOT NULL,
+  url text NOT NULL,
+  attempt integer NOT NULL,
+  max_attempts integer NOT NULL,
+  trigger text NOT NULL,
+  ok boolean NOT NULL,
+  status_code integer,
+  error text,
+  response_body text,
+  duration_ms integer NOT NULL,
+  will_retry boolean NOT NULL,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS webhook_attempts_project_created ON webhook_attempts (project_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS smtp_attempts (
   key text PRIMARY KEY,
   count integer NOT NULL,
@@ -463,6 +482,63 @@ export class PostgresStore implements SimStore {
     );
   }
 
+  async getEvent(projectId: string, eventId: string): Promise<SimEvent | undefined> {
+    const { rows } = await this.pool.query<{ body: SimEvent }>('SELECT body FROM events WHERE id = $1 AND project_id = $2', [eventId, projectId]);
+    return rows[0] && { ...rows[0].body, timestamp: new Date(rows[0].body.timestamp) };
+  }
+
+  async addWebhookAttempt(a: WebhookAttempt): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO webhook_attempts (id, project_id, event_id, event_type, recipient, url, attempt, max_attempts, trigger, ok, status_code, error,
+         response_body, duration_ms, will_retry, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      [
+        a.id,
+        a.projectId,
+        a.eventId,
+        a.eventType,
+        a.recipient,
+        a.url,
+        a.attempt,
+        a.maxAttempts,
+        a.trigger,
+        a.ok,
+        a.statusCode ?? null,
+        a.error ?? null,
+        a.responseBody ?? null,
+        a.durationMs,
+        a.willRetry,
+        a.createdAt,
+      ],
+    );
+  }
+
+  async listWebhookAttempts(projectId: string, query: { limit: number; before?: Date; failed?: boolean; eventId?: string }): Promise<WebhookAttempt[]> {
+    const values: unknown[] = [projectId, query.limit];
+    const where = ['project_id = $1'];
+    if (query.before) where.push(`created_at < $${values.push(query.before)}`);
+    if (query.failed) where.push('NOT ok');
+    if (query.eventId) where.push(`event_id = $${values.push(query.eventId)}`);
+    const { rows } = await this.pool.query<AttemptRow>(
+      `SELECT * FROM webhook_attempts WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $2`,
+      values,
+    );
+    return rows.map(toAttempt);
+  }
+
+  async getWebhookAttempt(projectId: string, id: string): Promise<WebhookAttempt | undefined> {
+    const { rows } = await this.pool.query<AttemptRow>('SELECT * FROM webhook_attempts WHERE id = $1 AND project_id = $2', [id, projectId]);
+    return rows[0] && toAttempt(rows[0]);
+  }
+
+  async webhookStats(projectId: string, since: Date): Promise<{ ok: number; failed: number }> {
+    const { rows } = await this.pool.query<{ ok: string; failed: string }>(
+      'SELECT count(*) FILTER (WHERE ok) AS ok, count(*) FILTER (WHERE NOT ok) AS failed FROM webhook_attempts WHERE project_id = $1 AND created_at >= $2',
+      [projectId, since],
+    );
+    return { ok: Number(rows[0]?.ok ?? 0), failed: Number(rows[0]?.failed ?? 0) };
+  }
+
   async stats(projectId: string, since: Date, mode: Mode = 'test'): Promise<ProjectStats> {
     const stats = emptyStats(since);
     const [messages, events, daily] = await Promise.all([
@@ -674,6 +750,7 @@ export class PostgresStore implements SimStore {
   async purge(before: Date): Promise<{ messages: number }> {
     // Events and captured content go with their message (ON DELETE CASCADE).
     const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1', [before]);
+    await this.pool.query('DELETE FROM webhook_attempts WHERE created_at < $1', [before]);
     await this.pool.query('DELETE FROM sessions WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM password_resets WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM smtp_attempts WHERE expires_at <= now()');
@@ -698,12 +775,52 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
+}
+
+interface AttemptRow {
+  id: string;
+  project_id: string;
+  event_id: string;
+  event_type: WebhookAttempt['eventType'];
+  recipient: string;
+  url: string;
+  attempt: number;
+  max_attempts: number;
+  trigger: WebhookAttempt['trigger'];
+  ok: boolean;
+  status_code: number | null;
+  error: string | null;
+  response_body: string | null;
+  duration_ms: number;
+  will_retry: boolean;
+  created_at: Date;
+}
+
+function toAttempt(row: AttemptRow): WebhookAttempt {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    eventId: row.event_id,
+    eventType: row.event_type,
+    recipient: row.recipient,
+    url: row.url,
+    attempt: row.attempt,
+    maxAttempts: row.max_attempts,
+    trigger: row.trigger,
+    ok: row.ok,
+    durationMs: row.duration_ms,
+    willRetry: row.will_retry,
+    createdAt: row.created_at,
+    ...(row.status_code !== null && { statusCode: row.status_code }),
+    ...(row.error !== null && { error: row.error }),
+    ...(row.response_body !== null && { responseBody: row.response_body }),
+  };
 }
 
 function toUser(row: UserRow): User {

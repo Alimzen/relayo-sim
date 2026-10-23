@@ -121,7 +121,7 @@ import { CopyButton, Toasts } from '../ui/ui';
           <header class="card-head">
             <div>
               <h2>Con Relayo</h2>
-              <p class="muted small">El driver <code>&#64;alimzen/simulator</code> envía por la API y normaliza los webhooks.</p>
+              <p class="muted small">El driver <code>&#64;alimzen/relayo-simulator</code> (o <code>&#64;alimzen/relayo-cloud</code>) envía por la API y normaliza los webhooks.</p>
             </div>
             <app-copy [value]="snippet()" label="Copiar código" />
           </header>

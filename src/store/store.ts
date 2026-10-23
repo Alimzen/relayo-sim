@@ -1,4 +1,4 @@
-import type { ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -103,13 +103,25 @@ export interface SimStore {
   /** Newest first, each with the latest event of its first recipient. */
   listMessages(projectId: string, query: MessageQuery): Promise<MessageListItem[]>;
   addEvent(event: SimEvent): Promise<void>;
+  getEvent(projectId: string, eventId: string): Promise<SimEvent | undefined>;
+
+  // Webhook delivery log
+  addWebhookAttempt(attempt: WebhookAttempt): Promise<void>;
+  /** Newest first. `failed`: only attempts that did not get a 2xx. */
+  listWebhookAttempts(projectId: string, query: { limit: number; before?: Date; failed?: boolean; eventId?: string }): Promise<WebhookAttempt[]>;
+  getWebhookAttempt(projectId: string, id: string): Promise<WebhookAttempt | undefined>;
+  /** Attempts since a date: how many got a 2xx and how many did not. */
+  webhookStats(projectId: string, since: Date): Promise<{ ok: number; failed: number }>;
   stats(projectId: string, since: Date, mode?: Mode): Promise<ProjectStats>;
 
   /** Adds one message to a project's usage for a month (`2026-10`) and returns the new total. */
   incrementUsage(projectId: string, month: string): Promise<number>;
   getUsage(projectId: string, month: string): Promise<number>;
 
-  /** Deletes messages created before a date (with their events and content) and expired sessions, tokens and counters. */
+  /**
+   * Deletes messages created before a date (with their events and content), webhook attempts older than it,
+   * and expired sessions, tokens and counters.
+   */
   purge(before: Date): Promise<{ messages: number }>;
 
   /** Answers when the database does (health checks). In-memory stores leave it out. */

@@ -1,7 +1,7 @@
 import { Queue, Worker, type ConnectionOptions } from 'bullmq';
 import type { SimEvent } from '../domain.js';
 import type { EventScheduler, ScheduledStep, StepHandler } from '../scheduler/scheduler.js';
-import { deliverWebhook, type WebhookDispatcher } from '../webhooks/webhooks.js';
+import { attemptRecord, attemptWebhook, recordAttempt, type WebhookDispatcher, type WebhookLog } from '../webhooks/webhooks.js';
 
 const TIMELINE_QUEUE = 'sim-timeline';
 const WEBHOOK_QUEUE = 'sim-webhooks';
@@ -13,6 +13,8 @@ export interface BullOptions {
   webhookBackoffMs?: number;
   /** Webhook delivery attempts. Default 8. */
   webhookAttempts?: number;
+  /** Stores each delivery try (the panel's delivery log). */
+  webhookLog?: WebhookLog;
 }
 
 /** Workers need `maxRetriesPerRequest: null` so blocking commands are not cut short. */
@@ -81,9 +83,15 @@ export class BullDispatcher implements WebhookDispatcher {
     this.worker = new Worker<WebhookJob>(
       WEBHOOK_QUEUE,
       async (job) => {
-        const { event, target } = job.data;
+        const { target } = job.data;
         // Dates come back from Redis as strings; the webhook body is JSON either way.
-        await deliverWebhook({ ...event, timestamp: new Date(event.timestamp) }, target);
+        const event = { ...job.data.event, timestamp: new Date(job.data.event.timestamp) };
+        const result = await attemptWebhook(event, target);
+        const attempt = job.attemptsMade + 1;
+        const maxAttempts = job.opts.attempts ?? 1;
+        const willRetry = !result.ok && attempt < maxAttempts;
+        await recordAttempt(options.webhookLog, attemptRecord(event, target.url, result, { attempt, maxAttempts, trigger: 'auto', willRetry }));
+        if (!result.ok) throw new Error(result.error ?? `Webhook answered ${result.statusCode}`);
       },
       { connection: connection(url), concurrency: 20, ...prefix },
     );

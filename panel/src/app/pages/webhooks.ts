@@ -1,23 +1,26 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LucideEye, LucideEyeOff, LucideRefreshCw } from '@lucide/angular';
+import { LucideEye, LucideEyeOff, LucideRefreshCw, LucideSend } from '@lucide/angular';
 import { Api } from '../core/api';
 import { Session } from '../core/session';
 import { CopyButton, Modal, Toasts } from '../ui/ui';
+import { WebhookDeliveries } from './webhook-deliveries';
 
 @Component({
   selector: 'app-webhooks',
-  imports: [FormsModule, CopyButton, Modal, LucideEye, LucideEyeOff, LucideRefreshCw],
+  imports: [FormsModule, CopyButton, Modal, WebhookDeliveries, LucideEye, LucideEyeOff, LucideRefreshCw, LucideSend],
   template: `
     <div class="page">
       <header class="page-head">
         <div>
           <h1>Webhooks</h1>
-          <p>Adónde envía el simulador los eventos de este proyecto, y con qué los firma.</p>
+          <p>Adónde llegan los eventos de este proyecto (simulados y reales), con qué se firman y qué respondió tu endpoint.</p>
         </div>
       </header>
 
       <div class="stack">
+        <app-webhook-deliveries [hasUrl]="!!current().webhookUrl" />
+
         <form class="card" (ngSubmit)="saveWebhook()">
           <header class="card-head">
             <div>
@@ -40,7 +43,9 @@ import { CopyButton, Modal, Toasts } from '../ui/ui';
             </div>
           </div>
           <footer class="card-foot">
-            <span></span>
+            <button type="button" class="btn btn-sm" (click)="test()" [disabled]="busy() || !current().webhookUrl">
+              <svg lucideSend [size]="14"></svg>Enviar evento de prueba
+            </button>
             <button type="submit" class="btn btn-primary btn-sm" [disabled]="busy()">Guardar</button>
           </footer>
         </form>
@@ -49,7 +54,7 @@ import { CopyButton, Modal, Toasts } from '../ui/ui';
           <header class="card-head">
             <div>
               <h2>Secreto de firma</h2>
-              <p class="muted small">Pásalo como <code>webhook.secret</code> al driver <code>&#64;alimzen/simulator</code> para verificar la firma.</p>
+              <p class="muted small">Pásalo como <code>webhook.secret</code> al driver <code>&#64;alimzen/relayo-cloud</code> o <code>&#64;alimzen/relayo-simulator</code> para verificar la firma.</p>
             </div>
           </header>
           <div class="card-body">
@@ -134,6 +139,7 @@ export class WebhooksPage {
   protected readonly busy = signal(false);
   protected readonly mask = '•'.repeat(32);
   protected webhookUrl = this.current().webhookUrl ?? '';
+  private readonly deliveries = viewChild.required(WebhookDeliveries);
   protected reportsUrl = '';
 
   constructor() {
@@ -145,6 +151,22 @@ export class WebhooksPage {
 
   protected async saveWebhook(): Promise<void> {
     await this.update({ webhookUrl: this.webhookUrl.trim() || null }, 'URL del webhook guardada');
+  }
+
+  /** A made-up `delivered` event (header `Relayo-Test: true`), to check the endpoint and its signature check. */
+  protected async test(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      const attempt = await this.api.testWebhook();
+      if (attempt.ok) this.toasts.show(`Tu endpoint respondió ${attempt.statusCode} en ${attempt.durationMs} ms`);
+      else this.toasts.error(new Error(`El evento de prueba falló: ${attempt.statusCode ? `HTTP ${attempt.statusCode}` : attempt.error}`));
+      await this.deliveries().reload();
+    } catch (error) {
+      this.toasts.error(error);
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected async saveReports(): Promise<void> {

@@ -21,11 +21,13 @@ import {
   ProjectController,
   ScenariosController,
   SmsController,
+  WebhookDeliveriesController,
 } from './api/controllers.js';
 import { LiveService } from './live/live.service.js';
 import { SecretBox } from './live/secrets.js';
 import { ManagedSending } from './live/managed.js';
 import { SIM_CONFIG, type SimConfig } from './config.js';
+import type { WebhookAttempt } from './domain.js';
 import { INFRASTRUCTURE, infrastructure, type Infrastructure } from './infrastructure.js';
 import { EVENT_SCHEDULER, type EventScheduler } from './scheduler/scheduler.js';
 import { SmtpReportSender } from './reports/sender.js';
@@ -52,12 +54,26 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
     @Inject(INFRASTRUCTURE) private readonly infra: Infrastructure,
     @Inject(LiveService) private readonly live: LiveService,
     @Inject(SIM_STORE) private readonly store: SimStore,
+    @Inject(AccountsService) private readonly accounts: AccountsService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    this.infra.onWebhookExhausted = (attempt) => void this.alertWebhookFailing(attempt);
     this.startRetention();
     await this.resealSecrets();
     await this.startSmtp();
+  }
+
+  /** Emails a project's owner when an event used up its webhook tries: at most once a day per project. */
+  private async alertWebhookFailing(attempt: WebhookAttempt): Promise<void> {
+    try {
+      if ((await this.store.nextAttempt(`webhook-alert|${attempt.projectId}`, 86_400_000)) > 1) return;
+      const project = await this.store.getProject(attempt.projectId);
+      const owner = project?.ownerId ? await this.store.getUser(project.ownerId) : undefined;
+      if (project && owner) await this.accounts.notifyWebhookFailing(owner, project, attempt);
+    } catch (error) {
+      this.logger.warn(`Could not send the webhook failure alert: ${(error as Error).message}`);
+    }
   }
 
   /** After a SECRETS_KEY change: moves every stored secret to the new key, so the old one can be dropped. */
@@ -141,6 +157,7 @@ export class AppModule {
         ProjectController,
         AdminController,
         ManagedReviewController,
+        WebhookDeliveriesController,
       ],
       providers: [
         { provide: SIM_CONFIG, useValue: config },

@@ -2049,6 +2049,26 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 
+.deliveries td {
+  vertical-align: top;
+}
+
+.deliveries .truncate {
+  max-width: 260px;
+}
+
+.delivery-props {
+  margin-bottom: 16px;
+}
+
+.delivery-pre {
+  max-height: 260px;
+  overflow: auto;
+  margin-bottom: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .compose-html summary {
   cursor: pointer;
   font-size: 13px;

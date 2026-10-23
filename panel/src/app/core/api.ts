@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -107,6 +107,15 @@ export class Api {
   revokeKey = (id: string) => this.call<void>('DELETE', `/v1/project/keys/${encodeURIComponent(id)}`);
   webhookSecret = () => this.call<{ webhookSecret: string }>('GET', '/v1/project/webhook-secret');
   rotateWebhookSecret = () => this.call<{ webhookSecret: string }>('POST', '/v1/project/webhook-secret/rotate');
+  webhookDeliveries = (query: { limit?: number; before?: string; status?: 'failed' } = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined) params.set(key, String(value));
+    return this.call<{ data: WebhookDelivery[] }>('GET', `/v1/project/webhook/deliveries?${params}`).then((r) => r.data);
+  };
+  webhookDelivery = (id: string) => this.call<WebhookDeliveryDetail>('GET', `/v1/project/webhook/deliveries/${encodeURIComponent(id)}`);
+  redeliverWebhook = (id: string) => this.call<WebhookDelivery>('POST', `/v1/project/webhook/deliveries/${encodeURIComponent(id)}/redeliver`);
+  testWebhook = () => this.call<WebhookDelivery>('POST', '/v1/project/webhook/test');
+  webhookStats = () => this.call<WebhookStats>('GET', '/v1/project/webhook/stats');
 
   // Messages
   scenarios = () => this.call<{ data: Scenario[] }>('GET', '/v1/scenarios').then((r) => r.data);

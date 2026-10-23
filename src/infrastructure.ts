@@ -1,8 +1,9 @@
 import type { SimConfig } from './config.js';
+import type { WebhookAttempt } from './domain.js';
 import { MemoryScheduler, type EventScheduler } from './scheduler/scheduler.js';
 import { MemoryStore } from './store/memory-store.js';
 import type { SimStore } from './store/store.js';
-import { MemoryDispatcher, type WebhookDispatcher } from './webhooks/webhooks.js';
+import { DEFAULT_RETRY, MemoryDispatcher, type WebhookDispatcher, type WebhookLog } from './webhooks/webhooks.js';
 
 export const INFRASTRUCTURE = Symbol.for('relayo-sim:infrastructure');
 
@@ -10,6 +11,10 @@ export interface Infrastructure {
   store: SimStore;
   scheduler: EventScheduler;
   dispatcher: WebhookDispatcher;
+  /** Stores a webhook try in the delivery log (dispatchers use it; so do manual redeliveries). */
+  webhookLog: WebhookLog;
+  /** Called when an event used up its automatic tries without a 2xx. */
+  onWebhookExhausted?: (attempt: WebhookAttempt) => void;
   /** Whether each backing service answers: `ok`, or why not. In-memory ones are not listed. */
   check(): Promise<Record<string, string>>;
   close(): Promise<void>;
@@ -37,6 +42,11 @@ export async function infrastructure(config: SimConfig): Promise<Infrastructure>
     ? await (await import('./store/postgres-store.js')).PostgresStore.connect(config.databaseUrl)
     : new MemoryStore();
 
+  const webhookLog: WebhookLog = async (attempt) => {
+    await store.addWebhookAttempt(attempt);
+    if (!attempt.ok && !attempt.willRetry && attempt.trigger === 'auto') infra.onWebhookExhausted?.(attempt);
+  };
+
   let scheduler: EventScheduler;
   let dispatcher: WebhookDispatcher;
   let pingRedis: (() => Promise<unknown>) | undefined;
@@ -44,17 +54,18 @@ export async function infrastructure(config: SimConfig): Promise<Infrastructure>
     const { BullScheduler, BullDispatcher } = await import('./queues/bullmq.js');
     const bull = new BullScheduler(config.redisUrl);
     scheduler = bull;
-    dispatcher = new BullDispatcher(config.redisUrl);
+    dispatcher = new BullDispatcher(config.redisUrl, { webhookLog });
     pingRedis = () => bull.ping();
   } else {
     scheduler = new MemoryScheduler();
-    dispatcher = new MemoryDispatcher();
+    dispatcher = new MemoryDispatcher(DEFAULT_RETRY, fetch, webhookLog);
   }
 
-  return {
+  const infra: Infrastructure = {
     store,
     scheduler,
     dispatcher,
+    webhookLog,
     async check() {
       const checks: Record<string, string> = {};
       if (store.ping) checks.database = await probe(() => store.ping!());
@@ -67,4 +78,5 @@ export async function infrastructure(config: SimConfig): Promise<Infrastructure>
       await store.close?.();
     },
   };
+  return infra;
 }

@@ -70,6 +70,30 @@ describe('email verification', () => {
     expect(sent[0]!.text).toContain('https://relayo.alimzen.com/domains');
   });
 
+  it('tells the owner when their webhook gives up on an event, with its last answer', async () => {
+    const { accounts, sent } = setup(false);
+    const { user, project } = await accounts.signup({ email: 'eva@empresa.com', name: 'Eva', password: 'una-clave-larga' });
+    await accounts.notifyWebhookFailing(user, project, {
+      id: 'wha_1',
+      projectId: project.id,
+      eventId: 'evt_1',
+      eventType: 'bounced',
+      recipient: 'ana@x.com',
+      url: 'https://app.example/hooks',
+      attempt: 8,
+      maxAttempts: 8,
+      trigger: 'auto',
+      ok: false,
+      statusCode: 502,
+      durationMs: 30,
+      willRetry: false,
+      createdAt: new Date(),
+    });
+    expect(sent[0]!.subject).toBe('Tu webhook de «Mi primer proyecto» está fallando');
+    expect(sent[0]!.text).toContain('Última respuesta: HTTP 502');
+    expect(sent[0]!.text).toContain('https://relayo.alimzen.com/webhooks');
+  });
+
   it('starts accounts verified when the platform cannot send email', async () => {
     const { accounts, sent } = setup(false);
     const { user } = await accounts.signup({ email: 'eva@empresa.com', name: 'Eva', password: 'una-clave-larga' });

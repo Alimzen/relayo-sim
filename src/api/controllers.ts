@@ -17,9 +17,11 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { composeMessage, quotedHeaders, readAttachment, readContent, readHeaders, type ApiAttachment, type MailAddress } from '../capture/capture.js';
-import type { Mode, Project, SimEvent } from '../domain.js';
+import type { Mode, Project, SimEvent, WebhookAttempt } from '../domain.js';
+import { attemptRecord, attemptWebhook, recordAttempt, webhookBody } from '../webhooks/webhooks.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { isSmsScenario, PHONE, SMS_SCENARIOS } from '../scenarios/sms.js';
 import { QuotaExceededError, SimulationService } from '../simulation/simulation.service.js';
@@ -449,6 +451,96 @@ function urlChange(value: unknown, pattern: RegExp, error: string): string | nul
   if (typeof value !== 'string') return undefined;
   if (!pattern.test(value)) throw new BadRequestException(error);
   return value;
+}
+
+/** The project's webhook delivery log: every try, its answer, and redeliveries. */
+@Controller('v1/project/webhook')
+@UseGuards(ProjectGuard)
+export class WebhookDeliveriesController {
+  constructor(
+    @Inject(SIM_STORE) private readonly store: SimStore,
+    @Inject(INFRASTRUCTURE) private readonly infra: Infrastructure,
+  ) {}
+
+  /** Newest first; `status=failed` for failures only, `before` (ISO date) for the next page. */
+  @Get('deliveries')
+  async list(@CurrentProject() project: Project, @Query('limit') limit?: string, @Query('before') before?: string, @Query('status') status?: string) {
+    const max = Math.min(200, Math.max(1, Number(limit) || 50));
+    const attempts = await this.store.listWebhookAttempts(project.id, {
+      limit: max,
+      ...(before && !Number.isNaN(Date.parse(before)) && { before: new Date(before) }),
+      ...(status === 'failed' && { failed: true }),
+    });
+    return { data: attempts.map(publicAttempt) };
+  }
+
+  /** Tries and failures in the last 24 hours, and the latest try. */
+  @Get('stats')
+  async stats(@CurrentProject() project: Project) {
+    const since = new Date(Date.now() - 86_400_000);
+    const [counts, latest] = await Promise.all([
+      this.store.webhookStats(project.id, since),
+      this.store.listWebhookAttempts(project.id, { limit: 1 }),
+    ]);
+    return { since, ...counts, latest: latest[0] ? publicAttempt(latest[0]) : null };
+  }
+
+  /** One try with the event it carried (gone once the message is past retention). */
+  @Get('deliveries/:id')
+  async get(@CurrentProject() project: Project, @Param('id') id: string) {
+    const attempt = await this.store.getWebhookAttempt(project.id, id);
+    if (!attempt) throw new NotFoundException('Entrega no encontrada');
+    const event = await this.store.getEvent(project.id, attempt.eventId);
+    return { ...publicAttempt(attempt), event: event ? JSON.parse(webhookBody(event)) : null };
+  }
+
+  /** Sends the event of a try again, now, to the current webhook URL. */
+  @Post('deliveries/:id/redeliver')
+  @HttpCode(200)
+  async redeliver(@CurrentProject() project: Project, @Param('id') id: string) {
+    const attempt = await this.store.getWebhookAttempt(project.id, id);
+    if (!attempt) throw new NotFoundException('Entrega no encontrada');
+    const event = await this.store.getEvent(project.id, attempt.eventId);
+    if (!event) throw new BadRequestException('El evento ya no existe: se borró con su mensaje al pasar el periodo de retención.');
+    return publicAttempt(await this.send(project, event, 'redeliver'));
+  }
+
+  /**
+   * Sends a made-up `delivered` event, marked with the `Relayo-Test: true` header and `metadata.relayoTest`,
+   * to check the endpoint and its signature check.
+   */
+  @Post('test')
+  @HttpCode(200)
+  async test(@CurrentProject() project: Project) {
+    const event: SimEvent = {
+      id: `test_${randomUUID()}`,
+      type: 'delivered',
+      channel: 'email',
+      provider: 'relayo',
+      messageId: 'test',
+      providerMessageId: 'test',
+      recipient: 'test@sim.relayo.dev',
+      timestamp: new Date(),
+      metadata: { relayoTest: 'true' },
+      raw: { test: true },
+      projectId: project.id,
+    };
+    return publicAttempt(await this.send(project, event, 'test'));
+  }
+
+  private async send(project: Project, event: SimEvent, trigger: 'redeliver' | 'test'): Promise<WebhookAttempt> {
+    if (!project.webhookUrl) throw new BadRequestException('Configura primero la URL del webhook.');
+    const target = { url: project.webhookUrl, secret: project.webhookSecret };
+    const result = await attemptWebhook(event, target, fetch, trigger === 'test' ? { 'Relayo-Test': 'true' } : {});
+    const attempt = attemptRecord(event, target.url, result, { attempt: 1, maxAttempts: 1, trigger, willRetry: false });
+    await recordAttempt(this.infra.webhookLog, attempt);
+    return attempt;
+  }
+}
+
+function publicAttempt(attempt: WebhookAttempt) {
+  const { projectId: _projectId, ...rest } = attempt;
+  return rest;
 }
 
 /** Platform admins (ADMIN_EMAILS, or the admin token): review of Relayo's own sending. */

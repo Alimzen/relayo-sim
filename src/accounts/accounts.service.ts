@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { Project, User } from '../domain.js';
+import type { Project, User, WebhookAttempt } from '../domain.js';
 import type { SimulationService } from '../simulation/simulation.service.js';
 import type { SimStore } from '../store/store.js';
 import { LogMailer, type Mailer, type MailToSend } from './mailer.js';
@@ -284,6 +284,29 @@ export class AccountsService {
 <p>Hola, ${escape(user.name)}:</p>
 ${lines.map((l) => `<p>${escape(l)}</p>`).join('\n')}
 <p><a href="${escape(link)}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Abrir el panel</a></p>
+</div>`,
+    });
+  }
+
+  /** Tells a project's owner that their webhook gave up on an event, with what it last answered. */
+  async notifyWebhookFailing(user: User, project: Project, attempt: WebhookAttempt): Promise<void> {
+    const link = `${this.options.publicUrl ?? ''}/webhooks`;
+    const answer = attempt.statusCode ? `HTTP ${attempt.statusCode}` : (attempt.error ?? 'sin respuesta');
+    const lines = [
+      `El webhook del proyecto «${project.name}» no aceptó un evento (${attempt.eventType}) después de ${attempt.maxAttempts} intentos.`,
+      `URL: ${attempt.url}`,
+      `Última respuesta: ${answer}`,
+      'Revisa el registro de entregas: desde ahí puedes reenviar los eventos cuando tu endpoint vuelva a funcionar. No te avisaremos otra vez en 24 horas.',
+    ];
+    const escape = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+    await this.mailer.send({
+      to: user.email,
+      subject: `Tu webhook de «${project.name}» está fallando`,
+      text: [`Hola, ${user.name}:`, '', ...lines, '', link].join('\n'),
+      html: `<div style="font-family:system-ui,sans-serif;max-width:520px;color:#18181b;line-height:1.5">
+<p>Hola, ${escape(user.name)}:</p>
+${lines.map((l) => `<p>${escape(l)}</p>`).join('\n')}
+<p><a href="${escape(link)}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Ver las entregas</a></p>
 </div>`,
     });
   }

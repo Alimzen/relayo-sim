@@ -1,4 +1,4 @@
-import type { ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -16,6 +16,7 @@ export class MemoryStore implements SimStore {
   private readonly suppressions = new Map<string, Suppression>();
   private readonly domains = new Map<string, SendingDomain>();
   private readonly usage = new Map<string, number>();
+  private readonly webhookAttempts: WebhookAttempt[] = [];
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
   // --- Accounts ---------------------------------------------------------------------------------
@@ -253,6 +254,8 @@ export class MemoryStore implements SimStore {
       this.contents.delete(id);
       messages++;
     }
+    const kept = this.webhookAttempts.filter((a) => a.createdAt >= before);
+    this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
     const now = new Date();
     for (const [hash, session] of this.sessions) if (session.expiresAt <= now) this.sessions.delete(hash);
     for (const [hash, reset] of this.resets) if (reset.expiresAt <= now) this.resets.delete(hash);
@@ -267,6 +270,40 @@ export class MemoryStore implements SimStore {
 
   async getContent(projectId: string, id: string): Promise<Buffer | undefined> {
     return this.messages.get(id)?.projectId === projectId ? this.contents.get(id) : undefined;
+  }
+
+  async getEvent(projectId: string, eventId: string): Promise<SimEvent | undefined> {
+    for (const events of this.events.values()) {
+      const event = events.find((e) => e.id === eventId);
+      if (event) return event.projectId === projectId ? event : undefined;
+    }
+    return undefined;
+  }
+
+  async addWebhookAttempt(attempt: WebhookAttempt): Promise<void> {
+    this.webhookAttempts.push({ ...attempt });
+  }
+
+  async listWebhookAttempts(projectId: string, query: { limit: number; before?: Date; failed?: boolean; eventId?: string }): Promise<WebhookAttempt[]> {
+    return this.webhookAttempts
+      .filter(
+        (a) =>
+          a.projectId === projectId &&
+          (!query.before || a.createdAt < query.before) &&
+          (!query.failed || !a.ok) &&
+          (!query.eventId || a.eventId === query.eventId),
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, query.limit);
+  }
+
+  async getWebhookAttempt(projectId: string, id: string): Promise<WebhookAttempt | undefined> {
+    return this.webhookAttempts.find((a) => a.id === id && a.projectId === projectId);
+  }
+
+  async webhookStats(projectId: string, since: Date): Promise<{ ok: number; failed: number }> {
+    const recent = this.webhookAttempts.filter((a) => a.projectId === projectId && a.createdAt >= since);
+    return { ok: recent.filter((a) => a.ok).length, failed: recent.filter((a) => !a.ok).length };
   }
 
   async getMessage(projectId: string, id: string): Promise<MessageWithEvents | undefined> {

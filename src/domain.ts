@@ -162,6 +162,31 @@ export interface SimMessage {
 /** A Relayo event produced by the simulator. `provider` is always `simulator`. */
 export type SimEvent = RelayoEvent & { projectId: string };
 
+/** One POST of an event to a project's webhook, as the delivery log shows it. */
+export interface WebhookAttempt {
+  id: string;
+  projectId: string;
+  eventId: string;
+  eventType: SimEvent['type'];
+  recipient: string;
+  url: string;
+  /** 1-based; `maxAttempts` is how many automatic tries the event gets. */
+  attempt: number;
+  maxAttempts: number;
+  /** Automatic delivery, a redelivery from the panel or API, or a test event. */
+  trigger: 'auto' | 'redeliver' | 'test';
+  ok: boolean;
+  statusCode?: number;
+  /** Network error or timeout, when there was no answer. */
+  error?: string;
+  /** Start of the answer's body (up to 2 KB), to see what the endpoint said. */
+  responseBody?: string;
+  durationMs: number;
+  /** Whether another automatic try will follow this failure. */
+  willRetry: boolean;
+  createdAt: Date;
+}
+
 export interface MessageWithEvents extends SimMessage {
   events: SimEvent[];
 }
