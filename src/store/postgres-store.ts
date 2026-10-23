@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -134,6 +134,20 @@ CREATE TABLE IF NOT EXISTS usage (
   PRIMARY KEY (project_id, month)
 );
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
+CREATE TABLE IF NOT EXISTS templates (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  alias text NOT NULL,
+  name text NOT NULL,
+  channel text NOT NULL,
+  subject text,
+  html text,
+  text text,
+  body text,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  UNIQUE (project_id, alias)
+);
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   key text NOT NULL,
@@ -495,6 +509,37 @@ export class PostgresStore implements SimStore {
     return rows[0] && { ...rows[0].body, timestamp: new Date(rows[0].body.timestamp) };
   }
 
+  async createTemplate(t: Template): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO templates (id, project_id, alias, name, channel, subject, html, text, body, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [t.id, t.projectId, t.alias, t.name, t.channel, t.subject ?? null, t.html ?? null, t.text ?? null, t.body ?? null, t.createdAt, t.updatedAt],
+    );
+  }
+
+  async listTemplates(projectId: string): Promise<Template[]> {
+    const { rows } = await this.pool.query<TemplateRow>('SELECT * FROM templates WHERE project_id = $1 ORDER BY alias', [projectId]);
+    return rows.map(toTemplate);
+  }
+
+  async getTemplate(projectId: string, ref: string): Promise<Template | undefined> {
+    const { rows } = await this.pool.query<TemplateRow>('SELECT * FROM templates WHERE project_id = $1 AND (id = $2 OR alias = $2)', [projectId, ref]);
+    return rows[0] && toTemplate(rows[0]);
+  }
+
+  async updateTemplate(t: Template): Promise<void> {
+    await this.pool.query(
+      `UPDATE templates SET alias = $3, name = $4, subject = $5, html = $6, text = $7, body = $8, updated_at = $9
+       WHERE id = $1 AND project_id = $2`,
+      [t.id, t.projectId, t.alias, t.name, t.subject ?? null, t.html ?? null, t.text ?? null, t.body ?? null, t.updatedAt],
+    );
+  }
+
+  async deleteTemplate(projectId: string, id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query('DELETE FROM templates WHERE id = $1 AND project_id = $2', [id, projectId]);
+    return (rowCount ?? 0) > 0;
+  }
+
   async claimIdempotencyKey(
     projectId: string,
     key: string,
@@ -816,12 +861,42 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
+}
+
+interface TemplateRow {
+  id: string;
+  project_id: string;
+  alias: string;
+  name: string;
+  channel: 'email' | 'sms';
+  subject: string | null;
+  html: string | null;
+  text: string | null;
+  body: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function toTemplate(row: TemplateRow): Template {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    alias: row.alias,
+    name: row.name,
+    channel: row.channel,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.subject !== null && { subject: row.subject }),
+    ...(row.html !== null && { html: row.html }),
+    ...(row.text !== null && { text: row.text }),
+    ...(row.body !== null && { body: row.body }),
+  };
 }
 
 interface AttemptRow {

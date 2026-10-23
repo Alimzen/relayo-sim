@@ -1,4 +1,4 @@
-import type { WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -104,6 +104,15 @@ export interface SimStore {
   listMessages(projectId: string, query: MessageQuery): Promise<MessageListItem[]>;
   addEvent(event: SimEvent): Promise<void>;
   getEvent(projectId: string, eventId: string): Promise<SimEvent | undefined>;
+
+  // Templates
+  createTemplate(template: Template): Promise<void>;
+  /** Ordered by alias. */
+  listTemplates(projectId: string): Promise<Template[]>;
+  /** By id or alias. */
+  getTemplate(projectId: string, ref: string): Promise<Template | undefined>;
+  updateTemplate(template: Template): Promise<void>;
+  deleteTemplate(projectId: string, id: string): Promise<boolean>;
 
   // Idempotency keys
   /**

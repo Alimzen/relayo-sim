@@ -1,4 +1,4 @@
-import type { WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -17,6 +17,7 @@ export class MemoryStore implements SimStore {
   private readonly domains = new Map<string, SendingDomain>();
   private readonly usage = new Map<string, number>();
   private readonly webhookAttempts: WebhookAttempt[] = [];
+  private readonly templates = new Map<string, Template>();
   private readonly idempotency = new Map<string, { fingerprint: string; response?: unknown; expires: number }>();
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
@@ -280,6 +281,29 @@ export class MemoryStore implements SimStore {
       if (event) return event.projectId === projectId ? event : undefined;
     }
     return undefined;
+  }
+
+  async createTemplate(template: Template): Promise<void> {
+    if (await this.getTemplate(template.projectId, template.alias)) throw new Error('A template with this alias already exists');
+    this.templates.set(template.id, { ...template });
+  }
+
+  async listTemplates(projectId: string): Promise<Template[]> {
+    return [...this.templates.values()].filter((t) => t.projectId === projectId).sort((a, b) => a.alias.localeCompare(b.alias));
+  }
+
+  async getTemplate(projectId: string, ref: string): Promise<Template | undefined> {
+    return [...this.templates.values()].find((t) => t.projectId === projectId && (t.id === ref || t.alias === ref));
+  }
+
+  async updateTemplate(template: Template): Promise<void> {
+    const current = this.templates.get(template.id);
+    if (current?.projectId === template.projectId) this.templates.set(template.id, { ...template });
+  }
+
+  async deleteTemplate(projectId: string, id: string): Promise<boolean> {
+    if (this.templates.get(id)?.projectId !== projectId) return false;
+    return this.templates.delete(id);
   }
 
   async claimIdempotencyKey(

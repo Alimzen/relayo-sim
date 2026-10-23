@@ -308,6 +308,30 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
   });
 
+  it('keeps templates, found by id or alias', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const base = { projectId: 'prj_1', channel: 'email' as const, createdAt: new Date('2026-10-18T10:00:00Z'), updatedAt: new Date('2026-10-18T10:00:00Z') };
+    await store.createTemplate({ ...base, id: 'tpl_b', alias: 'pedido', name: 'Pedido', subject: 'S', html: '<p>h</p>' });
+    await store.createTemplate({ ...base, id: 'tpl_a', alias: 'alta', name: 'Alta', subject: 'S', text: 't' });
+    await expect(store.createTemplate({ ...base, id: 'tpl_c', alias: 'alta', name: 'Otra', subject: 'S', text: 't' })).rejects.toThrow();
+
+    expect((await store.listTemplates('prj_1')).map((t) => t.alias)).toEqual(['alta', 'pedido']);
+    expect(await store.getTemplate('prj_1', 'pedido')).toMatchObject({ id: 'tpl_b', html: '<p>h</p>' });
+    expect((await store.getTemplate('prj_1', 'tpl_a'))?.text).toBe('t');
+    expect(await store.getTemplate('prj_other', 'pedido')).toBeUndefined();
+
+    const updated = { ...(await store.getTemplate('prj_1', 'tpl_b'))!, alias: 'pedido-enviado', text: 'nuevo', updatedAt: new Date('2026-10-19T10:00:00Z') };
+    delete updated.html;
+    await store.updateTemplate(updated);
+    const read = await store.getTemplate('prj_1', 'pedido-enviado');
+    expect(read).toMatchObject({ text: 'nuevo', updatedAt: new Date('2026-10-19T10:00:00Z') });
+    expect(read?.html).toBeUndefined();
+
+    expect(await store.deleteTemplate('prj_other', 'tpl_a')).toBe(false);
+    expect(await store.deleteTemplate('prj_1', 'tpl_a')).toBe(true);
+  });
+
   it('claims idempotency keys once until they expire', async () => {
     const store = await open();
     await store.createProject(project());

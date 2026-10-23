@@ -168,6 +168,23 @@ export interface SimMessage {
 /** A Relayo event produced by the simulator. `provider` is always `simulator`. */
 export type SimEvent = RelayoEvent & { projectId: string };
 
+/** A saved email or SMS that sends fill with variables (`{{name}}`). */
+export interface Template {
+  id: string;
+  projectId: string;
+  /** How sends name it, e.g. `bienvenida`: unique in the project. */
+  alias: string;
+  name: string;
+  channel: 'email' | 'sms';
+  subject?: string;
+  html?: string;
+  text?: string;
+  /** SMS text. */
+  body?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 /** One POST of an event to a project's webhook, as the delivery log shows it. */
 export interface WebhookAttempt {
   id: string;

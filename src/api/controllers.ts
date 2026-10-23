@@ -21,7 +21,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { composeMessage, quotedHeaders, readAttachment, readContent, readHeaders, type ApiAttachment, type MailAddress } from '../capture/capture.js';
-import type { Mode, Project, SimEvent, WebhookAttempt } from '../domain.js';
+import type { Mode, Project, SimEvent, Template, WebhookAttempt } from '../domain.js';
+import { TemplateError, TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
 import { attemptRecord, attemptWebhook, recordAttempt, webhookBody } from '../webhooks/webhooks.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { isSmsScenario, PHONE, SMS_SCENARIOS } from '../scenarios/sms.js';
@@ -54,6 +55,9 @@ export interface SendBody {
   tags?: string[];
   /** Relayo's message id, so events come back with it. */
   relayoMessageId?: string;
+  /** A saved template (alias or id) for subject, html and text; fields given here win over it. */
+  template?: string;
+  variables?: Record<string, unknown>;
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
@@ -121,6 +125,9 @@ export interface SendSmsBody {
   relayoMessageId?: string;
   /** Scenario for every recipient, instead of the magic numbers. */
   scenario?: string;
+  /** A saved SMS template (alias or id) for the text, instead of `body`. */
+  template?: string;
+  variables?: Record<string, unknown>;
 }
 
 /** Sender ids: a phone number, or up to 11 letters and digits (alphanumeric sender id). */
@@ -132,13 +139,15 @@ export class SmsController {
   constructor(
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(LiveService) private readonly live: LiveService,
+    @Inject(TemplatesService) private readonly templates: TemplatesService,
   ) {}
 
   /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
   @Post()
   @HttpCode(202)
   @UseInterceptors(IdempotencyInterceptor)
-  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendSmsBody) {
+  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() input: SendSmsBody) {
+    const body = input?.template === undefined ? input : { ...input, body: input.body ?? (await renderTemplate(() => this.templates.renderSms(project, String(input.template), variablesOf(input)))).body };
     const to = (Array.isArray(body?.to) ? body.to : [body?.to]).map((a) => addressOf(a as Address)?.trim());
     if (!to.length || to.some((n) => !n || !PHONE.test(n))) {
       throw new BadRequestException('"to" must contain phone numbers in E.164 format, e.g. +12015550100');
@@ -192,13 +201,15 @@ export class MessagesController {
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(LiveService) private readonly live: LiveService,
+    @Inject(TemplatesService) private readonly templates: TemplatesService,
   ) {}
 
   /** Test keys: the simulator plays the scenario. Live keys: real delivery through the project's connections. */
   @Post()
   @HttpCode(202)
   @UseInterceptors(IdempotencyInterceptor)
-  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendBody) {
+  async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() input: SendBody) {
+    const body = input?.template === undefined ? input : ({ ...(await renderTemplate(() => this.templates.renderEmail(project, String(input.template), variablesOf(input)))), ...withoutUndefined(input) } as SendBody);
     const from = addressOf(body?.from);
     const to = [...(Array.isArray(body?.to) ? body.to : [body?.to]), ...(body?.cc ?? []), ...(body?.bcc ?? [])].map(addressOf);
     if (!from || !EMAIL.test(from)) throw new BadRequestException('"from" must be an email address');
@@ -455,6 +466,74 @@ function urlChange(value: unknown, pattern: RegExp, error: string): string | nul
   if (typeof value !== 'string') return undefined;
   if (!pattern.test(value)) throw new BadRequestException(error);
   return value;
+}
+
+/** Template errors as HTTP answers, with their (Spanish, user-facing) message. */
+async function renderTemplate<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof TemplateError) throw new HttpException({ statusCode: error.status, message: error.message }, error.status);
+    throw error;
+  }
+}
+
+function variablesOf(body: { variables?: unknown }): Record<string, unknown> {
+  if (body.variables === undefined) return {};
+  if (body.variables === null || typeof body.variables !== 'object' || Array.isArray(body.variables)) {
+    throw new BadRequestException('"variables" must be an object');
+  }
+  return body.variables as Record<string, unknown>;
+}
+
+function withoutUndefined<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/** Saved emails and SMS, filled with variables at send time. */
+@Controller('v1/project/templates')
+@UseGuards(ProjectGuard)
+export class TemplatesController {
+  constructor(@Inject(TemplatesService) private readonly templates: TemplatesService, @Inject(SIM_STORE) private readonly store: SimStore) {}
+
+  @Get()
+  async list(@CurrentProject() project: Project) {
+    return { data: (await this.store.listTemplates(project.id)).map(publicTemplate) };
+  }
+
+  @Get(':ref')
+  async get(@CurrentProject() project: Project, @Param('ref') ref: string) {
+    return publicTemplate(await renderTemplate(() => this.templates.get(project, ref)));
+  }
+
+  @Post()
+  async create(@CurrentProject() project: Project, @Body() body: Record<string, unknown>) {
+    return publicTemplate(await renderTemplate(() => this.templates.create(project, body ?? {})));
+  }
+
+  @Patch(':ref')
+  async update(@CurrentProject() project: Project, @Param('ref') ref: string, @Body() body: Record<string, unknown>) {
+    return publicTemplate(await renderTemplate(() => this.templates.update(project, ref, body ?? {})));
+  }
+
+  @Delete(':ref')
+  @HttpCode(204)
+  async remove(@CurrentProject() project: Project, @Param('ref') ref: string) {
+    const template = await renderTemplate(() => this.templates.get(project, ref));
+    await this.store.deleteTemplate(project.id, template.id);
+  }
+
+  /** The template filled with `variables` as far as they go, and the ones missing: for previews. */
+  @Post(':ref/preview')
+  @HttpCode(200)
+  async preview(@CurrentProject() project: Project, @Param('ref') ref: string, @Body() body: { variables?: unknown }) {
+    return renderTemplate(() => this.templates.preview(project, ref, variablesOf(body ?? {})));
+  }
+}
+
+function publicTemplate(template: Template) {
+  const { projectId: _projectId, ...rest } = template;
+  return { ...rest, variables: templateVariables(template.subject, template.html, template.text, template.body) };
 }
 
 /** The project's webhook delivery log: every try, its answer, and redeliveries. */
