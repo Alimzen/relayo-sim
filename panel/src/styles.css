@@ -2045,6 +2045,13 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 
+.compose-html summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
 .verify-banner {
   display: flex;
   flex-wrap: wrap;

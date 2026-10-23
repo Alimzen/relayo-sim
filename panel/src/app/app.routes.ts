@@ -57,6 +57,7 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/message-detail').then((m) => m.MessageDetailPage),
         title: page('Mensaje'),
       },
+      { path: 'send', loadComponent: () => import('./pages/compose').then((m) => m.ComposePage), title: page('Enviar') },
       { path: 'scenarios', loadComponent: () => import('./pages/scenarios').then((m) => m.ScenariosPage), title: page('Escenarios') },
       { path: 'keys', loadComponent: () => import('./pages/keys').then((m) => m.KeysPage), title: page('Claves de API') },
       { path: 'connections', loadComponent: () => import('./pages/connections').then((m) => m.ConnectionsPage), title: page('Conexiones') },

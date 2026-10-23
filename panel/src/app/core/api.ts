@@ -135,6 +135,10 @@ export class Api {
   /** Scenario sends are always simulated, whatever mode the panel shows. */
   send = (body: { from: string; to: string[]; subject: string; text: string; html?: string; headers?: Record<string, string> }) =>
     this.call<{ id: string }>('POST', '/v1/messages', body, { [MODE_HEADER]: 'test' });
+  /** A message in the mode the panel shows: simulated in test mode, delivered for real in live mode. */
+  sendMessage = (body: { from: string | { address: string; name: string }; to: string[]; subject: string; text?: string; html?: string }) =>
+    this.call<{ id: string }>('POST', '/v1/messages', body);
+  sendSmsMessage = (body: { from?: string; to: string[]; body: string }) => this.call<{ id: string }>('POST', '/v1/sms', body);
   report = async (messageId: string, eventId: string): Promise<string> => {
     const url = `/v1/messages/${encodeURIComponent(messageId)}/events/${encodeURIComponent(eventId)}/report`;
     try {
