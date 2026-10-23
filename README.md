@@ -45,10 +45,14 @@ sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
 
 | Método y ruta | Auth | |
 | --- | --- | --- |
-| `GET /health` | — | |
+| `GET /health` | — | 200 si PostgreSQL y Redis responden, 503 si no (`checks` dice cuál); para monitores de disponibilidad |
+| `GET /health/live` | — | El proceso responde: para el health check del contenedor |
 | `GET /v1/auth/config` | — | `{ signup, minPassword }` |
 | `POST /v1/auth/signup`, `/login`, `/logout` | — | Abre o cierra la sesión |
 | `GET`, `PATCH /v1/auth/me` · `POST /v1/auth/password` | Sesión | Perfil y contraseña (cierra las otras sesiones) |
+| `POST /v1/auth/verify` · `/verify/resend` | — · Sesión | Confirma el email con el token del enlace, o reenvía el enlace |
+| `POST /v1/project/managed-access` | Sesión | Solicita el envío de Relayo para el proyecto |
+| `GET /v1/admin/managed` · `POST /v1/admin/managed/:projectId` | Admin | Solicitudes del envío de Relayo; `{ decision: 'approved' \| 'denied' }` |
 | `GET`, `POST /v1/projects` · `POST /v1/projects/claim` | Sesión | Proyectos del usuario |
 | `GET /v1/scenarios` | — | Catálogo |
 | `POST /v1/messages` | API key | Envío de email (202, `{ id, status: 'queued' }`) |
@@ -104,8 +108,17 @@ dos modos con el selector de la barra (cabecera `X-Relayo-Mode`); cada clave lle
 - **Supresiones**: los rebotes duros, las quejas y las bajas añaden la dirección o el número a la lista del
   proyecto, y los envíos siguientes a ella se rechazan (`rejected` / `suppressed`) sin llegar al proveedor.
 - **Envío de Relayo** (opcional, `MANAGED_SMTP_URL`): Relayo entrega por su propio relay, firmando con DKIM el
-  dominio del remitente, que se verifica en Dominios (registros DKIM y SPF). Límite diario por proyecto, y pausa si
-  los rebotes duros pasan del 5 % o las quejas del 0,3 %.
+  dominio del remitente, que se verifica en Dominios (registros DKIM y SPF). Cada proyecto lo solicita y un
+  administrador (`ADMIN_EMAILS`) lo aprueba en Administración; al dueño le llega la respuesta por correo
+  (`MANAGED_APPROVAL=auto` aprueba sin revisión). Límite diario por proyecto, y pausa si los rebotes duros pasan
+  del 5 % o las quejas del 0,3 %.
+- **Email confirmado**: con `MAIL_URL`, las cuentas nuevas confirman su email (enlace de 24 h) antes de crear
+  claves en vivo, conexiones o pedir el envío de Relayo. Sin `MAIL_URL` nacen confirmadas.
+- **Límites**: los envíos reales tienen su propio límite mensual (`LIVE_MONTHLY_MESSAGE_LIMIT`), aparte del de
+  mensajes simulados; el ritmo por minuto cuenta ambos.
+- **Conexiones que fallan**: tras tres errores transitorios seguidos (proveedor caído, tiempo agotado, límite), una
+  conexión pasa al final durante un minuto; el panel la muestra «En pausa».
+- **Enviar**: el panel tiene una página para escribir un correo o un SMS a mano, en el modo que esté activo.
 
 ## Bandeja de captura
 
@@ -173,12 +186,16 @@ ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim 
 | `TLS_KEY_FILE` / `TLS_CERT_FILE` | — | Rutas a los PEM; se releen dos veces al día (certificados que se renuevan) |
 | `RETENTION_DAYS` | 7 | Días que se guardan los mensajes y su contenido; se purgan cada hora. `0` = siempre |
 | `MONTHLY_MESSAGE_LIMIT` / `MESSAGES_PER_MINUTE` | 0 / 0 | Límites por proyecto (`0` = sin límite). Al pasarlos: HTTP 429; SMTP 452 (mes) o 421 (ritmo) |
+| `LIVE_MONTHLY_MESSAGE_LIMIT` | 0 | Envíos reales por proyecto y mes, contados aparte de los simulados (`0` = sin límite) |
+| `ADMIN_EMAILS` | — | Emails (separados por comas) de quienes revisan el envío de Relayo en el panel; deben estar confirmados |
 | `PUBLIC_URL` | `http://localhost:PORT` | Dirección pública, para el enlace del correo de recuperación de contraseña |
-| `MAIL_URL` / `MAIL_FROM` | — | SMTP para los correos del propio simulador (recuperar contraseña). Sin él, el enlace sale en el log |
-| `SECRETS_KEY` | — | Clave para cifrar las credenciales de las conexiones. Sin ella no se pueden crear (en desarrollo, una clave fija). No cambiarla: las credenciales guardadas dejarían de leerse |
+| `MAIL_URL` / `MAIL_FROM` | — | SMTP para los correos de la plataforma (confirmar email, recuperar contraseña, respuestas a solicitudes). Sin él, los enlaces salen en el log y no se pide confirmar el email |
+| `SECRETS_KEY` | — | Clave para cifrar las credenciales de las conexiones. Sin ella no se pueden crear (en desarrollo, una clave fija) |
+| `SECRETS_KEY_PREVIOUS` | — | Para cambiar `SECRETS_KEY`: la clave anterior (o varias, separadas por comas). Al arrancar se vuelve a cifrar todo con la nueva y el log dice cuándo se puede quitar |
 | `MANAGED_SMTP_URL` | — | Relay del envío de Relayo (p. ej. SMTP de Amazon SES). Sin él, la opción no aparece |
 | `MANAGED_SPF_INCLUDE` / `MANAGED_DAILY_LIMIT` | — / 200 | `include:` del SPF que se pide publicar, y envíos al día por proyecto |
 | `MANAGED_EVENTS_TOKEN` | — | Token de `/v1/inbound/managed/<token>`, donde SNS publica los eventos del relay |
+| `MANAGED_APPROVAL` | `manual` | `auto` deja usar el envío de Relayo a todos los proyectos sin revisión |
 
 ## Despliegue
 
@@ -221,8 +238,10 @@ En Dokploy la aplicación usa la imagen `ghcr.io/alimzen/relayo-sim:latest` (con
 paquete es privado), Traefik pone el HTTPS y hay que configurar:
 
 - Variables: `DATABASE_URL`, `REDIS_URL`, `PUBLIC_URL=https://relayo.alimzen.com`, `TRUST_PROXY=1`, `ADMIN_TOKEN`,
-  `MONTHLY_MESSAGE_LIMIT`, `MESSAGES_PER_MINUTE`, `RETENTION_DAYS`, `MAIL_URL`, `MAIL_FROM`, `SECRETS_KEY` y, para el
-  envío de Relayo, `MANAGED_*` (ver `deploy/.env.example`).
+  `MONTHLY_MESSAGE_LIMIT`, `MESSAGES_PER_MINUTE`, `LIVE_MONTHLY_MESSAGE_LIMIT`, `RETENTION_DAYS`, `MAIL_URL`, `MAIL_FROM`,
+  `SECRETS_KEY`, `ADMIN_EMAILS` y, para el envío de Relayo, `MANAGED_*` (ver `deploy/.env.example`).
+- Un monitor de disponibilidad (UptimeRobot, Better Stack…) sobre `https://relayo.alimzen.com/health`: avisa si
+  cae la web, PostgreSQL o Redis.
 - Dominio `relayo.alimzen.com` al puerto 3000 del contenedor.
 - Puertos publicados 587 y 2525 → 2525 del contenedor (SMTP). Sin `TLS_KEY_FILE`/`TLS_CERT_FILE` el SMTP no ofrece
   STARTTLS (los certificados de Traefik no son accesibles desde el contenedor).
