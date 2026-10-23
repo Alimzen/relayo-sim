@@ -17,6 +17,8 @@ describe('health', () => {
       const response = await fetch(`${await app.getUrl()}/health`);
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ ok: true, checks: {} });
+      const live = await fetch(`${await app.getUrl()}/health/live`);
+      expect(await live.json()).toEqual({ ok: true });
     } finally {
       await app.close();
     }

@@ -519,6 +519,12 @@ export class HealthController {
     if (!ok) res.status(503);
     return { ok, checks, ...(process.env.GIT_SHA && { commit: process.env.GIT_SHA }) };
   }
+
+  /** The process answers: for container health checks, which should not restart it over a database outage. */
+  @Get('health/live')
+  live() {
+    return { ok: true };
+  }
 }
 
 /** Live delivery: the project's provider connections. Managing them needs a signed-in person. */
