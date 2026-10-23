@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import {
   LucideChevronsUpDown,
+  LucideFileText,
   LucideFlaskConical,
   LucideKeyRound,
   LucideLayoutDashboard,
@@ -38,6 +39,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
     Modal,
     CopyButton,
     LucideChevronsUpDown,
+    LucideFileText,
     LucideFlaskConical,
     LucideKeyRound,
     LucideLayoutDashboard,
@@ -116,6 +118,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
           <a class="nav-link" routerLink="/overview" routerLinkActive="active"><svg lucideLayoutDashboard [size]="16"></svg>Resumen</a>
           <a class="nav-link" routerLink="/messages" routerLinkActive="active"><svg lucideMail [size]="16"></svg>Mensajes</a>
           <a class="nav-link" routerLink="/send" routerLinkActive="active"><svg lucideSend [size]="16"></svg>Enviar</a>
+          <a class="nav-link" routerLink="/templates" routerLinkActive="active"><svg lucideFileText [size]="16"></svg>Plantillas</a>
           <a class="nav-link" routerLink="/scenarios" routerLinkActive="active"><svg lucideFlaskConical [size]="16"></svg>Escenarios</a>
           <p class="nav-section">Proyecto</p>
           <a class="nav-link" routerLink="/keys" routerLinkActive="active"><svg lucideKeyRound [size]="16"></svg>Claves de API</a>

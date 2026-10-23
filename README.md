@@ -58,6 +58,7 @@ Los envíos (`POST /v1/messages`, `POST /v1/sms`) aceptan `Idempotency-Key`: rep
 | `GET`, `POST /v1/projects` · `POST /v1/projects/claim` | Sesión | Proyectos del usuario |
 | `GET /v1/scenarios` | — | Catálogo |
 | `POST /v1/messages` | API key | Envío de email (202, `{ id, status: 'queued' }`) |
+| `GET`, `POST /v1/project/templates` · `GET`, `PATCH`, `DELETE /:ref` · `POST /:ref/preview` | API key | Plantillas (por id o alias). Los envíos aceptan `{ template, variables }`: `{{nombre}}`, `{{cliente.nombre}}`, y `{{{html}}}` sin escapar; si falta una variable, 422 |
 | `GET /v1/project/webhook/deliveries` · `/deliveries/:id` · `/stats` | API key | Registro de entregas del webhook (`status=failed`, `before`): respuesta, error, intento, y el evento enviado |
 | `POST /v1/project/webhook/deliveries/:id/redeliver` · `/webhook/test` | API key | Reenvía un evento ahora, o envía uno de prueba (cabecera `Relayo-Test: true`) |
 | `POST /v1/sms` | API key | Envío de SMS: `{ from?, to, body, metadata?, relayoMessageId?, scenario? }` (202) |

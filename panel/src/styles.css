@@ -2069,6 +2069,47 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.template-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .template-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.preview-subject {
+  margin: 0 0 12px;
+  font-weight: 500;
+}
+
+.sms-bubble {
+  max-width: 320px;
+  padding: 10px 14px;
+  border-radius: 16px 16px 16px 4px;
+  background: var(--code-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.template-snippet-label {
+  margin-top: 18px;
+}
+
+.snippet {
+  height: auto;
+  padding: 8px 4px 8px 11px;
+}
+
+.snippet code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .compose-html summary {
   cursor: pointer;
   font-size: 13px;

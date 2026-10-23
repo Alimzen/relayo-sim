@@ -25,6 +25,26 @@ export interface User {
 
 export type ManagedAccess = 'requested' | 'approved' | 'denied';
 
+export interface Template {
+  id: string;
+  alias: string;
+  name: string;
+  channel: 'email' | 'sms';
+  subject?: string;
+  html?: string;
+  text?: string;
+  body?: string;
+  /** The variables its content uses. */
+  variables: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TemplatePreview {
+  rendered: { subject?: string; html?: string; text?: string; body?: string };
+  missing: string[];
+}
+
 /** One POST of an event to the project's webhook. */
 export interface WebhookDelivery {
   id: string;
