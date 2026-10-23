@@ -112,6 +112,9 @@ export interface SimStore {
   /** Deletes messages created before a date (with their events and content) and expired sessions, tokens and counters. */
   purge(before: Date): Promise<{ messages: number }>;
 
+  /** Answers when the database does (health checks). In-memory stores leave it out. */
+  ping?(): Promise<void>;
+
   /** Counts SMTP delivery attempts for a key (greylisting). Returns the attempt number, starting at 1. */
   nextAttempt(key: string, ttlMs: number): Promise<number>;
 

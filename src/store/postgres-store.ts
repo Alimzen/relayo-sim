@@ -235,6 +235,10 @@ export class PostgresStore implements SimStore {
     return new PostgresStore(pool);
   }
 
+  async ping(): Promise<void> {
+    await this.pool.query('SELECT 1');
+  }
+
   /** Drops a schema created with `connect(..., { schema })`. */
   async dropSchema(schema: string): Promise<void> {
     if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error(`Invalid schema name: ${schema}`);

@@ -26,7 +26,7 @@ import { LiveService } from './live/live.service.js';
 import { SecretBox } from './live/secrets.js';
 import { ManagedSending } from './live/managed.js';
 import { SIM_CONFIG, type SimConfig } from './config.js';
-import { infrastructure, type Infrastructure } from './infrastructure.js';
+import { INFRASTRUCTURE, infrastructure, type Infrastructure } from './infrastructure.js';
 import { EVENT_SCHEDULER, type EventScheduler } from './scheduler/scheduler.js';
 import { SmtpReportSender } from './reports/sender.js';
 import { SimulationService } from './simulation/simulation.service.js';
@@ -35,7 +35,6 @@ import { LogMailer, SmtpMailer } from './accounts/mailer.js';
 import { SIM_STORE, type SimStore } from './store/store.js';
 import { WEBHOOK_DISPATCHER, type WebhookDispatcher } from './webhooks/webhooks.js';
 
-const INFRASTRUCTURE = Symbol.for('relayo-sim:infrastructure');
 
 /** Starts the SMTP server with the app and stops everything on shutdown. */
 @Injectable()

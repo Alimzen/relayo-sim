@@ -27,6 +27,7 @@ import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
 import { AdminGuard, CurrentMode, CurrentProject, PlatformAdminGuard, ProjectGuard, SessionOnly } from './auth.js';
 import { LiveError, LiveService } from '../live/live.service.js';
+import { INFRASTRUCTURE, type Infrastructure } from '../infrastructure.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
 
 type Address = string | { address: string; name?: string };
@@ -505,10 +506,18 @@ export class AdminController {
 
 @Controller()
 export class HealthController {
-  /** `commit` is the build's git commit (GIT_SHA), so a deploy can tell when the new version is live. */
+  constructor(@Inject(INFRASTRUCTURE) private readonly infra: Infrastructure) {}
+
+  /**
+   * 200 when PostgreSQL and Redis (if used) answer, 503 otherwise: point uptime monitors here. `commit` is the
+   * build's git commit (GIT_SHA), so a deploy can tell when the new version is live.
+   */
   @Get('health')
-  health() {
-    return { ok: true, ...(process.env.GIT_SHA && { commit: process.env.GIT_SHA }) };
+  async health(@Res({ passthrough: true }) res: Response) {
+    const checks = await this.infra.check();
+    const ok = Object.values(checks).every((c) => c === 'ok');
+    if (!ok) res.status(503);
+    return { ok, checks, ...(process.env.GIT_SHA && { commit: process.env.GIT_SHA }) };
   }
 }
 

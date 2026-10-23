@@ -50,6 +50,12 @@ export class BullScheduler implements EventScheduler {
     });
   }
 
+  /** Answers when Redis does (health checks). */
+  async ping(): Promise<void> {
+    // Any command works: this one is cheap and part of the public API.
+    await this.queue.isPaused();
+  }
+
   async stop(): Promise<void> {
     await this.worker?.close();
     await this.queue.close();
