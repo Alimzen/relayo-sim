@@ -58,6 +58,7 @@ export const routes: Routes = [
         title: page('Mensaje'),
       },
       { path: 'send', loadComponent: () => import('./pages/compose').then((m) => m.ComposePage), title: page('Enviar') },
+      { path: 'scheduled', loadComponent: () => import('./pages/scheduled').then((m) => m.ScheduledPage), title: page('Programados') },
       { path: 'templates', loadComponent: () => import('./pages/templates').then((m) => m.TemplatesPage), title: page('Plantillas') },
       { path: 'scenarios', loadComponent: () => import('./pages/scenarios').then((m) => m.ScenariosPage), title: page('Escenarios') },
       { path: 'keys', loadComponent: () => import('./pages/keys').then((m) => m.KeysPage), title: page('Claves de API') },

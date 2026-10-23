@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -116,6 +116,9 @@ export class Api {
   redeliverWebhook = (id: string) => this.call<WebhookDelivery>('POST', `/v1/project/webhook/deliveries/${encodeURIComponent(id)}/redeliver`);
   testWebhook = () => this.call<WebhookDelivery>('POST', '/v1/project/webhook/test');
   webhookStats = () => this.call<WebhookStats>('GET', '/v1/project/webhook/stats');
+  scheduled = (status?: ScheduledSend['status']) =>
+    this.call<{ data: ScheduledSend[] }>('GET', `/v1/scheduled${status ? `?status=${status}` : ''}`).then((r) => r.data);
+  cancelScheduled = (id: string) => this.call<void>('DELETE', `/v1/scheduled/${encodeURIComponent(id)}`);
   templates = () => this.call<{ data: Template[] }>('GET', '/v1/project/templates').then((r) => r.data);
   createTemplate = (body: Record<string, string>) => this.call<Template>('POST', '/v1/project/templates', body);
   updateTemplate = (id: string, body: Record<string, string>) => this.call<Template>('PATCH', `/v1/project/templates/${encodeURIComponent(id)}`, body);
@@ -157,9 +160,11 @@ export class Api {
     html?: string;
     template?: string;
     variables?: Record<string, unknown>;
+    sendAt?: string;
   }) =>
     this.call<{ id: string }>('POST', '/v1/messages', body);
-  sendSmsMessage = (body: { from?: string; to: string[]; body?: string; template?: string; variables?: Record<string, unknown> }) => this.call<{ id: string }>('POST', '/v1/sms', body);
+  sendSmsMessage = (body: { from?: string; to: string[]; body?: string; template?: string; variables?: Record<string, unknown>; sendAt?: string }) =>
+    this.call<{ id: string; status: string }>('POST', '/v1/sms', body);
   report = async (messageId: string, eventId: string): Promise<string> => {
     const url = `/v1/messages/${encodeURIComponent(messageId)}/events/${encodeURIComponent(eventId)}/report`;
     try {

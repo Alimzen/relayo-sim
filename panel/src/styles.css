@@ -2110,6 +2110,18 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.schedule-input {
+  width: auto;
+}
+
 .compose-html summary {
   cursor: pointer;
   font-size: 13px;

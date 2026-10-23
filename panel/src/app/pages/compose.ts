@@ -111,9 +111,16 @@ type Channel = 'email' | 'sms';
             }
 
             <div class="row send-row">
+              <label class="check">
+                <input type="checkbox" name="later" [(ngModel)]="later" />
+                Programar
+              </label>
+              @if (later) {
+                <input class="input schedule-input" type="datetime-local" name="sendAt" [(ngModel)]="sendAt" [min]="minDate" aria-label="Fecha y hora del envío" />
+              }
               <span class="spacer"></span>
               <button type="submit" class="btn btn-primary" [disabled]="busy()">
-                <svg lucideSend [size]="14"></svg>{{ live() ? (channel() === 'email' ? 'Enviar correo real' : 'Enviar SMS real') : 'Enviar (simulado)' }}
+                <svg lucideSend [size]="14"></svg>{{ later ? 'Programar' : live() ? (channel() === 'email' ? 'Enviar correo real' : 'Enviar SMS real') : 'Enviar (simulado)' }}
               </button>
             </div>
           </form>
@@ -140,6 +147,10 @@ export class ComposePage {
   protected smsFrom = '';
   protected smsBody = '';
   protected template = '';
+  protected later = false;
+  /** Local date and time (datetime-local), sent as ISO. */
+  protected sendAt = '';
+  protected readonly minDate = localInput(new Date());
   protected variables = '{}';
   private readonly allTemplates = signal<Template[]>([]);
   /** The project's templates for the channel being written. */
@@ -191,6 +202,13 @@ export class ComposePage {
         }
       }
       const content = this.template ? { template: this.template, variables } : undefined;
+      let when: { sendAt: string } | undefined;
+      if (this.later) {
+        const date = new Date(this.sendAt);
+        if (!this.sendAt || Number.isNaN(date.getTime())) throw new Error('Elige la fecha y la hora del envío');
+        if (date.getTime() < Date.now()) throw new Error('Elige una fecha futura');
+        when = { sendAt: date.toISOString() };
+      }
       if (this.channel() === 'email') {
         const to = list(this.to);
         if (!to.length) throw new Error('Añade al menos un destinatario');
@@ -198,6 +216,7 @@ export class ComposePage {
         ({ id } = await this.api.sendMessage({
           from: this.fromName.trim() ? { address: this.from.trim(), name: this.fromName.trim() } : this.from.trim(),
           to,
+          ...when,
           ...(content ?? {
             subject: this.subject,
             ...(this.text.trim() && { text: this.text }),
@@ -207,7 +226,12 @@ export class ComposePage {
       } else {
         const to = list(this.smsTo);
         if (!to.length) throw new Error('Añade al menos un número');
-        ({ id } = await this.api.sendSmsMessage({ to, ...(content ?? { body: this.smsBody }), ...(this.smsFrom.trim() && { from: this.smsFrom.trim() }) }));
+        ({ id } = await this.api.sendSmsMessage({ to, ...when, ...(content ?? { body: this.smsBody }), ...(this.smsFrom.trim() && { from: this.smsFrom.trim() }) }));
+      }
+      if (when) {
+        this.toasts.show('Programado: lo verás en Programados');
+        await this.router.navigateByUrl('/scheduled');
+        return;
       }
       this.toasts.show(this.live() ? 'Enviado: sigue su estado en Mensajes' : 'Envío simulado');
       await this.router.navigate(['/messages', id]);
@@ -217,4 +241,10 @@ export class ComposePage {
       this.busy.set(false);
     }
   }
+}
+
+/** A date as a datetime-local input wants it: local time, minutes precision. */
+function localInput(date: Date): string {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }

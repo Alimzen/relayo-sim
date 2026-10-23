@@ -25,6 +25,20 @@ export interface User {
 
 export type ManagedAccess = 'requested' | 'approved' | 'denied';
 
+export interface ScheduledSend {
+  id: string;
+  mode: Mode;
+  channel: 'email' | 'sms';
+  sendAt: string;
+  status: 'pending' | 'sending' | 'sent' | 'canceled' | 'failed';
+  summary: string;
+  recipients: string[];
+  messageId?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Template {
   id: string;
   alias: string;
