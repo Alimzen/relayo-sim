@@ -37,6 +37,7 @@ import { LiveService } from '../live/live.service.js';
 import { INFRASTRUCTURE, type Infrastructure } from '../infrastructure.js';
 import { AccountsService } from '../accounts/accounts.service.js';
 import { IdempotencyInterceptor } from './idempotency.js';
+import { openApi } from './openapi.js';
 import { liveCall, renderTemplate, SendingService, variablesOf, type SendBody, type SendSmsBody } from './sending.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
 
@@ -574,6 +575,17 @@ export class AdminController {
       ...(typeof body.webhookUrl === 'string' && { webhookUrl: body.webhookUrl }),
     });
     return { ...publicProject(project), apiKey, webhookSecret: project.webhookSecret };
+  }
+}
+
+/** The API reference: OpenAPI 3.1, rendered at /docs. */
+@Controller()
+export class OpenApiController {
+  constructor(@Inject(SIM_CONFIG) private readonly config: SimConfig) {}
+
+  @Get('openapi.json')
+  spec() {
+    return openApi(this.config.publicUrl);
   }
 }
 

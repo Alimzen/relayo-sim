@@ -41,6 +41,8 @@ sola vez y se pueden revocar). Al registrarse se crea «Mi primer proyecto».
 
 ## API
 
+Referencia completa e interactiva en `/docs` (OpenAPI 3.1 en `/openapi.json`, escrita en `src/api/openapi.ts`). `test/openapi.test.ts` falla si una ruta nueva no está documentada ni en la lista de excluidas (las del panel).
+
 «API key» = `Authorization: Bearer <clave>`, o sesión del panel con `X-Relayo-Project`.
 
 Los envíos (`POST /v1/messages`, `POST /v1/sms`) aceptan `Idempotency-Key`: repetir la petición con la misma clave en 24 h devuelve la primera respuesta (con `Idempotent-Replayed: true`) sin enviar otra vez; la misma clave con otro cuerpo da 422, y mientras la primera sigue en curso, 409. Los drivers `@alimzen/relayo-simulator` y `@alimzen/relayo-cloud` la mandan solos con el id del mensaje.

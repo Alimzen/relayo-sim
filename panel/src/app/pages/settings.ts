@@ -97,7 +97,10 @@ import { CopyButton, Toasts } from '../ui/ui';
           <header class="card-head">
             <div>
               <h2>Conexión</h2>
-              <p class="muted small">Autentícate con una <a routerLink="/keys">clave de API</a> del proyecto.</p>
+              <p class="muted small">
+                Autentícate con una <a routerLink="/keys">clave de API</a> del proyecto. Referencia completa:
+                <a href="/docs" target="_blank" rel="noopener">documentación de la API</a>.
+              </p>
             </div>
           </header>
           <div class="card-body">

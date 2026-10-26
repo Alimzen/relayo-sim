@@ -69,7 +69,7 @@ async function bootstrap(): Promise<void> {
 
   // The landing page (landing/) is served at / exactly, with the legal pages and its assets under /site/.
   const landingDir = process.env.LANDING_DIR ?? join(process.cwd(), 'landing');
-  const landingPages: Record<string, string> = { '/': 'index.html', '/terminos': 'terminos.html', '/privacidad': 'privacidad.html' };
+  const landingPages: Record<string, string> = { '/': 'index.html', '/docs': 'docs.html', '/terminos': 'terminos.html', '/privacidad': 'privacidad.html' };
   if (existsSync(join(landingDir, 'index.html'))) {
     app.useStaticAssets(landingDir, { prefix: '/site/', index: false, maxAge: '1d' });
     app.use((req: Request, res: Response, next: NextFunction) => {
@@ -85,9 +85,10 @@ async function bootstrap(): Promise<void> {
   const panelBuilt = existsSync(join(panelDir, 'index.html'));
   if (panelBuilt) {
     app.useStaticAssets(panelDir, { index: false, maxAge: '1h' });
-    // Client-side routes (/messages/123...) get the app shell.
+    // Client-side routes (/messages/123...) get the app shell; the server's own routes go on to Nest.
+    const serverRoutes = ['/v1', '/health', '/openapi.json'];
     app.use((req: Request, res: Response, next: NextFunction) => {
-      if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/v1') || req.path.startsWith('/health')) return next();
+      if ((req.method !== 'GET' && req.method !== 'HEAD') || serverRoutes.some((p) => req.path.startsWith(p))) return next();
       res.sendFile(join(panelDir, 'index.html'));
     });
   }

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API · Relayo</title>
+<meta name="description" content="Referencia de la API de Relayo: envíos de correo, SMS y WhatsApp, plantillas, envíos programados, webhooks y eventos.">
+<link rel="icon" href="/favicon.ico">
+<style>
+  body { margin: 0; }
+</style>
+</head>
+<body>
+<!-- The reference is generated from /openapi.json, the same spec the server builds from its routes. -->
+<script id="api-reference" data-url="/openapi.json"></script>
+<script>
+  document.getElementById('api-reference').dataset.configuration = JSON.stringify({
+    hideDownloadButton: false,
+    hideModels: false,
+    locale: 'es',
+    // Scalar's hosted extras (AI chat, MCP generation) are not part of Relayo.
+    agent: { disabled: true },
+    mcp: { disabled: true },
+    defaultHttpClient: { targetKey: 'node', clientKey: 'fetch' },
+    metaData: { title: 'API · Relayo' },
+  });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.4/dist/browser/standalone.js"></script>
+</body>
+</html>

@@ -22,6 +22,7 @@ import {
   ScenariosController,
   SmsController,
   InvitesController,
+  OpenApiController,
   ScheduledController,
   TeamController,
   TemplatesController,
@@ -159,6 +160,7 @@ export class AppModule {
       module: AppModule,
       controllers: [
         HealthController,
+        OpenApiController,
         ScenariosController,
         AuthController,
         ProjectsController,
