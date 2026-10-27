@@ -7,7 +7,7 @@ export interface StatusLook {
   tone: Tone;
 }
 
-const LABELS: Record<EventType, string> = {
+export const EVENT_LABELS: Record<EventType, string> = {
   accepted: 'Aceptado',
   delivered: 'Entregado',
   deferred: 'Aplazado',
@@ -24,22 +24,22 @@ const LABELS: Record<EventType, string> = {
 export function lookOf(event: { type: EventType; bounceType?: BounceType | undefined }): StatusLook {
   switch (event.type) {
     case 'delivered':
-      return { label: LABELS.delivered, tone: 'good' };
+      return { label: EVENT_LABELS.delivered, tone: 'good' };
     case 'opened':
     case 'clicked':
-      return { label: LABELS[event.type], tone: 'info' };
+      return { label: EVENT_LABELS[event.type], tone: 'info' };
     case 'accepted':
-      return { label: LABELS.accepted, tone: 'neutral' };
+      return { label: EVENT_LABELS.accepted, tone: 'neutral' };
     case 'deferred':
-      return { label: LABELS.deferred, tone: 'warning' };
+      return { label: EVENT_LABELS.deferred, tone: 'warning' };
     case 'bounced':
       if (event.bounceType === 'block') return { label: 'Bloqueado', tone: 'block' };
       if (event.bounceType === 'soft') return { label: 'Rebote suave', tone: 'serious' };
       return { label: 'Rebote duro', tone: 'critical' };
     case 'unsubscribed':
-      return { label: LABELS.unsubscribed, tone: 'warning' };
+      return { label: EVENT_LABELS.unsubscribed, tone: 'warning' };
     default:
-      return { label: LABELS[event.type], tone: 'critical' };
+      return { label: EVENT_LABELS[event.type], tone: 'critical' };
   }
 }
 

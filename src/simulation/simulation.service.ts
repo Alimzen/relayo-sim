@@ -8,7 +8,7 @@ import { resolveScenario, selectScenario, smtpTimeline, type ResolvedScenario } 
 import { selectSmsScenario, smsTimeline } from '../scenarios/sms.js';
 import type { EventScheduler, ScheduledStep } from '../scheduler/scheduler.js';
 import type { SimStore } from '../store/store.js';
-import type { WebhookDispatcher } from '../webhooks/webhooks.js';
+import { webhookTargets, type WebhookDispatcher } from '../webhooks/webhooks.js';
 
 export interface SimulationOptions {
   /** Multiplies every timeline delay. `0` fires everything at once (CI); `1` is real time. Default 1. */
@@ -336,7 +336,7 @@ export class SimulationService {
 
     const event = toEvent(message, job);
     await this.store.addEvent(event);
-    if (project.webhookUrl) await this.webhooks.dispatch(event, { url: project.webhookUrl, secret: project.webhookSecret });
+    for (const target of await webhookTargets(this.store, project, event, message.mode ?? 'test')) await this.webhooks.dispatch(event, target);
 
     // Like a receiving server, mail the report to the envelope sender. A failure throws so the step is
     // retried; the event and webhook above are idempotent. SMS has no such reports.
@@ -389,7 +389,7 @@ function toEvent(message: SimMessage, job: ScheduledStep): SimEvent {
   return base;
 }
 
-function newWebhookSecret(): string {
+export function newWebhookSecret(): string {
   return `whsec_${randomBytes(24).toString('base64url')}`;
 }
 

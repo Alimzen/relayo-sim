@@ -23,15 +23,15 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { readAttachment, readContent } from '../capture/capture.js';
-import type { Mode, Project, ProjectLimits, ProjectRole, User, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
+import type { WebhookEndpoint, Mode, Project, ProjectLimits, ProjectRole, User, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
 import { ScheduledSends } from './scheduled.js';
 import { TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
-import { attemptRecord, attemptWebhook, recordAttempt, webhookBody } from '../webhooks/webhooks.js';
+import { attemptRecord, attemptWebhook, recordAttempt, WEBHOOK_EVENT_TYPES, webhookBody, type WebhookTarget } from '../webhooks/webhooks.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { SMS_SCENARIOS } from '../scenarios/sms.js';
-import { SimulationService } from '../simulation/simulation.service.js';
+import { newWebhookSecret, SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
-import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
+import { SIM_STORE, type ProjectChanges, type SimStore, type WebhookEndpointChanges } from '../store/store.js';
 import { AdminGuard, CurrentMode, CurrentProject, CurrentRole, CurrentUser, PlatformAdminGuard, ProjectAdmin, ProjectGuard, Sends, SessionGuard, SessionOnly } from './auth.js';
 import { TeamError, TeamService } from '../accounts/team.js';
 import { LiveService } from '../live/live.service.js';
@@ -478,14 +478,24 @@ export class WebhookDeliveriesController {
     @Inject(INFRASTRUCTURE) private readonly infra: Infrastructure,
   ) {}
 
-  /** Newest first; `status=failed` for failures only, `before` (ISO date) for the next page. */
+  /**
+   * Newest first; `status=failed` for failures only, `endpoint` for one endpoint's (`main` for the main URL),
+   * `before` (ISO date) for the next page.
+   */
   @Get('deliveries')
-  async list(@CurrentProject() project: Project, @Query('limit') limit?: string, @Query('before') before?: string, @Query('status') status?: string) {
+  async list(
+    @CurrentProject() project: Project,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+    @Query('status') status?: string,
+    @Query('endpoint') endpoint?: string,
+  ) {
     const max = Math.min(200, Math.max(1, Number(limit) || 50));
     const attempts = await this.store.listWebhookAttempts(project.id, {
       limit: max,
       ...(before && !Number.isNaN(Date.parse(before)) && { before: new Date(before) }),
       ...(status === 'failed' && { failed: true }),
+      ...(endpoint && { endpointId: endpoint === 'main' ? null : endpoint }),
     });
     return { data: attempts.map(publicAttempt) };
   }
@@ -510,7 +520,7 @@ export class WebhookDeliveriesController {
     return { ...publicAttempt(attempt), event: event ? JSON.parse(webhookBody(event)) : null };
   }
 
-  /** Sends the event of a try again, now, to the current webhook URL. */
+  /** Sends the event of a try again, now, to the current URL of the endpoint it went to. */
   @Post('deliveries/:id/redeliver')
   @HttpCode(200)
   async redeliver(@CurrentProject() project: Project, @Param('id') id: string) {
@@ -518,7 +528,56 @@ export class WebhookDeliveriesController {
     if (!attempt) throw new NotFoundException('Entrega no encontrada');
     const event = await this.store.getEvent(project.id, attempt.eventId);
     if (!event) throw new BadRequestException('El evento ya no existe: se borró con su mensaje al pasar el periodo de retención.');
-    return publicAttempt(await this.send(project, event, 'redeliver'));
+    return publicAttempt(await this.send(event, await this.target(project, attempt.endpointId), 'redeliver'));
+  }
+
+  /**
+   * Sends again every event that could not be delivered since a date (`since`, ISO; up to `until`): the ones
+   * whose last try failed with no retry left, to the endpoint they were meant for (`endpoint`: one of them,
+   * `main` for the main URL). Up to 1000 events, in the background; answers how many.
+   */
+  @Post('redeliver')
+  @HttpCode(202)
+  async redeliverFailed(@CurrentProject() project: Project, @Body() body: { since?: unknown; until?: unknown; endpoint?: unknown }) {
+    const since = typeof body?.since === 'string' ? new Date(body.since) : undefined;
+    if (!since || Number.isNaN(since.getTime())) throw new BadRequestException('"since" must be an ISO date');
+    const until = typeof body?.until === 'string' ? new Date(body.until) : undefined;
+    if (until && Number.isNaN(until.getTime())) throw new BadRequestException('"until" must be an ISO date');
+    const endpoint = typeof body?.endpoint === 'string' && body.endpoint ? body.endpoint : undefined;
+    const attempts = await this.store.listWebhookAttempts(project.id, {
+      limit: 20_000,
+      since,
+      ...(until && { before: until }),
+      ...(endpoint && { endpointId: endpoint === 'main' ? null : endpoint }),
+    });
+    // Newest first: the first try seen of each event and endpoint is its latest.
+    const latest = new Map<string, (typeof attempts)[number]>();
+    for (const attempt of attempts) {
+      if (attempt.trigger === 'test') continue;
+      const key = `${attempt.eventId}|${attempt.endpointId ?? ''}`;
+      if (!latest.has(key)) latest.set(key, attempt);
+    }
+    const failed = [...latest.values()].filter((a) => !a.ok && !a.willRetry).slice(0, 1000);
+    const targets = new Map<string, WebhookTarget | undefined>();
+    for (const a of failed) {
+      const key = a.endpointId ?? '';
+      if (!targets.has(key)) targets.set(key, await this.target(project, a.endpointId).catch(() => undefined));
+    }
+    const jobs = failed.filter((a) => targets.get(a.endpointId ?? ''));
+    void this.redeliverAll(project, jobs, targets);
+    return { events: jobs.length };
+  }
+
+  private async redeliverAll(project: Project, jobs: Array<{ eventId: string; endpointId?: string }>, targets: Map<string, WebhookTarget | undefined>): Promise<void> {
+    const queue = [...jobs];
+    const worker = async () => {
+      for (let job = queue.shift(); job; job = queue.shift()) {
+        const event = await this.store.getEvent(project.id, job.eventId);
+        const target = targets.get(job.endpointId ?? '');
+        if (event && target) await this.send(event, target, 'redeliver').catch(() => undefined);
+      }
+    };
+    await Promise.all(Array.from({ length: 5 }, worker));
   }
 
   /**
@@ -527,7 +586,8 @@ export class WebhookDeliveriesController {
    */
   @Post('test')
   @HttpCode(200)
-  async test(@CurrentProject() project: Project) {
+  async test(@CurrentProject() project: Project, @Body() body?: { endpoint?: unknown }) {
+    const target = await this.target(project, typeof body?.endpoint === 'string' && body.endpoint !== 'main' ? body.endpoint : undefined);
     const event: SimEvent = {
       id: `test_${randomUUID()}`,
       type: 'delivered',
@@ -541,17 +601,130 @@ export class WebhookDeliveriesController {
       raw: { test: true },
       projectId: project.id,
     };
-    return publicAttempt(await this.send(project, event, 'test'));
+    return publicAttempt(await this.send(event, target, 'test'));
   }
 
-  private async send(project: Project, event: SimEvent, trigger: 'redeliver' | 'test'): Promise<WebhookAttempt> {
-    if (!project.webhookUrl) throw new BadRequestException('Configura primero la URL del webhook.');
-    const target = { url: project.webhookUrl, secret: project.webhookSecret };
+  // Extra endpoints: more URLs for the events, each with its own secret and filters.
+
+  @Get('endpoints')
+  async endpoints(@CurrentProject() project: Project) {
+    return { data: (await this.store.listWebhookEndpoints(project.id)).map(publicEndpoint) };
+  }
+
+  /** Answers with the endpoint's signing secret; afterwards only the panel can show it. */
+  @Post('endpoints')
+  @ProjectAdmin()
+  async createEndpoint(@CurrentProject() project: Project, @Body() body: Record<string, unknown>) {
+    if ((await this.store.listWebhookEndpoints(project.id)).length >= MAX_ENDPOINTS) {
+      throw new BadRequestException(`Un proyecto puede tener hasta ${MAX_ENDPOINTS} endpoints además de la URL principal.`);
+    }
+    const changes = endpointChanges(body ?? {});
+    if (!changes.url) throw new BadRequestException('"url" is required');
+    const endpoint: WebhookEndpoint = {
+      id: `whe_${randomUUID()}`,
+      projectId: project.id,
+      url: changes.url,
+      secret: newWebhookSecret(),
+      enabled: changes.enabled ?? true,
+      createdAt: new Date(),
+      ...(changes.description && { description: changes.description }),
+      ...(changes.events && { events: changes.events }),
+      ...(changes.mode && { mode: changes.mode }),
+    };
+    await this.store.createWebhookEndpoint(endpoint);
+    return { ...publicEndpoint(endpoint), secret: endpoint.secret };
+  }
+
+  /** `null` clears `description`, `events` (all of them) or `mode` (both). */
+  @Patch('endpoints/:id')
+  @ProjectAdmin()
+  async updateEndpoint(@CurrentProject() project: Project, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    if (!(await this.store.getWebhookEndpoint(project.id, id))) throw new NotFoundException('Endpoint no encontrado');
+    await this.store.updateWebhookEndpoint(project.id, id, endpointChanges(body ?? {}));
+    return publicEndpoint((await this.store.getWebhookEndpoint(project.id, id))!);
+  }
+
+  @Delete('endpoints/:id')
+  @ProjectAdmin()
+  @HttpCode(204)
+  async deleteEndpoint(@CurrentProject() project: Project, @Param('id') id: string) {
+    if (!(await this.store.deleteWebhookEndpoint(project.id, id))) throw new NotFoundException('Endpoint no encontrado');
+  }
+
+  @Get('endpoints/:id/secret')
+  @SessionOnly()
+  async endpointSecret(@CurrentProject() project: Project, @Param('id') id: string) {
+    const endpoint = await this.store.getWebhookEndpoint(project.id, id);
+    if (!endpoint) throw new NotFoundException('Endpoint no encontrado');
+    return { secret: endpoint.secret };
+  }
+
+  @Post('endpoints/:id/secret/rotate')
+  @SessionOnly()
+  async rotateEndpointSecret(@CurrentProject() project: Project, @Param('id') id: string) {
+    if (!(await this.store.getWebhookEndpoint(project.id, id))) throw new NotFoundException('Endpoint no encontrado');
+    const secret = newWebhookSecret();
+    await this.store.updateWebhookEndpoint(project.id, id, { secret });
+    return { secret };
+  }
+
+  /** The main URL (no endpoint id), or an extra endpoint: where a test or a redelivery goes. */
+  private async target(project: Project, endpointId: string | undefined): Promise<WebhookTarget> {
+    if (!endpointId) {
+      if (!project.webhookUrl) throw new BadRequestException('Configura primero la URL del webhook.');
+      return { url: project.webhookUrl, secret: project.webhookSecret };
+    }
+    const endpoint = await this.store.getWebhookEndpoint(project.id, endpointId);
+    if (!endpoint) throw new BadRequestException('Ese endpoint ya no existe.');
+    return { url: endpoint.url, secret: endpoint.secret, endpointId: endpoint.id };
+  }
+
+  private async send(event: SimEvent, target: WebhookTarget, trigger: 'redeliver' | 'test'): Promise<WebhookAttempt> {
     const result = await attemptWebhook(event, target, fetch, trigger === 'test' ? { 'Relayo-Test': 'true' } : {});
-    const attempt = attemptRecord(event, target.url, result, { attempt: 1, maxAttempts: 1, trigger, willRetry: false });
+    const attempt = attemptRecord(event, target, result, { attempt: 1, maxAttempts: 1, trigger, willRetry: false });
     await recordAttempt(this.infra.webhookLog, attempt);
     return attempt;
   }
+}
+
+const MAX_ENDPOINTS = 10;
+
+/** Validates what a request may change in an endpoint. */
+function endpointChanges(body: Record<string, unknown>): WebhookEndpointChanges {
+  const changes: WebhookEndpointChanges = {};
+  if (body.url !== undefined) {
+    if (typeof body.url !== 'string' || !/^https?:\/\/\S+$/.test(body.url.trim())) throw new BadRequestException('"url" must be an http(s) url');
+    changes.url = body.url.trim();
+  }
+  if (body.description !== undefined) {
+    const text = typeof body.description === 'string' ? body.description.trim().slice(0, 200) : '';
+    changes.description = text || null;
+  }
+  if (body.events !== undefined) {
+    if (body.events === null) changes.events = null;
+    else {
+      const events = Array.isArray(body.events) ? body.events : [];
+      const bad = events.find((e) => !(WEBHOOK_EVENT_TYPES as readonly unknown[]).includes(e));
+      if (!Array.isArray(body.events) || bad !== undefined) {
+        throw new BadRequestException(`"events" must be a list of: ${WEBHOOK_EVENT_TYPES.join(', ')}`);
+      }
+      changes.events = events.length ? [...new Set(events as Array<(typeof WEBHOOK_EVENT_TYPES)[number]>)] : null;
+    }
+  }
+  if (body.mode !== undefined) {
+    if (body.mode !== null && body.mode !== 'test' && body.mode !== 'live') throw new BadRequestException('"mode" must be test, live or null');
+    changes.mode = body.mode;
+  }
+  if (body.enabled !== undefined) {
+    if (typeof body.enabled !== 'boolean') throw new BadRequestException('"enabled" must be true or false');
+    changes.enabled = body.enabled;
+  }
+  return changes;
+}
+
+function publicEndpoint(endpoint: WebhookEndpoint) {
+  const { projectId: _p, secret: _s, ...rest } = endpoint;
+  return { ...rest, description: rest.description ?? null, events: rest.events ?? null, mode: rest.mode ?? null };
 }
 
 function publicAttempt(attempt: WebhookAttempt) {

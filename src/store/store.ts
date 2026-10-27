@@ -1,4 +1,4 @@
-import type { AuditEntry, ApiRequestLog, ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { WebhookEndpoint, AuditEntry, ApiRequestLog, ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -8,6 +8,25 @@ export interface ProjectChanges {
   ownerId?: string;
   managedAccess?: ManagedAccess | null;
   limits?: ProjectLimits | null;
+}
+
+/** What can change in an extra webhook endpoint; `null` clears an optional field. */
+export interface WebhookEndpointChanges {
+  url?: string;
+  secret?: string;
+  description?: string | null;
+  events?: WebhookEndpoint['events'] | null;
+  mode?: WebhookEndpoint['mode'] | null;
+  enabled?: boolean;
+}
+
+export interface AttemptQuery {
+  limit: number;
+  before?: Date;
+  since?: Date;
+  failed?: boolean;
+  eventId?: string;
+  endpointId?: string | null;
 }
 
 export interface MessageQuery {
@@ -178,10 +197,21 @@ export interface SimStore {
   /** Newest first. `failed`: only answers of 400 and up; `keyId`: one key's. */
   listApiRequests(projectId: string, query: { limit: number; before?: Date; failed?: boolean; keyId?: string }): Promise<ApiRequestLog[]>;
 
+  // Extra webhook endpoints
+  createWebhookEndpoint(endpoint: WebhookEndpoint): Promise<void>;
+  /** Oldest first. */
+  listWebhookEndpoints(projectId: string): Promise<WebhookEndpoint[]>;
+  getWebhookEndpoint(projectId: string, id: string): Promise<WebhookEndpoint | undefined>;
+  updateWebhookEndpoint(projectId: string, id: string, changes: WebhookEndpointChanges): Promise<void>;
+  deleteWebhookEndpoint(projectId: string, id: string): Promise<boolean>;
+
   // Webhook delivery log
   addWebhookAttempt(attempt: WebhookAttempt): Promise<void>;
-  /** Newest first. `failed`: only attempts that did not get a 2xx. */
-  listWebhookAttempts(projectId: string, query: { limit: number; before?: Date; failed?: boolean; eventId?: string }): Promise<WebhookAttempt[]>;
+  /**
+   * Newest first. `failed`: only attempts that did not get a 2xx; `since`: from a date on; `endpointId`: one
+   * endpoint's (`null` for the main webhook URL).
+   */
+  listWebhookAttempts(projectId: string, query: AttemptQuery): Promise<WebhookAttempt[]>;
   getWebhookAttempt(projectId: string, id: string): Promise<WebhookAttempt | undefined>;
   /** Attempts since a date: how many got a 2xx and how many did not. */
   webhookStats(projectId: string, since: Date): Promise<{ ok: number; failed: number }>;

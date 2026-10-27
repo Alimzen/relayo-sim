@@ -1,6 +1,6 @@
-import type { AuditEntry, ApiRequestLog, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { WebhookEndpoint, AuditEntry, ApiRequestLog, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
-import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
+import type { AttemptQuery, MessageQuery, ProjectChanges, SealedValue, SimStore, WebhookEndpointChanges } from './store.js';
 
 /** In-process store for tests and local runs without a database. Nothing survives a restart. */
 export class MemoryStore implements SimStore {
@@ -18,6 +18,7 @@ export class MemoryStore implements SimStore {
   private readonly usage = new Map<string, number>();
   private readonly webhookAttempts: WebhookAttempt[] = [];
   private readonly audit: AuditEntry[] = [];
+  private readonly endpoints: WebhookEndpoint[] = [];
   private readonly requests: ApiRequestLog[] = [];
   private readonly templates = new Map<string, Template>();
   private readonly scheduled = new Map<string, ScheduledSend>();
@@ -197,6 +198,7 @@ export class MemoryStore implements SimStore {
     const kept = this.webhookAttempts.filter((a) => a.projectId !== id);
     this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
     keep(this.audit, (e) => e.projectId !== id);
+    keep(this.endpoints, (e) => e.projectId !== id);
     keep(this.requests, (r) => r.projectId !== id);
   }
 
@@ -542,12 +544,43 @@ export class MemoryStore implements SimStore {
     this.webhookAttempts.push({ ...attempt });
   }
 
-  async listWebhookAttempts(projectId: string, query: { limit: number; before?: Date; failed?: boolean; eventId?: string }): Promise<WebhookAttempt[]> {
+  async createWebhookEndpoint(endpoint: WebhookEndpoint): Promise<void> {
+    this.endpoints.push(structuredClone(endpoint));
+  }
+
+  async listWebhookEndpoints(projectId: string): Promise<WebhookEndpoint[]> {
+    return this.endpoints.filter((e) => e.projectId === projectId).map((e) => structuredClone(e));
+  }
+
+  async getWebhookEndpoint(projectId: string, id: string): Promise<WebhookEndpoint | undefined> {
+    const found = this.endpoints.find((e) => e.projectId === projectId && e.id === id);
+    return found && structuredClone(found);
+  }
+
+  async updateWebhookEndpoint(projectId: string, id: string, changes: WebhookEndpointChanges): Promise<void> {
+    const found = this.endpoints.find((e) => e.projectId === projectId && e.id === id);
+    if (!found) return;
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === undefined) continue;
+      if (value === null) delete (found as unknown as Record<string, unknown>)[key];
+      else (found as unknown as Record<string, unknown>)[key] = structuredClone(value);
+    }
+  }
+
+  async deleteWebhookEndpoint(projectId: string, id: string): Promise<boolean> {
+    const before = this.endpoints.length;
+    keep(this.endpoints, (e) => !(e.projectId === projectId && e.id === id));
+    return this.endpoints.length < before;
+  }
+
+  async listWebhookAttempts(projectId: string, query: AttemptQuery): Promise<WebhookAttempt[]> {
     return this.webhookAttempts
       .filter(
         (a) =>
           a.projectId === projectId &&
           (!query.before || a.createdAt < query.before) &&
+          (!query.since || a.createdAt >= query.since) &&
+          (query.endpointId === undefined || (a.endpointId ?? null) === query.endpointId) &&
           (!query.failed || !a.ok) &&
           (!query.eventId || a.eventId === query.eventId),
       )

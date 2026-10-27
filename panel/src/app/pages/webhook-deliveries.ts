@@ -1,9 +1,10 @@
 import { Component, inject, input, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { LucideRefreshCw, LucideRotateCcw, LucideWebhook } from '@lucide/angular';
 import { Api } from '../core/api';
 import { lookOf, type Tone } from '../core/events';
 import { formatNumber, fullDate, timeAgo } from '../core/format';
-import type { WebhookDelivery, WebhookDeliveryDetail, WebhookStats } from '../core/types';
+import type { WebhookDelivery, WebhookDeliveryDetail, WebhookEndpoint, WebhookStats } from '../core/types';
 import { Badge, EmptyState, Modal, Toasts } from '../ui/ui';
 
 const TRIGGERS: Record<WebhookDelivery['trigger'], string> = { auto: 'Automático', redeliver: 'Reenvío', test: 'Prueba' };
@@ -11,7 +12,7 @@ const TRIGGERS: Record<WebhookDelivery['trigger'], string> = { auto: 'Automátic
 /** Every POST of an event to the project's webhook: what it answered, retries, and redelivery. */
 @Component({
   selector: 'app-webhook-deliveries',
-  imports: [Badge, EmptyState, Modal, LucideRefreshCw, LucideRotateCcw, LucideWebhook],
+  imports: [FormsModule, Badge, EmptyState, Modal, LucideRefreshCw, LucideRotateCcw, LucideWebhook],
   template: `
     <section class="card">
       <header class="card-head">
@@ -34,6 +35,7 @@ const TRIGGERS: Record<WebhookDelivery['trigger'], string> = { auto: 'Automátic
             <button type="button" [attr.aria-pressed]="!failedOnly()" (click)="filter(false)">Todas</button>
             <button type="button" [attr.aria-pressed]="failedOnly()" (click)="filter(true)">Fallidas</button>
           </div>
+          <button type="button" class="btn btn-sm" (click)="openBulk()"><svg lucideRotateCcw [size]="14"></svg>Reenviar fallidos</button>
           <button type="button" class="icon-button" (click)="reload()" aria-label="Actualizar" title="Actualizar"><svg lucideRefreshCw [size]="15"></svg></button>
         </div>
       </header>
@@ -69,7 +71,12 @@ const TRIGGERS: Record<WebhookDelivery['trigger'], string> = { auto: 'Automátic
                   <td class="nowrap" [title]="full(d.createdAt)">{{ ago(d.createdAt) }}</td>
                   <td>
                     <app-badge [tone]="lookOf(d).tone">{{ lookOf(d).label }}</app-badge>
-                    <div class="muted small truncate">{{ d.recipient }}</div>
+                    <div class="muted small truncate">
+                      {{ d.recipient }}
+                      @if (d.endpointId) {
+                        · <span [title]="d.url">{{ host(d.url) }}</span>
+                      }
+                    </div>
                   </td>
                   <td><app-badge [tone]="answerTone(d)">{{ answer(d) }}</app-badge></td>
                   <td class="nowrap">
@@ -96,6 +103,38 @@ const TRIGGERS: Record<WebhookDelivery['trigger'], string> = { auto: 'Automátic
         }
       }
     </section>
+
+    <app-modal heading="Reenviar los fallidos" [open]="bulk()" (closed)="bulk.set(false)">
+      <form (ngSubmit)="redeliverFailed()">
+        <p class="text-2 modal-lede">
+          Vuelve a enviar cada evento que no se pudo entregar (falló su último intento y no le quedan reintentos) al endpoint al que
+          iba. Hasta 1000 eventos, en segundo plano.
+        </p>
+        <div class="field">
+          <label for="bulk-period">Desde hace</label>
+          <select id="bulk-period" class="input" name="period" [(ngModel)]="bulkHours">
+            <option [ngValue]="1">1 hora</option>
+            <option [ngValue]="24">24 horas</option>
+            <option [ngValue]="72">3 días</option>
+            <option [ngValue]="168">7 días</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="bulk-endpoint">Endpoint</label>
+          <select id="bulk-endpoint" class="input" name="endpoint" [(ngModel)]="bulkEndpoint">
+            <option value="">Todos</option>
+            <option value="main">URL principal</option>
+            @for (e of endpoints(); track e.id) {
+              <option [value]="e.id">{{ e.description || host(e.url) }}</option>
+            }
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" (click)="bulk.set(false)">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="busy()">Reenviar</button>
+        </div>
+      </form>
+    </app-modal>
 
     <app-modal heading="Entrega del webhook" [open]="!!selected()" (closed)="selected.set(null)">
       @if (selected(); as d) {
@@ -139,6 +178,10 @@ export class WebhookDeliveries {
   protected readonly busy = signal(false);
   protected readonly selected = signal<WebhookDelivery | null>(null);
   protected readonly detail = signal<WebhookDeliveryDetail | null>(null);
+  protected readonly bulk = signal(false);
+  protected readonly endpoints = signal<WebhookEndpoint[]>([]);
+  protected bulkHours = 24;
+  protected bulkEndpoint = '';
   protected readonly format = formatNumber;
   protected readonly ago = (value: string) => timeAgo(value);
   protected readonly full = (value: string) => fullDate(value);
@@ -210,6 +253,38 @@ export class WebhookDeliveries {
       else this.toasts.error(new Error(`El reenvío falló: ${this.answer(attempt)}`));
       this.selected.set(null);
       await this.reload();
+    } catch (error) {
+      this.toasts.error(error);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected host(url: string): string {
+    try {
+      return new URL(url).host;
+    } catch {
+      return url;
+    }
+  }
+
+  protected openBulk(): void {
+    this.bulk.set(true);
+    this.api.webhookEndpoints().then(
+      (list) => this.endpoints.set(list),
+      () => this.endpoints.set([]),
+    );
+  }
+
+  protected async redeliverFailed(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      const since = new Date(Date.now() - this.bulkHours * 3_600_000).toISOString();
+      const { events } = await this.api.redeliverFailedWebhooks({ since, ...(this.bulkEndpoint && { endpoint: this.bulkEndpoint }) });
+      this.toasts.show(events ? `Reenviando ${events} ${events === 1 ? 'evento' : 'eventos'}` : 'No hay eventos fallidos en ese periodo');
+      this.bulk.set(false);
+      if (events) setTimeout(() => void this.reload(), 2000);
     } catch (error) {
       this.toasts.error(error);
     } finally {

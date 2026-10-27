@@ -1,7 +1,7 @@
 import pg from 'pg';
-import type { AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { WebhookEndpoint, AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
-import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
+import type { MessageQuery, ProjectChanges, SealedValue, SimStore, AttemptQuery, WebhookEndpointChanges } from './store.js';
 
 /** Idempotent: safe to run on every start, on new and existing databases. */
 const SCHEMA = `
@@ -215,6 +215,19 @@ CREATE TABLE IF NOT EXISTS webhook_attempts (
   created_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS webhook_attempts_project_created ON webhook_attempts (project_id, created_at DESC);
+ALTER TABLE webhook_attempts ADD COLUMN IF NOT EXISTS endpoint_id text;
+CREATE TABLE IF NOT EXISTS webhook_endpoints (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  url text NOT NULL,
+  secret text NOT NULL,
+  description text,
+  events jsonb,
+  mode text,
+  enabled boolean NOT NULL,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS webhook_endpoints_project ON webhook_endpoints (project_id, created_at);
 CREATE TABLE IF NOT EXISTS audit_log (
   id text PRIMARY KEY,
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -876,8 +889,8 @@ export class PostgresStore implements SimStore {
   async addWebhookAttempt(a: WebhookAttempt): Promise<void> {
     await this.pool.query(
       `INSERT INTO webhook_attempts (id, project_id, event_id, event_type, recipient, url, attempt, max_attempts, trigger, ok, status_code, error,
-         response_body, duration_ms, will_retry, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+         response_body, duration_ms, will_retry, created_at, endpoint_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
       [
         a.id,
         a.projectId,
@@ -895,14 +908,52 @@ export class PostgresStore implements SimStore {
         a.durationMs,
         a.willRetry,
         a.createdAt,
+        a.endpointId ?? null,
       ],
     );
   }
 
-  async listWebhookAttempts(projectId: string, query: { limit: number; before?: Date; failed?: boolean; eventId?: string }): Promise<WebhookAttempt[]> {
+  async createWebhookEndpoint(e: WebhookEndpoint): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO webhook_endpoints (id, project_id, url, secret, description, events, mode, enabled, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      [e.id, e.projectId, e.url, e.secret, e.description ?? null, e.events ? JSON.stringify(e.events) : null, e.mode ?? null, e.enabled, e.createdAt],
+    );
+  }
+
+  async listWebhookEndpoints(projectId: string): Promise<WebhookEndpoint[]> {
+    const { rows } = await this.pool.query<EndpointRow>('SELECT * FROM webhook_endpoints WHERE project_id = $1 ORDER BY created_at, id', [projectId]);
+    return rows.map(toEndpoint);
+  }
+
+  async getWebhookEndpoint(projectId: string, id: string): Promise<WebhookEndpoint | undefined> {
+    const { rows } = await this.pool.query<EndpointRow>('SELECT * FROM webhook_endpoints WHERE project_id = $1 AND id = $2', [projectId, id]);
+    return rows[0] && toEndpoint(rows[0]);
+  }
+
+  async updateWebhookEndpoint(projectId: string, id: string, changes: WebhookEndpointChanges): Promise<void> {
+    const columns = { url: 'url', secret: 'secret', description: 'description', events: 'events', mode: 'mode', enabled: 'enabled' } as const;
+    const values: unknown[] = [projectId, id];
+    const sets: string[] = [];
+    for (const [key, column] of Object.entries(columns)) {
+      const value = changes[key as keyof WebhookEndpointChanges];
+      if (value === undefined) continue;
+      sets.push(`${column} = $${values.push(key === 'events' && value !== null ? JSON.stringify(value) : value)}`);
+    }
+    if (sets.length) await this.pool.query(`UPDATE webhook_endpoints SET ${sets.join(', ')} WHERE project_id = $1 AND id = $2`, values);
+  }
+
+  async deleteWebhookEndpoint(projectId: string, id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query('DELETE FROM webhook_endpoints WHERE project_id = $1 AND id = $2', [projectId, id]);
+    return (rowCount ?? 0) > 0;
+  }
+
+  async listWebhookAttempts(projectId: string, query: AttemptQuery): Promise<WebhookAttempt[]> {
     const values: unknown[] = [projectId, query.limit];
     const where = ['project_id = $1'];
     if (query.before) where.push(`created_at < $${values.push(query.before)}`);
+    if (query.since) where.push(`created_at >= $${values.push(query.since)}`);
+    if (query.endpointId === null) where.push('endpoint_id IS NULL');
+    else if (query.endpointId !== undefined) where.push(`endpoint_id = $${values.push(query.endpointId)}`);
     if (query.failed) where.push('NOT ok');
     if (query.eventId) where.push(`event_id = $${values.push(query.eventId)}`);
     const { rows } = await this.pool.query<AttemptRow>(
@@ -1176,7 +1227,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE audit_log, api_requests, project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE webhook_endpoints, audit_log, api_requests, project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
@@ -1323,6 +1374,33 @@ interface AttemptRow {
   duration_ms: number;
   will_retry: boolean;
   created_at: Date;
+  endpoint_id: string | null;
+}
+
+interface EndpointRow {
+  id: string;
+  project_id: string;
+  url: string;
+  secret: string;
+  description: string | null;
+  events: NonNullable<WebhookEndpoint['events']> | null;
+  mode: Mode | null;
+  enabled: boolean;
+  created_at: Date;
+}
+
+function toEndpoint(row: EndpointRow): WebhookEndpoint {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    url: row.url,
+    secret: row.secret,
+    enabled: row.enabled,
+    createdAt: row.created_at,
+    ...(row.description !== null && { description: row.description }),
+    ...(row.events !== null && { events: row.events }),
+    ...(row.mode !== null && { mode: row.mode }),
+  };
 }
 
 function toAttempt(row: AttemptRow): WebhookAttempt {
@@ -1343,6 +1421,7 @@ function toAttempt(row: AttemptRow): WebhookAttempt {
     ...(row.status_code !== null && { statusCode: row.status_code }),
     ...(row.error !== null && { error: row.error }),
     ...(row.response_body !== null && { responseBody: row.response_body }),
+    ...(row.endpoint_id !== null && { endpointId: row.endpoint_id }),
   };
 }
 

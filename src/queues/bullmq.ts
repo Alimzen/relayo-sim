@@ -1,7 +1,7 @@
 import { Queue, Worker, type ConnectionOptions } from 'bullmq';
 import type { SimEvent } from '../domain.js';
 import type { EventScheduler, ScheduledStep, StepHandler } from '../scheduler/scheduler.js';
-import { attemptRecord, attemptWebhook, recordAttempt, type WebhookDispatcher, type WebhookLog } from '../webhooks/webhooks.js';
+import { type WebhookTarget, attemptRecord, attemptWebhook, recordAttempt, type WebhookDispatcher, type WebhookLog } from '../webhooks/webhooks.js';
 
 const TIMELINE_QUEUE = 'sim-timeline';
 const WEBHOOK_QUEUE = 'sim-webhooks';
@@ -66,7 +66,7 @@ export class BullScheduler implements EventScheduler {
 
 interface WebhookJob {
   event: SimEvent;
-  target: { url: string; secret: string };
+  target: WebhookTarget;
 }
 
 /** Webhook deliveries as BullMQ jobs: 8 attempts, exponential backoff starting at 10 s. */
@@ -90,16 +90,17 @@ export class BullDispatcher implements WebhookDispatcher {
         const attempt = job.attemptsMade + 1;
         const maxAttempts = job.opts.attempts ?? 1;
         const willRetry = !result.ok && attempt < maxAttempts;
-        await recordAttempt(options.webhookLog, attemptRecord(event, target.url, result, { attempt, maxAttempts, trigger: 'auto', willRetry }));
+        await recordAttempt(options.webhookLog, attemptRecord(event, target, result, { attempt, maxAttempts, trigger: 'auto', willRetry }));
         if (!result.ok) throw new Error(result.error ?? `Webhook answered ${result.statusCode}`);
       },
       { connection: connection(url), concurrency: 20, ...prefix },
     );
   }
 
-  async dispatch(event: SimEvent, target: { url: string; secret: string }): Promise<void> {
+  async dispatch(event: SimEvent, target: WebhookTarget): Promise<void> {
     await this.queue.add('deliver', { event, target }, {
-      jobId: event.id.replaceAll(':', '|'),
+      // One job per event and URL: the same event goes to every endpoint that wants it.
+      jobId: `${event.id}${target.endpointId ? `|${target.endpointId}` : ''}`.replaceAll(':', '|'),
       attempts: this.options.webhookAttempts ?? 8,
       backoff: { type: 'exponential', delay: this.options.webhookBackoffMs ?? 10_000 },
       removeOnComplete: 1000,

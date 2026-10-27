@@ -15,7 +15,7 @@ import {
 } from '@alimzen/relayo';
 import type { Connection, ManagedAccess, Project, SimEvent, SimMessage, SuppressionReason } from '../domain.js';
 import type { SimStore } from '../store/store.js';
-import type { WebhookDispatcher } from '../webhooks/webhooks.js';
+import { webhookTargets, type WebhookDispatcher } from '../webhooks/webhooks.js';
 import { ses } from '@alimzen/relayo-ses';
 import { timingSafeEqual } from 'node:crypto';
 import type { SendingDomain } from '../domain.js';
@@ -671,7 +671,7 @@ export class LiveService {
   private async record(project: Project, events: SimEvent[]): Promise<void> {
     for (const event of events) {
       await this.store.addEvent(event);
-      if (project.webhookUrl) await this.webhooks.dispatch(event, { url: project.webhookUrl, secret: project.webhookSecret });
+      for (const target of await webhookTargets(this.store, project, event, 'live')) await this.webhooks.dispatch(event, target);
     }
   }
 }

@@ -323,6 +323,67 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
   });
 
+  it('keeps extra webhook endpoints, and tells their tries apart from the main URL\'s', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const endpoint = {
+      id: 'whe_1',
+      projectId: 'prj_1',
+      url: 'https://crm.example/hooks',
+      secret: 'whsec_1',
+      events: ['bounced' as const, 'complained' as const],
+      mode: 'live' as const,
+      enabled: true,
+      createdAt: new Date('2026-10-18T10:00:00Z'),
+    };
+    await store.createWebhookEndpoint(endpoint);
+    await store.createWebhookEndpoint({ ...endpoint, id: 'whe_2', description: 'Otro', createdAt: new Date('2026-10-18T11:00:00Z') });
+    expect((await store.listWebhookEndpoints('prj_1')).map((e) => e.id)).toEqual(['whe_1', 'whe_2']);
+    expect(await store.getWebhookEndpoint('prj_1', 'whe_1')).toEqual(endpoint);
+    expect(await store.getWebhookEndpoint('prj_other', 'whe_1')).toBeUndefined();
+
+    await store.updateWebhookEndpoint('prj_1', 'whe_1', { events: null, mode: null, enabled: false, description: 'CRM', url: 'https://crm.example/v2' });
+    expect(await store.getWebhookEndpoint('prj_1', 'whe_1')).toEqual({
+      id: 'whe_1',
+      projectId: 'prj_1',
+      url: 'https://crm.example/v2',
+      secret: 'whsec_1',
+      description: 'CRM',
+      enabled: false,
+      createdAt: endpoint.createdAt,
+    });
+    await store.updateWebhookEndpoint('prj_1', 'whe_1', { events: ['opened'], description: null });
+    expect(await store.getWebhookEndpoint('prj_1', 'whe_1')).toMatchObject({ events: ['opened'] });
+    expect((await store.getWebhookEndpoint('prj_1', 'whe_1'))?.description).toBeUndefined();
+
+    const attempt = (id: string, endpointId?: string) => ({
+      id,
+      projectId: 'prj_1',
+      eventId: 'evt_1',
+      eventType: 'bounced' as const,
+      recipient: 'ana@x.com',
+      url: 'https://x',
+      attempt: 1,
+      maxAttempts: 8,
+      trigger: 'auto' as const,
+      ok: true,
+      durationMs: 1,
+      willRetry: false,
+      createdAt: new Date('2026-10-18T12:00:00Z'),
+      ...(endpointId && { endpointId }),
+    });
+    await store.addWebhookAttempt(attempt('wha_main'));
+    await store.addWebhookAttempt(attempt('wha_crm', 'whe_1'));
+    expect((await store.listWebhookAttempts('prj_1', { limit: 10, endpointId: null })).map((a) => a.id)).toEqual(['wha_main']);
+    expect(await store.listWebhookAttempts('prj_1', { limit: 10, endpointId: 'whe_1' })).toEqual([attempt('wha_crm', 'whe_1')]);
+    expect(await store.listWebhookAttempts('prj_1', { limit: 10, since: new Date('2026-10-18T12:00:01Z') })).toEqual([]);
+
+    expect(await store.deleteWebhookEndpoint('prj_1', 'whe_2')).toBe(true);
+    expect(await store.deleteWebhookEndpoint('prj_1', 'whe_2')).toBe(false);
+    await store.deleteProject('prj_1');
+    expect(await store.listWebhookEndpoints('prj_1')).toEqual([]);
+  });
+
   it('keeps the audit log for a year and API requests by retention, newest first', async () => {
     const store = await open();
     await store.createProject(project());

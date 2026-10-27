@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { WebhookEndpoint, AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -133,7 +133,17 @@ export class Api {
   };
   webhookDelivery = (id: string) => this.call<WebhookDeliveryDetail>('GET', `/v1/project/webhook/deliveries/${encodeURIComponent(id)}`);
   redeliverWebhook = (id: string) => this.call<WebhookDelivery>('POST', `/v1/project/webhook/deliveries/${encodeURIComponent(id)}/redeliver`);
-  testWebhook = () => this.call<WebhookDelivery>('POST', '/v1/project/webhook/test');
+  testWebhook = (endpoint?: string) => this.call<WebhookDelivery>('POST', '/v1/project/webhook/test', endpoint ? { endpoint } : {});
+  redeliverFailedWebhooks = (body: { since: string; endpoint?: string }) => this.call<{ events: number }>('POST', '/v1/project/webhook/redeliver', body);
+  webhookEndpoints = () => this.call<{ data: WebhookEndpoint[] }>('GET', '/v1/project/webhook/endpoints').then((r) => r.data);
+  createWebhookEndpoint = (body: Partial<Omit<WebhookEndpoint, 'id' | 'createdAt'>>) =>
+    this.call<WebhookEndpoint & { secret: string }>('POST', '/v1/project/webhook/endpoints', body);
+  updateWebhookEndpoint = (id: string, body: Partial<Omit<WebhookEndpoint, 'id' | 'createdAt'>>) =>
+    this.call<WebhookEndpoint>('PATCH', `/v1/project/webhook/endpoints/${encodeURIComponent(id)}`, body);
+  deleteWebhookEndpoint = (id: string) => this.call<void>('DELETE', `/v1/project/webhook/endpoints/${encodeURIComponent(id)}`);
+  webhookEndpointSecret = (id: string) => this.call<{ secret: string }>('GET', `/v1/project/webhook/endpoints/${encodeURIComponent(id)}/secret`);
+  rotateWebhookEndpointSecret = (id: string) =>
+    this.call<{ secret: string }>('POST', `/v1/project/webhook/endpoints/${encodeURIComponent(id)}/secret/rotate`);
   webhookStats = () => this.call<WebhookStats>('GET', '/v1/project/webhook/stats');
   team = () => this.call<TeamView>('GET', '/v1/project/team');
   inviteMember = (email: string, role: 'admin' | 'member') => this.call<{ id: string; email: string }>('POST', '/v1/project/team/invites', { email, role });

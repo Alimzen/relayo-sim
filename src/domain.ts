@@ -272,6 +272,8 @@ export interface WebhookAttempt {
   eventType: SimEvent['type'];
   recipient: string;
   url: string;
+  /** The extra endpoint it went to; absent for the project's main webhook URL. */
+  endpointId?: string;
   /** 1-based; `maxAttempts` is how many automatic tries the event gets. */
   attempt: number;
   maxAttempts: number;
@@ -345,5 +347,21 @@ export interface ApiRequestLog {
   ip?: string;
   /** What the API answered, when it was an error. */
   error?: string;
+  createdAt: Date;
+}
+
+/** Another URL that gets the project's events, besides the main webhook URL; it may want only some of them. */
+export interface WebhookEndpoint {
+  id: string;
+  projectId: string;
+  url: string;
+  /** Its own signing secret (`whsec_…`). */
+  secret: string;
+  description?: string;
+  /** The event types it gets; absent means all. */
+  events?: Array<SimEvent['type']>;
+  /** Only the events of one mode; absent means both. */
+  mode?: Mode;
+  enabled: boolean;
   createdAt: Date;
 }

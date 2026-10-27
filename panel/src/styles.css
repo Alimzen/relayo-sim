@@ -2302,3 +2302,17 @@ pre {
 .records .record-value {
   max-width: 280px;
 }
+
+/* A grid of checkboxes (webhook endpoint events). */
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px 12px;
+  margin-block: 4px 6px;
+}
+
+fieldset.field {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}

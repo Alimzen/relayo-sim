@@ -353,6 +353,7 @@ const schemas = {
       eventType: { type: 'string', enum: EVENT_TYPES },
       recipient: { type: 'string' },
       url: { type: 'string' },
+      endpointId: { type: 'string', description: 'El endpoint adicional al que fue; sin él, la URL principal.' },
       attempt: { type: 'integer' },
       maxAttempts: { type: 'integer' },
       trigger: { type: 'string', enum: ['auto', 'redeliver', 'test'] },
@@ -396,6 +397,28 @@ const schemas = {
       ip: { type: 'string' },
       mode: { type: 'string', enum: ['test', 'live'] },
       createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  WebhookEndpoint: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      url: { type: 'string' },
+      description: { type: ['string', 'null'] },
+      events: { type: ['array', 'null'], items: { type: 'string', enum: EVENT_TYPES }, description: 'Los tipos que recibe; `null`: todos.' },
+      mode: { type: ['string', 'null'], enum: ['test', 'live', null], description: 'Solo los eventos de un modo; `null`: los dos.' },
+      enabled: { type: 'boolean' },
+      createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  WebhookEndpointInput: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', format: 'uri' },
+      description: { type: ['string', 'null'] },
+      events: { type: ['array', 'null'], items: { type: 'string', enum: EVENT_TYPES } },
+      mode: { type: ['string', 'null'], enum: ['test', 'live', null] },
+      enabled: { type: 'boolean' },
     },
   },
   Suppression: {
@@ -704,10 +727,68 @@ const paths = {
       description: 'Cada intento de enviar un evento a tu URL, el más reciente primero.',
       parameters: [
         query('status', 'Solo los que no recibieron un 2xx.', { type: 'string', enum: ['failed'] }),
+        query('endpoint', 'Solo los de un endpoint (su id), o `main` para la URL principal.', { type: 'string' }),
         query('before', 'Fecha ISO: anteriores (paginación).', { type: 'string', format: 'date-time' }),
         query('limit', 'Hasta 200 (50 por defecto).', { type: 'integer' }),
       ],
       responses: { 200: ok('Intentos.', list('WebhookDelivery')) },
+    },
+  },
+  '/v1/project/webhook/redeliver': {
+    post: {
+      tags: ['Webhooks'],
+      summary: 'Reenviar los fallidos',
+      operationId: 'redeliverFailedWebhooks',
+      description:
+        'Vuelve a enviar, en segundo plano, cada evento que no se pudo entregar en un periodo (su último intento falló y no le quedan reintentos), al endpoint al que iba. Hasta 1000 eventos.',
+      requestBody: body({
+        type: 'object',
+        required: ['since'],
+        properties: {
+          since: { type: 'string', format: 'date-time' },
+          until: { type: 'string', format: 'date-time' },
+          endpoint: { type: 'string', description: 'Solo los de un endpoint (su id), o `main` para la URL principal.' },
+        },
+      }),
+      responses: { 202: ok('Cuántos eventos se reenvían.', { type: 'object', properties: { events: { type: 'integer' } } }), 400: badRequest },
+    },
+  },
+  '/v1/project/webhook/endpoints': {
+    get: {
+      tags: ['Webhooks'],
+      summary: 'Endpoints adicionales',
+      operationId: 'listWebhookEndpoints',
+      description: 'Más URLs que reciben los eventos, además de la principal (`webhookUrl`), cada una con su secreto y sus filtros.',
+      responses: { 200: ok('Endpoints.', list('WebhookEndpoint')) },
+    },
+    post: {
+      tags: ['Webhooks'],
+      summary: 'Añadir un endpoint',
+      operationId: 'createWebhookEndpoint',
+      description: 'Hasta 10 por proyecto. La respuesta trae su secreto de firma (`secret`).',
+      requestBody: body({ allOf: [ref('WebhookEndpointInput'), { required: ['url'] }] }, { url: 'https://crm.empresa.com/relayo', events: ['bounced', 'complained'], mode: 'live' }),
+      responses: {
+        201: ok('El endpoint, con su secreto.', { allOf: [ref('WebhookEndpoint'), { type: 'object', properties: { secret: { type: 'string' } } }] }),
+        400: badRequest,
+      },
+    },
+  },
+  '/v1/project/webhook/endpoints/{id}': {
+    patch: {
+      tags: ['Webhooks'],
+      summary: 'Cambiar un endpoint',
+      operationId: 'updateWebhookEndpoint',
+      description: '`null` borra `description`, `events` (todos) o `mode` (los dos).',
+      parameters: [id('id', 'Id del endpoint (`whe_…`).')],
+      requestBody: body(ref('WebhookEndpointInput')),
+      responses: { 200: ok('El endpoint.', ref('WebhookEndpoint')), 400: badRequest, 404: notFound },
+    },
+    delete: {
+      tags: ['Webhooks'],
+      summary: 'Borrar un endpoint',
+      operationId: 'deleteWebhookEndpoint',
+      parameters: [id('id', 'Id del endpoint.')],
+      responses: { 204: { description: 'Borrado.' }, 404: notFound },
     },
   },
   '/v1/project/webhook/deliveries/{id}': {
@@ -727,7 +808,7 @@ const paths = {
       tags: ['Webhooks'],
       summary: 'Reenviar un evento',
       operationId: 'redeliverWebhook',
-      description: 'Envía otra vez, ahora, el evento de un intento a la URL actual del webhook.',
+      description: 'Envía otra vez, ahora, el evento de un intento a la URL actual del endpoint al que fue.',
       parameters: [id('id', 'Id del intento.')],
       responses: { 200: ok('El nuevo intento.', ref('WebhookDelivery')), 400: error('Sin URL de webhook, o el evento ya se borró por retención.'), 404: notFound },
     },
@@ -766,7 +847,8 @@ const paths = {
       summary: 'Enviar un evento de prueba',
       operationId: 'testWebhook',
       description: 'Un evento `delivered` inventado, con la cabecera `Relayo-Test: true` y `metadata.relayoTest`, para probar tu endpoint y su comprobación de la firma.',
-      responses: { 200: ok('El intento.', ref('WebhookDelivery')), 400: error('El proyecto no tiene URL de webhook.') },
+      requestBody: { required: false, content: json({ type: 'object', properties: { endpoint: { type: 'string', description: 'Id de un endpoint adicional; sin él, la URL principal.' } } }) },
+      responses: { 200: ok('El intento.', ref('WebhookDelivery')), 400: error('El proyecto no tiene URL de webhook, o el endpoint no existe.') },
     },
   },
   '/v1/project/webhook/stats': {
@@ -1007,5 +1089,6 @@ export const UNDOCUMENTED = [
   'DELETE /v1/project/connections/:id', 'POST /v1/project/connections/:id/test',
   'POST /v1/inbound/managed/:token',
   'GET /v1/admin/plans', 'PATCH /v1/admin/plans/:projectId',
+  'GET /v1/project/webhook/endpoints/:id/secret', 'POST /v1/project/webhook/endpoints/:id/secret/rotate',
   'GET /openapi.json',
 ];

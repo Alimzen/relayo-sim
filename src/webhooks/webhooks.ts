@@ -1,12 +1,45 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import type { SimEvent, WebhookAttempt } from '../domain.js';
+import type { Mode, Project, SimEvent, WebhookAttempt } from '../domain.js';
+import type { SimStore } from '../store/store.js';
 
 export const WEBHOOK_DISPATCHER = Symbol.for('relayo-sim:webhooks');
 export const SIGNATURE_HEADER = 'relayo-signature';
 
-/** Sends events to a project's webhook URL, retrying failures. */
+/** Where an event goes: the main webhook URL, or an extra endpoint (`endpointId`). */
+export interface WebhookTarget {
+  url: string;
+  secret: string;
+  endpointId?: string;
+}
+
+/** Event types an endpoint can choose from. */
+export const WEBHOOK_EVENT_TYPES = [
+  'accepted',
+  'delivered',
+  'deferred',
+  'bounced',
+  'complained',
+  'rejected',
+  'opened',
+  'clicked',
+  'unsubscribed',
+  'failed',
+] as const satisfies ReadonlyArray<SimEvent['type']>;
+
+/** Every URL an event of a project goes to: the main one, and the enabled endpoints that want it. */
+export async function webhookTargets(store: SimStore, project: Project, event: SimEvent, mode: Mode): Promise<WebhookTarget[]> {
+  const targets: WebhookTarget[] = project.webhookUrl ? [{ url: project.webhookUrl, secret: project.webhookSecret }] : [];
+  for (const endpoint of await store.listWebhookEndpoints(project.id)) {
+    if (!endpoint.enabled || (endpoint.mode && endpoint.mode !== mode)) continue;
+    if (endpoint.events?.length && !endpoint.events.includes(event.type)) continue;
+    targets.push({ url: endpoint.url, secret: endpoint.secret, endpointId: endpoint.id });
+  }
+  return targets;
+}
+
+/** Sends events to a project's webhook URLs, retrying failures. */
 export interface WebhookDispatcher {
-  dispatch(event: SimEvent, target: { url: string; secret: string }): Promise<void>;
+  dispatch(event: SimEvent, target: WebhookTarget): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -99,7 +132,7 @@ export type WebhookLog = (attempt: WebhookAttempt) => Promise<void>;
 /** The log entry for one try of an event. */
 export function attemptRecord(
   event: SimEvent,
-  url: string,
+  target: Pick<WebhookTarget, 'url' | 'endpointId'>,
   result: DeliveryResult,
   info: Pick<WebhookAttempt, 'attempt' | 'maxAttempts' | 'trigger' | 'willRetry'>,
 ): WebhookAttempt {
@@ -109,7 +142,8 @@ export function attemptRecord(
     eventId: event.id,
     eventType: event.type,
     recipient: event.recipient,
-    url,
+    url: target.url,
+    ...(target.endpointId && { endpointId: target.endpointId }),
     ...info,
     ...result,
     createdAt: new Date(),
@@ -141,11 +175,11 @@ export class MemoryDispatcher implements WebhookDispatcher {
     private readonly log?: WebhookLog,
   ) {}
 
-  async dispatch(event: SimEvent, target: { url: string; secret: string }): Promise<void> {
+  async dispatch(event: SimEvent, target: WebhookTarget): Promise<void> {
     const attempt = async (n: number): Promise<void> => {
       const result = await attemptWebhook(event, target, this.doFetch);
       const willRetry = !result.ok && n < this.retry.attempts;
-      await recordAttempt(this.log, attemptRecord(event, target.url, result, { attempt: n, maxAttempts: this.retry.attempts, trigger: 'auto', willRetry }));
+      await recordAttempt(this.log, attemptRecord(event, target, result, { attempt: n, maxAttempts: this.retry.attempts, trigger: 'auto', willRetry }));
       if (!result.ok) {
         if (!willRetry) {
           this.failures.push({ event, error: new Error(result.error ?? `Webhook answered ${result.statusCode}`) });

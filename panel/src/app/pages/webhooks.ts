@@ -5,10 +5,11 @@ import { Api } from '../core/api';
 import { Session } from '../core/session';
 import { CopyButton, Modal, Toasts } from '../ui/ui';
 import { WebhookDeliveries } from './webhook-deliveries';
+import { WebhookEndpoints } from './webhook-endpoints';
 
 @Component({
   selector: 'app-webhooks',
-  imports: [FormsModule, CopyButton, Modal, WebhookDeliveries, LucideEye, LucideEyeOff, LucideRefreshCw, LucideSend],
+  imports: [FormsModule, CopyButton, Modal, WebhookDeliveries, WebhookEndpoints, LucideEye, LucideEyeOff, LucideRefreshCw, LucideSend],
   template: `
     <div class="page">
       <header class="page-head">
@@ -49,6 +50,8 @@ import { WebhookDeliveries } from './webhook-deliveries';
             <button type="submit" class="btn btn-primary btn-sm" [disabled]="busy()">Guardar</button>
           </footer>
         </form>
+
+        <app-webhook-endpoints (tested)="deliveries().reload()" />
 
         <section class="card">
           <header class="card-head">
@@ -139,7 +142,7 @@ export class WebhooksPage {
   protected readonly busy = signal(false);
   protected readonly mask = '•'.repeat(32);
   protected webhookUrl = this.current().webhookUrl ?? '';
-  private readonly deliveries = viewChild.required(WebhookDeliveries);
+  protected readonly deliveries = viewChild.required(WebhookDeliveries);
   protected reportsUrl = '';
 
   constructor() {

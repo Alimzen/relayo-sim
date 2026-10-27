@@ -81,6 +81,8 @@ export interface WebhookDelivery {
   eventType: EventType;
   recipient: string;
   url: string;
+  /** The extra endpoint it went to; absent for the main URL. */
+  endpointId?: string;
   attempt: number;
   maxAttempts: number;
   trigger: 'auto' | 'redeliver' | 'test';
@@ -90,6 +92,19 @@ export interface WebhookDelivery {
   responseBody?: string;
   durationMs: number;
   willRetry: boolean;
+  createdAt: string;
+}
+
+/** Another URL for the project's events, with its own secret and filters. */
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  description: string | null;
+  /** The event types it gets; null means all. */
+  events: EventType[] | null;
+  /** Only one mode's events; null means both. */
+  mode: Mode | null;
+  enabled: boolean;
   createdAt: string;
 }
 
