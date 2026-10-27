@@ -6,10 +6,11 @@ import { formatNumber, fullDate } from '../core/format';
 import type { ProjectUsage } from '../core/types';
 import { Session } from '../core/session';
 import { CopyButton, Modal, Toasts } from '../ui/ui';
+import { EmailOptions } from './email-options';
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule, RouterLink, CopyButton, Modal],
+  imports: [FormsModule, RouterLink, CopyButton, Modal, EmailOptions],
   template: `
     <div class="page">
       <header class="page-head">
@@ -45,6 +46,10 @@ import { CopyButton, Modal, Toasts } from '../ui/ui';
             </button>
           </footer>
         </form>
+
+        @if (project().role !== 'member') {
+          <app-email-options />
+        }
 
         @if (usage(); as u) {
           <section class="card">

@@ -221,7 +221,7 @@ export class ProjectController {
   @ProjectAdmin()
   async update(
     @CurrentProject() project: Project,
-    @Body() body: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null },
+    @Body() body: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null; unsubscribeLinks?: unknown },
   ) {
     const changes: ProjectChanges = {};
     if (typeof body?.name === 'string') {
@@ -233,6 +233,10 @@ export class ProjectController {
     const reportsSmtpUrl = urlChange(body?.reportsSmtpUrl, /^smtps?:\/\//, '"reportsSmtpUrl" must be an smtp:// or smtps:// url');
     if (webhookUrl !== undefined) changes.webhookUrl = webhookUrl;
     if (reportsSmtpUrl !== undefined) changes.reportsSmtpUrl = reportsSmtpUrl;
+    if (body?.unsubscribeLinks !== undefined) {
+      if (typeof body.unsubscribeLinks !== 'boolean') throw new BadRequestException('"unsubscribeLinks" must be true or false');
+      changes.options = { ...project.options, unsubscribeLinks: body.unsubscribeLinks };
+    }
     await this.store.updateProject(project.id, changes);
     return publicProject((await this.store.getProject(project.id))!);
   }

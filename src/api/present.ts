@@ -10,6 +10,7 @@ export function publicProject(project: Project, role?: ProjectRole) {
     webhookUrl: project.webhookUrl ?? null,
     reportsSmtpUrl: project.reportsSmtpUrl ? maskSmtpUrl(project.reportsSmtpUrl) : null,
     managedAccess: project.managedAccess ?? null,
+    unsubscribeLinks: project.options?.unsubscribeLinks ?? false,
     createdAt: project.createdAt,
   };
 }

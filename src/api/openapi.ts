@@ -449,6 +449,7 @@ const schemas = {
       webhookUrl: { type: ['string', 'null'] },
       reportsSmtpUrl: { type: ['string', 'null'], description: 'Sin contraseña.' },
       managedAccess: { type: ['string', 'null'], enum: ['requested', 'approved', 'denied', null] },
+      unsubscribeLinks: { type: 'boolean', description: 'Correos reales con `List-Unsubscribe` en un clic hacia la página de baja de Relayo.' },
       createdAt: { type: 'string', format: 'date-time' },
     },
   },
@@ -925,6 +926,11 @@ const paths = {
           name: { type: 'string', maxLength: 80 },
           webhookUrl: { type: ['string', 'null'], format: 'uri' },
           reportsSmtpUrl: { type: ['string', 'null'], description: 'Modo de prueba: SMTP que recibe los informes DSN y ARF (`smtp://usuario:clave@host:587/buzon@ejemplo.com`).' },
+          unsubscribeLinks: {
+            type: 'boolean',
+            description:
+              'Añade a los correos reales de un destinatario `List-Unsubscribe` y `List-Unsubscribe-Post` (RFC 8058) hacia una página de baja de Relayo. Quien se da de baja pasa a las supresiones y genera un evento `unsubscribed`. `{{unsubscribe_url}}` en el contenido se rellena siempre.',
+          },
         },
       }),
       responses: { 200: ok('Guardado.', ref('Project')), 400: badRequest },
@@ -1138,5 +1144,5 @@ export const UNDOCUMENTED = [
   'POST /v1/inbound/managed/:token',
   'GET /v1/admin/plans', 'PATCH /v1/admin/plans/:projectId',
   'GET /v1/project/webhook/endpoints/:id/secret', 'POST /v1/project/webhook/endpoints/:id/secret/rotate',
-  'GET /openapi.json',
+  'GET /openapi.json', 'GET /u/:token', 'POST /u/:token',
 ];

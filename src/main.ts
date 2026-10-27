@@ -86,7 +86,7 @@ async function bootstrap(): Promise<void> {
   if (panelBuilt) {
     app.useStaticAssets(panelDir, { index: false, maxAge: '1h' });
     // Client-side routes (/messages/123...) get the app shell; the server's own routes go on to Nest.
-    const serverRoutes = ['/v1', '/health', '/openapi.json'];
+    const serverRoutes = ['/v1', '/health', '/openapi.json', '/u/'];
     app.use((req: Request, res: Response, next: NextFunction) => {
       if ((req.method !== 'GET' && req.method !== 'HEAD') || serverRoutes.some((p) => req.path.startsWith(p))) return next();
       res.sendFile(join(panelDir, 'index.html'));

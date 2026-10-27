@@ -181,6 +181,8 @@ export interface Project {
   /** Shown without its password. */
   reportsSmtpUrl: string | null;
   managedAccess: ManagedAccess | null;
+  /** One-click List-Unsubscribe on live emails. */
+  unsubscribeLinks: boolean;
   createdAt: string;
 }
 

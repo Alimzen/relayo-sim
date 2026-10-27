@@ -148,7 +148,18 @@ export interface Project {
   managedAccess?: ManagedAccess;
   /** The project's plan: limits that replace the platform's (each one absent uses the platform's). */
   limits?: ProjectLimits;
+  /** What Relayo adds to the project's live emails. */
+  options?: ProjectOptions;
   createdAt: Date;
+}
+
+/** What Relayo adds to a project's live emails. */
+export interface ProjectOptions {
+  /**
+   * `List-Unsubscribe` (with one-click, RFC 8058) pointing at Relayo's hosted page, on emails to one
+   * recipient. `{{unsubscribe_url}}` in the content works either way.
+   */
+  unsubscribeLinks?: boolean;
 }
 
 export type ManagedAccess = 'requested' | 'approved' | 'denied';

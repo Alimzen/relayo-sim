@@ -12,6 +12,8 @@ import { AccountsService } from './accounts/accounts.service.js';
 import { AuthController, ProjectsController } from './api/account.controllers.js';
 import { AdminGuard, PlatformAdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
 import { ActivityLog } from './api/activity.js';
+import { UnsubscribeController } from './api/unsubscribe.js';
+import { LinkSigner } from './live/links.js';
 import { BatchSends } from './api/batch.js';
 import {
   AdminController,
@@ -182,6 +184,7 @@ export class AppModule {
         ProjectController,
         AdminController,
         ManagedReviewController,
+        UnsubscribeController,
         WebhookDeliveriesController,
         TemplatesController,
         ScheduledController,
@@ -225,7 +228,9 @@ export class AppModule {
             const box = config.secretsKey ? new SecretBox(config.secretsKey, config.previousSecretsKeys) : undefined;
             const identities = config.managed?.sesRegion ? new SesIdentities(config.managed.sesRegion) : undefined;
             const managed = config.managed && box ? new ManagedSending(store, box, config.managed, undefined, identities) : undefined;
-            return new LiveService(store, dispatcher, box, managed, config.publicUrl);
+            const publicUrl = config.publicUrl ?? `http://localhost:${config.httpPort}`;
+            const links = config.secretsKey ? new LinkSigner(config.secretsKey, publicUrl) : undefined;
+            return new LiveService(store, dispatcher, box, managed, config.publicUrl, links);
           },
           inject: [SIM_STORE, WEBHOOK_DISPATCHER],
         },

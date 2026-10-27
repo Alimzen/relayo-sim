@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { WebhookEndpoint, AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { ProjectOptions, WebhookEndpoint, AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore, AttemptQuery, WebhookEndpointChanges } from './store.js';
 
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS projects (
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS reports_smtp_url text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS managed_access text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS limits jsonb;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS options jsonb;
 -- Accounts created before email verification existed count as verified (the default fills them once).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz DEFAULT now();
 ALTER TABLE users ALTER COLUMN email_verified_at DROP DEFAULT;
@@ -281,6 +282,7 @@ interface ProjectRow {
   reports_smtp_url: string | null;
   managed_access: ManagedAccess | null;
   limits: ProjectLimits | null;
+  options: ProjectOptions | null;
   created_at: Date;
 }
 
@@ -534,13 +536,13 @@ export class PostgresStore implements SimStore {
   }
 
   async updateProject(id: string, changes: ProjectChanges): Promise<void> {
-    const columns = { name: 'name', webhookUrl: 'webhook_url', reportsSmtpUrl: 'reports_smtp_url', webhookSecret: 'webhook_secret', ownerId: 'owner_id', managedAccess: 'managed_access', limits: 'limits' } as const;
+    const columns = { name: 'name', webhookUrl: 'webhook_url', reportsSmtpUrl: 'reports_smtp_url', webhookSecret: 'webhook_secret', ownerId: 'owner_id', managedAccess: 'managed_access', limits: 'limits', options: 'options' } as const;
     const sets: string[] = [];
     const values: unknown[] = [id];
     for (const [key, column] of Object.entries(columns) as Array<[keyof ProjectChanges, string]>) {
       if (changes[key] === undefined) continue;
       const value = changes[key];
-      values.push(key === 'limits' && value !== null ? JSON.stringify(value) : value);
+      values.push((key === 'limits' || key === 'options') && value !== null ? JSON.stringify(value) : value);
       sets.push(`${column} = $${values.length}`);
     }
     if (sets.length) await this.pool.query(`UPDATE projects SET ${sets.join(', ')} WHERE id = $1`, values);
@@ -1450,6 +1452,7 @@ function toProject(row: ProjectRow): Project {
     ...(row.reports_smtp_url && { reportsSmtpUrl: row.reports_smtp_url }),
     ...(row.managed_access && { managedAccess: row.managed_access }),
     ...(row.limits && { limits: row.limits }),
+    ...(row.options && { options: row.options }),
   };
 }
 

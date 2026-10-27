@@ -2316,3 +2316,17 @@ fieldset.field {
   padding: 0;
   min-width: 0;
 }
+
+/* A checkbox with a title and an explanation (project options). */
+.check.option {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.check.option input {
+  margin-top: 4px;
+}
+
+.block {
+  display: block;
+}

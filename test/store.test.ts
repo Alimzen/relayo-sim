@@ -456,6 +456,11 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
 
     await store.updateProject('prj_long', { limits: null });
     expect((await store.getProject('prj_long'))?.limits).toBeUndefined();
+
+    await store.updateProject('prj_long', { options: { unsubscribeLinks: true } });
+    expect((await store.getProject('prj_long'))?.options).toEqual({ unsubscribeLinks: true });
+    await store.updateProject('prj_long', { options: null });
+    expect((await store.getProject('prj_long'))?.options).toBeUndefined();
   });
 
   it('deletes a project with everything in it, and an account with the projects it owns', async () => {

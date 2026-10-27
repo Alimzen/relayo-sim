@@ -21,6 +21,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { SendingDomain } from '../domain.js';
 import { CircuitBreaker } from './breaker.js';
 import type { ManagedSending } from './managed.js';
+import { UNSUBSCRIBE_TAG, type LinkSigner } from './links.js';
 import { buildDriver, canSendSms, MANAGED_PROVIDER, PROVIDERS, PROVIDERS_BY_NAME, splitValues, type ProviderSpec } from './providers.js';
 import type { SecretBox } from './secrets.js';
 
@@ -79,6 +80,8 @@ export class LiveService {
     readonly managed?: ManagedSending,
     /** Public address of this server, for the status callbacks of providers told per message (Twilio). */
     private readonly publicUrl?: string,
+    /** Signs the links put in emails (unsubscribe); without it they are left out. */
+    private readonly links?: LinkSigner,
   ) {}
 
   /** The providers a project can connect here, Relayo's own sending first when it is offered. */
@@ -395,7 +398,7 @@ export class LiveService {
 
     try {
       const result = await relayo.email.send({
-        ...message,
+        ...this.personalize(project, stored, message, sendable.length === 1 ? sendable[0]!.address : undefined),
         to: to.length ? to : (cc[0] ?? bcc[0])!,
         ...(cc.length ? { cc } : { cc: undefined }),
         ...(bcc.length ? { bcc } : { bcc: undefined }),
@@ -639,6 +642,54 @@ export class LiveService {
             ? 'unsubscribe'
             : undefined;
     if (reason) await this.store.suppress(project.id, event.recipient, reason);
+  }
+
+  /**
+   * The links of one email: `{{unsubscribe_url}}` filled, and `List-Unsubscribe` added when the project
+   * wants it. They name one recipient, so emails to several get neither (the tag is emptied).
+   */
+  private personalize(project: Project, stored: SimMessage, message: EmailMessage, recipient: string | undefined): EmailMessage {
+    const url = recipient && this.links ? this.links.unsubscribeUrl({ projectId: project.id, messageId: stored.id, recipient }) : undefined;
+    const fillIn = (text: string) => text.replace(UNSUBSCRIBE_TAG, url ?? '');
+    const hasHeader = Object.keys(message.headers ?? {}).some((name) => name.toLowerCase() === 'list-unsubscribe');
+    const header = url && project.options?.unsubscribeLinks && !hasHeader;
+    return {
+      ...message,
+      ...(message.html !== undefined && { html: fillIn(message.html) }),
+      ...(message.text !== undefined && { text: fillIn(message.text) }),
+      ...(header && { headers: { ...message.headers, 'List-Unsubscribe': `<${url}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } }),
+    };
+  }
+
+  /** Who an unsubscribe link is for, and whether they already left. Undefined for a bad link. */
+  async unsubscribeTarget(token: string): Promise<{ projectName: string; recipient: string; done: boolean } | undefined> {
+    const target = this.links?.open(token);
+    const project = target && (await this.store.getProject(target.projectId));
+    if (!target || !project) return undefined;
+    const done = (await this.store.suppressed(project.id, [target.recipient])).has(target.recipient.toLowerCase());
+    return { projectName: project.name, recipient: target.recipient, done };
+  }
+
+  /**
+   * Unsubscribes the recipient of a link: suppressed in the project, and an `unsubscribed` event for the
+   * message (to the webhooks). Again with the same link changes nothing.
+   */
+  async unsubscribe(token: string): Promise<{ projectName: string; recipient: string } | undefined> {
+    const found = await this.unsubscribeTarget(token);
+    if (!found) return undefined;
+    const target = this.links!.open(token)!;
+    if (!found.done) {
+      await this.store.suppress(target.projectId, target.recipient, 'unsubscribe');
+      // The message may be gone (retention) while the email is still in the inbox.
+      const stored = await this.store.findMessage(target.messageId);
+      const message: SimMessage =
+        stored && stored.projectId === target.projectId
+          ? stored
+          : { id: target.messageId, projectId: target.projectId, mode: 'live', via: 'api', from: '', recipients: [], subject: '', createdAt: new Date() };
+      const project = (await this.store.getProject(target.projectId))!;
+      await this.record(project, [this.event(message, target.recipient, 'unsubscribed', 'unsubscribed', {}, { source: 'link' })]);
+    }
+    return { projectName: found.projectName, recipient: found.recipient };
   }
 
   // --- Events -----------------------------------------------------------------------------------

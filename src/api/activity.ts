@@ -9,7 +9,7 @@ export const NoAudit = () => SetMetadata(NO_AUDIT, true);
 export const NO_AUDIT_KEY = NO_AUDIT;
 
 /** Request fields the audit log keeps: what was named or chosen, never credentials or content. */
-const DETAIL_FIELDS = ['name', 'email', 'role', 'permission', 'allowedDomains', 'mode', 'address', 'reason', 'domain', 'kind', 'channel', 'slug', 'confirm'];
+const DETAIL_FIELDS = ['name', 'email', 'role', 'permission', 'allowedDomains', 'mode', 'address', 'reason', 'domain', 'kind', 'channel', 'slug', 'confirm', 'unsubscribeLinks'];
 
 /** The parts of an Express request and response the log reads. */
 export interface TrackedRequest {

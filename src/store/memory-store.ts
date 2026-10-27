@@ -170,6 +170,8 @@ export class MemoryStore implements SimStore {
     else if (changes.managedAccess !== undefined) next.managedAccess = changes.managedAccess;
     if (changes.limits === null) delete next.limits;
     else if (changes.limits !== undefined) next.limits = { ...changes.limits };
+    if (changes.options === null) delete next.options;
+    else if (changes.options !== undefined) next.options = { ...changes.options };
     this.projects.set(id, next);
   }
 

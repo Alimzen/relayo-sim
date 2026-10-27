@@ -41,8 +41,10 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
  * value is reported in `missing` rather than left empty: a half-filled email is worse than an error.
  */
 export function fill(text: string, variables: Variables, html = false, missing?: Set<string>): string {
-  return text.replace(TAG, (_, raw: string | undefined, path: string) => {
+  return text.replace(TAG, (tag: string, raw: string | undefined, path: string) => {
     const value = lookup(variables, path);
+    // Filled per recipient when a live email goes out.
+    if ((value === undefined || value === null) && path === 'unsubscribe_url') return tag;
     if (value === undefined || value === null) {
       missing?.add(path);
       return '';

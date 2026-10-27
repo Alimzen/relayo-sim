@@ -92,7 +92,7 @@ export class Api {
   projects = () => this.call<{ data: Project[] }>('GET', '/v1/projects').then((r) => r.data);
   createProject = (name: string) => this.call<Project & { apiKey: string }>('POST', '/v1/projects', { name });
   claimProject = (apiKey: string) => this.call<Project>('POST', '/v1/projects/claim', { apiKey });
-  updateProject = (changes: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null }) =>
+  updateProject = (changes: { name?: string; webhookUrl?: string | null; reportsSmtpUrl?: string | null; unsubscribeLinks?: boolean }) =>
     this.call<Project>('PATCH', '/v1/project', changes);
   usage = () => this.call<ProjectUsage>('GET', '/v1/project/usage');
   stats = (days: number) => this.call<ProjectStats>('GET', `/v1/project/stats?days=${days}`);
