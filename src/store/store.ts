@@ -75,6 +75,10 @@ export interface SimStore {
   listManagedAccess(): Promise<Project[]>;
   /** `null` clears an optional field; missing keys are left as they are. */
   updateProject(id: string, changes: ProjectChanges): Promise<void>;
+  /** Deletes a project with everything in it: messages, keys, connections, templates, members... */
+  deleteProject(id: string): Promise<void>;
+  /** Deletes an account, its sessions and memberships, and the projects it owns (with everything in them). */
+  deleteUser(id: string): Promise<void>;
   createApiKey(key: ApiKey): Promise<void>;
   /** Active and revoked keys of a project, newest first. */
   listApiKeys(projectId: string): Promise<ApiKey[]>;

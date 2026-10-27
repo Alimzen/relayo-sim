@@ -154,6 +154,40 @@ export class MemoryStore implements SimStore {
     this.projects.set(id, next);
   }
 
+  async deleteProject(id: string): Promise<void> {
+    this.projects.delete(id);
+    const byProject = <T extends { projectId: string }>(map: Map<string, T>) => {
+      for (const [key, value] of map) if (value.projectId === id) map.delete(key);
+    };
+    for (const [messageId, message] of this.messages) {
+      if (message.projectId !== id) continue;
+      this.messages.delete(messageId);
+      this.events.delete(messageId);
+      this.contents.delete(messageId);
+    }
+    byProject(this.keys);
+    byProject(this.connections);
+    byProject(this.suppressions);
+    byProject(this.domains);
+    byProject(this.templates);
+    byProject(this.scheduled);
+    byProject(this.members);
+    byProject(this.invites);
+    for (const map of [this.usage, this.idempotency]) {
+      for (const key of map.keys()) if (key.startsWith(`${id}|`)) map.delete(key);
+    }
+    const kept = this.webhookAttempts.filter((a) => a.projectId !== id);
+    this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    for (const project of [...this.projects.values()]) if (project.ownerId === id) await this.deleteProject(project.id);
+    for (const [key, member] of this.members) if (member.userId === id) this.members.delete(key);
+    for (const [hash, session] of this.sessions) if (session.userId === id) this.sessions.delete(hash);
+    for (const [hash, reset] of this.resets) if (reset.userId === id) this.resets.delete(hash);
+    this.users.delete(id);
+  }
+
   async createApiKey(key: ApiKey): Promise<void> {
     this.keys.set(key.id, { ...key });
   }

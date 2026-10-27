@@ -308,6 +308,35 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
   });
 
+  it('deletes a project with everything in it, and an account with the projects it owns', async () => {
+    const store = await open();
+    await store.createUser(user);
+    await store.createUser({ ...user, id: 'usr_2', email: 'luis@empresa.com' });
+    await store.createProject({ ...project('prj_a'), ownerId: 'usr_1' });
+    await store.createProject({ ...project('prj_b'), ownerId: 'usr_2' });
+    for (const id of ['prj_a', 'prj_b']) {
+      await store.saveMessage({ ...message(`sim_${id}`, '2026-10-18T10:00:00Z'), projectId: id }, Buffer.from('raw'));
+      await store.addEvent({ ...event(`evt_${id}`, `sim_${id}`, 'delivered', '2026-10-18T10:00:01Z'), projectId: id });
+      await store.suppress(id, 'x@y.com', 'manual');
+      await store.incrementUsage(id, '2026-10');
+    }
+    await store.addMember({ projectId: 'prj_b', userId: 'usr_1', role: 'member', createdAt: new Date() });
+
+    await store.deleteProject('prj_a');
+    expect(await store.getProject('prj_a')).toBeUndefined();
+    expect(await store.getMessage('prj_a', 'sim_prj_a')).toBeUndefined();
+    expect(await store.getUsage('prj_a', '2026-10')).toBe(0);
+    expect(await store.getMessage('prj_b', 'sim_prj_b')).toMatchObject({ events: [expect.objectContaining({ id: 'evt_prj_b' })] });
+
+    await store.deleteUser('usr_1');
+    expect(await store.getUser('usr_1')).toBeUndefined();
+    expect(await store.getMember('prj_b', 'usr_1')).toBeUndefined();
+    expect(await store.getProject('prj_b')).toBeDefined();
+    await store.deleteUser('usr_2');
+    expect(await store.getProject('prj_b')).toBeUndefined();
+    expect(await store.suppressed('prj_b', ['x@y.com'])).toEqual(new Set());
+  });
+
   it('keeps project members and invitations, and lists projects with each role', async () => {
     const store = await open();
     await store.createUser(user);

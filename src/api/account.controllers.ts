@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -15,6 +16,8 @@ import {
 import { AccountError, AccountsService, SESSION_COOKIE, SESSION_DAYS, MIN_PASSWORD } from '../accounts/accounts.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { TeamService } from '../accounts/team.js';
+import { exportAccount } from '../accounts/export.js';
+import { LiveService } from '../live/live.service.js';
 import type { User } from '../domain.js';
 import { SimulationService } from '../simulation/simulation.service.js';
 import { SIM_STORE, type SimStore } from '../store/store.js';
@@ -62,6 +65,7 @@ export class AuthController {
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(SIM_CONFIG) private readonly config: SimConfig,
     @Inject(TeamService) private readonly team: TeamService,
+    @Inject(LiveService) private readonly live: LiveService,
   ) {}
 
   /** What the sign-in page needs to know before anyone is signed in. */
@@ -140,6 +144,23 @@ export class AuthController {
     const { user, token } = await run(() => this.accounts.resetPassword(body ?? {}));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
     return { user: this.accounts.present(user), projects: await projectsOf(this.store, user) };
+  }
+
+  /** Everything kept about the account, as a JSON download (data portability). */
+  @Get('me/export')
+  @UseGuards(SessionGuard)
+  async export(@CurrentUser() user: User, @Res({ passthrough: true }) res: CookieResponse) {
+    res.setHeader('Content-Disposition', `attachment; filename="relayo-${user.id}.json"`);
+    return exportAccount(this.store, this.live, user);
+  }
+
+  /** Deletes the account, with the projects it owns, and signs out. Needs the password. */
+  @Delete('me')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async deleteMe(@CurrentUser() user: User, @Body() body: { password?: unknown }, @Res({ passthrough: true }) res: CookieResponse) {
+    await run(() => this.accounts.deleteAccount(user, body ?? {}));
+    res.setHeader('Set-Cookie', sessionCookie('', this.config.secureCookies, 0));
   }
 
   /** Changes the password; every other session is signed out. */

@@ -65,6 +65,10 @@ export class Api {
   resetPassword = (token: string, password: string) =>
     this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/reset', { token, password });
   updateMe = (name: string) => this.call<{ user: User }>('PATCH', '/v1/auth/me', { name });
+  /** Everything kept about the account, saved by the browser as a JSON file. */
+  exportAccount = () => this.download('/v1/auth/me/export', 'relayo-datos.json');
+  deleteAccount = (password: string) => this.call<void>('DELETE', '/v1/auth/me', { password });
+  deleteProject = (confirm: string) => this.call<void>('DELETE', '/v1/project', { confirm });
   changePassword = (current: string, next: string) => this.call<void>('POST', '/v1/auth/password', { current, next });
   verifyEmail = (token: string) => this.call<{ user: User }>('POST', '/v1/auth/verify', { token });
   resendVerification = () => this.call<void>('POST', '/v1/auth/verify/resend');

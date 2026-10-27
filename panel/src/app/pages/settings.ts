@@ -1,15 +1,15 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Api } from '../core/api';
 import { formatNumber, fullDate } from '../core/format';
 import type { ProjectUsage } from '../core/types';
 import { Session } from '../core/session';
-import { CopyButton, Toasts } from '../ui/ui';
+import { CopyButton, Modal, Toasts } from '../ui/ui';
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule, RouterLink, CopyButton],
+  imports: [FormsModule, RouterLink, CopyButton, Modal],
   template: `
     <div class="page">
       <header class="page-head">
@@ -132,8 +132,37 @@ import { CopyButton, Toasts } from '../ui/ui';
             <pre><code>{{ snippet() }}</code></pre>
           </div>
         </section>
+
+        @if (project().role === 'owner' || !project().role) {
+          <section class="card danger-card">
+            <header class="card-head">
+              <div>
+                <h2>Eliminar el proyecto</h2>
+                <p class="muted small">Se borran sus mensajes, claves, conexiones, plantillas y miembros. No se puede deshacer.</p>
+              </div>
+            </header>
+            <footer class="card-foot">
+              <span></span>
+              <button type="button" class="btn btn-sm btn-danger" (click)="deleting.set(true)">Eliminar el proyecto</button>
+            </footer>
+          </section>
+        }
       </div>
     </div>
+
+    <app-modal heading="Eliminar el proyecto" [open]="deleting()" (closed)="deleting.set(false)">
+      <form (ngSubmit)="deleteProject()">
+        <p class="text-2 modal-lede">Escribe <strong>{{ project().name }}</strong> para confirmar. Sus claves dejarán de funcionar al momento.</p>
+        <div class="field">
+          <label for="delete-confirm">Nombre del proyecto</label>
+          <input id="delete-confirm" class="input" name="confirm" autocomplete="off" [(ngModel)]="confirm" />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" (click)="deleting.set(false)">Cancelar</button>
+          <button type="submit" class="btn btn-danger" [disabled]="busy() || confirm !== project().name">Eliminar para siempre</button>
+        </div>
+      </form>
+    </app-modal>
   `,
 })
 export class SettingsPage {
@@ -148,6 +177,27 @@ export class SettingsPage {
   protected name = this.project().name;
   protected readonly usage = signal<ProjectUsage | null>(null);
   protected readonly format = formatNumber;
+  protected readonly deleting = signal(false);
+  protected confirm = '';
+  private readonly router = inject(Router);
+
+  protected async deleteProject(): Promise<void> {
+    const project = this.project();
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      await this.api.deleteProject(this.confirm);
+      this.deleting.set(false);
+      this.session.projects.update((list) => list.filter((p) => p.id !== project.id));
+      this.session.select(null);
+      this.toasts.show(`Proyecto «${project.name}» eliminado`);
+      await this.router.navigateByUrl('/overview');
+    } catch (error) {
+      this.toasts.error(error);
+    } finally {
+      this.busy.set(false);
+    }
+  }
 
   constructor() {
     this.api.usage().then(

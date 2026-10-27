@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   ConflictException,
+  ForbiddenException,
   HttpException,
   Controller,
   Delete,
@@ -207,6 +208,19 @@ export class ProjectController {
     if (reportsSmtpUrl !== undefined) changes.reportsSmtpUrl = reportsSmtpUrl;
     await this.store.updateProject(project.id, changes);
     return publicProject((await this.store.getProject(project.id))!);
+  }
+
+  /**
+   * Deletes the project with everything in it: messages, keys, connections, templates, members. Only its
+   * owner, from the panel, confirming with the project's name.
+   */
+  @Delete()
+  @SessionOnly()
+  @HttpCode(204)
+  async remove(@CurrentProject() project: Project, @CurrentRole() role: ProjectRole, @Body() body: { confirm?: unknown }) {
+    if (role !== 'owner') throw new ForbiddenException('Solo el dueño del proyecto puede eliminarlo.');
+    if (body?.confirm !== project.name) throw new BadRequestException('Escribe el nombre del proyecto para confirmar.');
+    await this.store.deleteProject(project.id);
   }
 
   /** This month's usage against the plan, and how long messages are kept. */

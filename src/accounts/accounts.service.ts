@@ -189,6 +189,16 @@ export class AccountsService {
     return { ...user, name };
   }
 
+  /**
+   * Deletes the account for good, with the projects it owns and everything in them. Asks for the password:
+   * a stolen session alone must not be able to do it.
+   */
+  async deleteAccount(user: User, input: { password?: unknown }): Promise<void> {
+    const password = typeof input.password === 'string' ? input.password : '';
+    if (!(await verifyPassword(password, user.passwordHash))) throw new AccountError('La contraseña no es correcta.', 400);
+    await this.store.deleteUser(user.id);
+  }
+
   /** Changes the password and signs out every other session. */
   async changePassword(user: User, sessionHash: string, input: { current?: unknown; next?: unknown }): Promise<void> {
     const current = typeof input.current === 'string' ? input.current : '';
