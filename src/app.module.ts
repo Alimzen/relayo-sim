@@ -12,6 +12,7 @@ import { AccountsService } from './accounts/accounts.service.js';
 import { AuthController, ProjectsController } from './api/account.controllers.js';
 import { AdminGuard, PlatformAdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
 import { ActivityLog } from './api/activity.js';
+import { BatchSends } from './api/batch.js';
 import {
   AdminController,
   ManagedReviewController,
@@ -238,6 +239,7 @@ export class AppModule {
         },
         ScheduledSends,
         ActivityLog,
+        BatchSends,
         ProjectGuard,
         SessionGuard,
         AdminGuard,

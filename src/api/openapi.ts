@@ -421,6 +421,18 @@ const schemas = {
       enabled: { type: 'boolean' },
     },
   },
+  BatchItem: {
+    type: 'object',
+    description: 'Lo que pasó con un mensaje del lote, en su posición (`index`).',
+    properties: {
+      index: { type: 'integer' },
+      id: { type: 'string' },
+      status: { type: 'string', enum: ['queued', 'scheduled', 'failed'] },
+      recipients: { type: 'array', items: ref('Recipient') },
+      sendAt: { type: 'string', format: 'date-time' },
+      error: { type: 'object', properties: { statusCode: { type: 'integer' }, message: { type: 'string' } } },
+    },
+  },
   Suppression: {
     type: 'object',
     properties: {
@@ -578,6 +590,42 @@ const paths = {
         422: error('Faltan variables de la plantilla.'),
         429: error('Límite del plan.'),
         502: error('En vivo: el proveedor falló.'),
+      },
+    },
+  },
+  '/v1/messages/batch': {
+    post: {
+      tags: ['Envíos'],
+      summary: 'Enviar correos en lote',
+      operationId: 'sendEmailBatch',
+      description:
+        'Hasta 500 mensajes en una petición. Arriba, lo común a todos; en `messages`, lo de cada uno (normalmente `to` y `variables`), que gana sobre lo común; `variables`, `metadata` y `headers` se combinan. Sin plantilla, las `{{variables}}` del texto común se rellenan con las de cada mensaje (en HTML, escapadas). Cada mensaje se envía, o falla, por su cuenta: la respuesta los lista en orden. Admite `sendAt` por mensaje e `Idempotency-Key` para todo el lote.',
+      parameters: [idempotencyKey],
+      requestBody: body(
+        { allOf: [{ type: 'object', required: ['messages'], properties: { messages: { type: 'array', maxItems: 500, items: { type: 'object' } } } }, { description: 'Cualquier campo de un correo, común a todos.' }] },
+        { from: 'avisos@empresa.com', subject: 'Hola {{nombre}}', html: '<p>Tu pedido {{pedido}} ya ha salido.</p>', messages: [{ to: 'ana@ejemplo.com', variables: { nombre: 'Ana', pedido: 'A-1' } }, { to: 'luis@ejemplo.com', variables: { nombre: 'Luis', pedido: 'A-2' } }] },
+      ),
+      responses: {
+        202: ok('Un resultado por mensaje.', list('BatchItem')),
+        400: error('Sin mensajes, o más de 500.'),
+      },
+    },
+  },
+  '/v1/sms/batch': {
+    post: {
+      tags: ['Envíos'],
+      summary: 'Enviar SMS en lote',
+      operationId: 'sendSmsBatch',
+      description:
+        'Hasta 500 mensajes en una petición. Arriba, lo común a todos; en `messages`, lo de cada uno (normalmente `to` y `variables`), que gana sobre lo común; `variables`, `metadata` y `headers` se combinan. Sin plantilla, las `{{variables}}` del texto común se rellenan con las de cada mensaje (en HTML, escapadas). Cada mensaje se envía, o falla, por su cuenta: la respuesta los lista en orden. Admite `sendAt` por mensaje e `Idempotency-Key` para todo el lote.',
+      parameters: [idempotencyKey],
+      requestBody: body(
+        { allOf: [{ type: 'object', required: ['messages'], properties: { messages: { type: 'array', maxItems: 500, items: { type: 'object' } } } }, { description: 'Cualquier campo de un SMS, común a todos.' }] },
+        { body: 'Tu código es {{codigo}}', messages: [{ to: '+34600111222', variables: { codigo: '482913' } }, { to: '+34600111333', variables: { codigo: '771204' } }] },
+      ),
+      responses: {
+        202: ok('Un resultado por mensaje.', list('BatchItem')),
+        400: error('Sin mensajes, o más de 500.'),
       },
     },
   },

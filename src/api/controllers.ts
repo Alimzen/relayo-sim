@@ -23,7 +23,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { readAttachment, readContent } from '../capture/capture.js';
-import type { WebhookEndpoint, Mode, Project, ProjectLimits, ProjectRole, User, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
+import type { ApiKey, WebhookEndpoint, Mode, Project, ProjectLimits, ProjectRole, User, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
 import { ScheduledSends } from './scheduled.js';
 import { TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
 import { attemptRecord, attemptWebhook, recordAttempt, WEBHOOK_EVENT_TYPES, webhookBody, type WebhookTarget } from '../webhooks/webhooks.js';
@@ -32,7 +32,7 @@ import { SMS_SCENARIOS } from '../scenarios/sms.js';
 import { newWebhookSecret, SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore, type WebhookEndpointChanges } from '../store/store.js';
-import { AdminGuard, CurrentMode, CurrentProject, CurrentRole, CurrentUser, PlatformAdminGuard, ProjectAdmin, ProjectGuard, Sends, SessionGuard, SessionOnly } from './auth.js';
+import { AdminGuard, CurrentKey, CurrentMode, CurrentProject, CurrentRole, CurrentUser, PlatformAdminGuard, ProjectAdmin, ProjectGuard, Sends, SessionGuard, SessionOnly } from './auth.js';
 import { TeamError, TeamService } from '../accounts/team.js';
 import { LiveService } from '../live/live.service.js';
 import { INFRASTRUCTURE, type Infrastructure } from '../infrastructure.js';
@@ -42,6 +42,7 @@ import { openApi } from './openapi.js';
 import { liveCall, renderTemplate, SendingService, variablesOf, type SendBody, type SendSmsBody } from './sending.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
 import { ActivityLog, NoAudit } from './activity.js';
+import { BatchSends } from './batch.js';
 
 const EVENT_TYPES: ReadonlySet<string> = new Set<SimEvent['type']>([
   'accepted', 'delivered', 'deferred', 'bounced', 'complained', 'rejected', 'opened', 'clicked', 'unsubscribed', 'failed',
@@ -67,7 +68,17 @@ export class SmsController {
   constructor(
     @Inject(SendingService) private readonly sending: SendingService,
     @Inject(ScheduledSends) private readonly scheduled: ScheduledSends,
+    @Inject(BatchSends) private readonly batch: BatchSends,
   ) {}
+
+  /** Up to 500 SMS in one request: shared fields at the top, each message's own in `messages`. */
+  @Post('batch')
+  @Sends()
+  @HttpCode(202)
+  @UseInterceptors(IdempotencyInterceptor)
+  async sendBatch(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: Record<string, unknown>) {
+    return this.batch.sms(project, mode, body);
+  }
 
   /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
   @Post()
@@ -88,7 +99,20 @@ export class MessagesController {
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(SendingService) private readonly sending: SendingService,
     @Inject(ScheduledSends) private readonly scheduled: ScheduledSends,
+    @Inject(BatchSends) private readonly batch: BatchSends,
   ) {}
+
+  /**
+   * Up to 500 emails in one request: shared fields at the top, each message's own in `messages` (usually `to`
+   * and `variables`). Each one is sent or fails on its own; the answer lists them in order.
+   */
+  @Post('batch')
+  @Sends()
+  @HttpCode(202)
+  @UseInterceptors(IdempotencyInterceptor)
+  async sendBatch(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: Record<string, unknown>, @CurrentKey() key?: ApiKey) {
+    return this.batch.email(project, mode, body, key);
+  }
 
   /** Test keys: the simulator plays the scenario. Live keys: real delivery through the project's connections. */
   @Post()

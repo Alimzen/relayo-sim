@@ -40,6 +40,8 @@ export interface AuthedRequest {
   mode?: Mode;
   /** The signed-in person's role in the project (API keys act with full access). */
   projectRole?: ProjectRole;
+  /** The API key the request came with. */
+  apiKey?: ApiKey;
 }
 
 const SESSION_ONLY = 'relayo:session-only';
@@ -133,6 +135,7 @@ export class ProjectGuard implements CanActivate {
       req.project = found.project;
       req.mode = found.mode;
       req.auth = 'key';
+      req.apiKey = found.key;
       // Logged from here on, so the request log also shows what the key was not allowed to do.
       this.activity.track(req as unknown as TrackedRequest, res, { project: found.project, mode: found.mode, key: found.key, sends, noAudit });
       checkKeyPermission(found.key, req, sends);
@@ -168,13 +171,18 @@ function checkKeyPermission(key: ApiKey, req: AuthedRequest & { body?: unknown }
       const from = (req.body as { from?: unknown } | undefined)?.from;
       const address = typeof from === 'string' ? from : (from as { address?: unknown } | undefined)?.address;
       // SMS have no sender domain: only emails are checked.
-      if (address !== undefined) {
-        const domain = String(address).split('@').pop()!.toLowerCase();
-        const allowed = key.allowedDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
-        if (!allowed) throw new ForbiddenException(`This key can only send from ${key.allowedDomains.join(', ')}`);
+      if (address !== undefined && !senderAllowed(key, String(address))) {
+        throw new ForbiddenException(`This key can only send from ${key.allowedDomains.join(', ')}`);
       }
     }
   }
+}
+
+/** Whether a key may send from an address: any, or one of its domains (and their subdomains). */
+export function senderAllowed(key: ApiKey, address: string): boolean {
+  if (!key.allowedDomains?.length) return true;
+  const domain = address.split('@').pop()!.toLowerCase();
+  return key.allowedDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
 }
 
 /** Requires `Authorization: Bearer <ADMIN_TOKEN>`. */
@@ -228,6 +236,11 @@ export const SessionHash = createParamDecorator(
 /** The signed-in person's role in the project; `owner` for API keys, which act with full access. */
 export const CurrentRole = createParamDecorator(
   (_: unknown, context: ExecutionContext) => context.switchToHttp().getRequest<AuthedRequest>().projectRole ?? 'owner',
+);
+
+/** The API key of the request; none for the panel. */
+export const CurrentKey = createParamDecorator(
+  (_: unknown, context: ExecutionContext) => context.switchToHttp().getRequest<AuthedRequest>().apiKey,
 );
 
 export const CurrentMode = createParamDecorator(
