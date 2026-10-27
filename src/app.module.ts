@@ -11,6 +11,7 @@ import {
 import { AccountsService } from './accounts/accounts.service.js';
 import { AuthController, ProjectsController } from './api/account.controllers.js';
 import { AdminGuard, PlatformAdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
+import { ActivityLog } from './api/activity.js';
 import {
   AdminController,
   ManagedReviewController,
@@ -23,6 +24,7 @@ import {
   SmsController,
   InvitesController,
   OpenApiController,
+  ActivityController,
   PlansController,
   ScheduledController,
   TeamController,
@@ -167,6 +169,7 @@ export class AppModule {
       controllers: [
         HealthController,
         OpenApiController,
+        ActivityController,
         PlansController,
         ScenariosController,
         AuthController,
@@ -234,6 +237,7 @@ export class AppModule {
           inject: [SIM_STORE, AccountsService],
         },
         ScheduledSends,
+        ActivityLog,
         ProjectGuard,
         SessionGuard,
         AdminGuard,

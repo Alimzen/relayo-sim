@@ -33,6 +33,7 @@ async function exportProject(store: SimStore, live: LiveService, project: Projec
     connections: (await store.listConnections(project.id)).map((c) => live.publicConnection(c)),
     domains: (await store.listDomains(project.id)).map((d) => live.publicDomain(d)),
     members: members.map((m, i) => ({ email: users[i]?.email ?? null, role: m.role, since: m.createdAt })),
+    audit: (await store.listAudit(project.id, { limit: 10_000 })).map(({ projectId: _p, ...e }) => e),
     messages: {
       test: await messages(store, project.id, 'test'),
       live: await messages(store, project.id, 'live'),

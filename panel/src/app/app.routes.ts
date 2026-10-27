@@ -72,6 +72,7 @@ export const routes: Routes = [
       { path: 'suppressions', loadComponent: () => import('./pages/suppressions').then((m) => m.SuppressionsPage), title: page('Supresiones') },
       { path: 'webhooks', loadComponent: () => import('./pages/webhooks').then((m) => m.WebhooksPage), title: page('Webhooks') },
       { path: 'settings', loadComponent: () => import('./pages/settings').then((m) => m.SettingsPage), title: page('Ajustes') },
+      { path: 'activity', loadComponent: () => import('./pages/activity').then((m) => m.ActivityPage), title: page('Actividad') },
       { path: 'team', loadComponent: () => import('./pages/team').then((m) => m.TeamPage), title: page('Equipo') },
       { path: 'account', loadComponent: () => import('./pages/account').then((m) => m.AccountPage), title: page('Cuenta') },
       { path: 'admin', loadComponent: () => import('./pages/admin').then((m) => m.AdminPage), title: page('Administración') },

@@ -41,6 +41,7 @@ import { IdempotencyInterceptor } from './idempotency.js';
 import { openApi } from './openapi.js';
 import { liveCall, renderTemplate, SendingService, variablesOf, type SendBody, type SendSmsBody } from './sending.js';
 import { publicKey, publicMessage, publicProject } from './present.js';
+import { ActivityLog, NoAudit } from './activity.js';
 
 const EVENT_TYPES: ReadonlySet<string> = new Set<SimEvent['type']>([
   'accepted', 'delivered', 'deferred', 'bounced', 'complained', 'rejected', 'opened', 'clicked', 'unsubscribed', 'failed',
@@ -457,6 +458,7 @@ export class TemplatesController {
   /** The template filled with `variables` as far as they go, and the ones missing: for previews. */
   @Post(':ref/preview')
   @HttpCode(200)
+  @NoAudit()
   async preview(@CurrentProject() project: Project, @Param('ref') ref: string, @Body() body: { variables?: unknown }) {
     return renderTemplate(() => this.templates.preview(project, ref, variablesOf(body ?? {})));
   }
@@ -557,6 +559,47 @@ function publicAttempt(attempt: WebhookAttempt) {
   return rest;
 }
 
+/** Who changed what in the project, and every request made with its API keys. */
+@Controller('v1/project')
+@UseGuards(ProjectGuard)
+export class ActivityController {
+  constructor(@Inject(SIM_STORE) private readonly store: SimStore) {}
+
+  /** Newest first; `before` (ISO date) for the next page. Kept for a year. */
+  @Get('audit')
+  @ProjectAdmin()
+  async audit(@CurrentProject() project: Project, @Query('limit') limit?: string, @Query('before') before?: string) {
+    const entries = await this.store.listAudit(project.id, { limit: pageSize(limit), ...since(before) });
+    return { data: entries.map(({ projectId: _p, ...rest }) => rest) };
+  }
+
+  /** Newest first; `status=failed` for answers of 400 and up, `key` for one key's, `before` for the next page. */
+  @Get('requests')
+  async requests(
+    @CurrentProject() project: Project,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+    @Query('status') status?: string,
+    @Query('key') key?: string,
+  ) {
+    const requests = await this.store.listApiRequests(project.id, {
+      limit: pageSize(limit),
+      ...since(before),
+      ...(status === 'failed' && { failed: true }),
+      ...(key && { keyId: key }),
+    });
+    return { data: requests.map(({ projectId: _p, ...rest }) => rest) };
+  }
+}
+
+function pageSize(limit?: string): number {
+  return Math.min(200, Math.max(1, Number(limit) || 50));
+}
+
+function since(before?: string): { before?: Date } {
+  return before && !Number.isNaN(Date.parse(before)) ? { before: new Date(before) } : {};
+}
+
 /** Platform admins: every project, its usage, and its plan (limits that replace the platform's). */
 @Controller('v1/admin/plans')
 @UseGuards(PlatformAdminGuard)
@@ -565,6 +608,7 @@ export class PlansController {
     @Inject(SIM_STORE) private readonly store: SimStore,
     @Inject(SimulationService) private readonly sim: SimulationService,
     @Inject(SIM_CONFIG) private readonly config: SimConfig,
+    @Inject(ActivityLog) private readonly activity: ActivityLog,
   ) {}
 
   /** Projects (searching name, id or owner's email), with this month's usage and their effective limits. */
@@ -577,7 +621,7 @@ export class PlansController {
 
   /** Sets a project's plan; a field set to null goes back to the platform's value. */
   @Patch(':projectId')
-  async update(@Param('projectId') projectId: string, @Body() body: Record<string, unknown>) {
+  async update(@Param('projectId') projectId: string, @Body() body: Record<string, unknown>, @CurrentUser() admin?: User) {
     const project = await this.store.getProject(projectId);
     if (!project) throw new NotFoundException('Proyecto no encontrado');
     const limits: ProjectLimits = { ...project.limits };
@@ -594,6 +638,7 @@ export class PlansController {
       limits[key] = value;
     }
     await this.store.updateProject(projectId, { limits: Object.keys(limits).length ? limits : null });
+    await this.activity.audit(project, { kind: 'admin', ...(admin && { email: admin.email }) }, 'PATCH /v1/admin/plans/:projectId', { ...limits });
     const updated = (await this.store.getProject(projectId))!;
     const owner = updated.ownerId ? await this.store.getUser(updated.ownerId) : undefined;
     return this.row(updated, owner?.email);

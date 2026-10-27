@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -122,6 +122,10 @@ export class Api {
   revokeKey = (id: string) => this.call<void>('DELETE', `/v1/project/keys/${encodeURIComponent(id)}`);
   webhookSecret = () => this.call<{ webhookSecret: string }>('GET', '/v1/project/webhook-secret');
   rotateWebhookSecret = () => this.call<{ webhookSecret: string }>('POST', '/v1/project/webhook-secret/rotate');
+  apiRequests = (query: { limit?: number; before?: string; status?: 'failed' } = {}) =>
+    this.call<{ data: ApiRequestLog[] }>('GET', `/v1/project/requests?${toQuery(query)}`).then((r) => r.data);
+  audit = (query: { limit?: number; before?: string } = {}) =>
+    this.call<{ data: AuditEntry[] }>('GET', `/v1/project/audit?${toQuery(query)}`).then((r) => r.data);
   webhookDeliveries = (query: { limit?: number; before?: string; status?: 'failed' } = {}) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value !== undefined) params.set(key, String(value));
@@ -215,4 +219,10 @@ function toApiError(error: unknown): ApiError {
     return new ApiError(`Error ${error.status}`, error.status);
   }
   return new ApiError(error instanceof Error ? error.message : String(error), 0);
+}
+
+function toQuery(query: Record<string, string | number | undefined>): URLSearchParams {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value !== undefined) params.set(key, String(value));
+  return params;
 }

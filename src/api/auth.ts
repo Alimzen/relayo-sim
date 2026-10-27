@@ -16,6 +16,7 @@ import { SIM_CONFIG, type SimConfig } from '../config.js';
 import type { ApiKey, Mode, Project, ProjectRole, User } from '../domain.js';
 import { isAdminRole, TeamService } from '../accounts/team.js';
 import { SimulationService } from '../simulation/simulation.service.js';
+import { ActivityLog, NO_AUDIT_KEY, type TrackedRequest, type TrackedResponse } from './activity.js';
 
 /** Header the panel sends with the project it is working on. */
 export const PROJECT_HEADER = 'x-relayo-project';
@@ -111,11 +112,15 @@ export class ProjectGuard implements CanActivate {
     @Inject(AccountsService) private readonly accounts: AccountsService,
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(TeamService) private readonly team: TeamService,
+    @Inject(ActivityLog) private readonly activity: ActivityLog,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
+    const res = context.switchToHttp().getResponse<TrackedResponse>();
     const targets = [context.getHandler(), context.getClass()];
+    const sends = this.reflector.getAllAndOverride<boolean>(SENDS, targets) ?? false;
+    const noAudit = this.reflector.getAllAndOverride<boolean>(NO_AUDIT_KEY, targets) ?? false;
     const sessionOnly = this.reflector.getAllAndOverride<boolean>(SESSION_ONLY, targets);
     // Keys, credentials and settings: the owner and admins only.
     const adminOnly = sessionOnly || this.reflector.getAllAndOverride<boolean>(PROJECT_ADMIN, targets);
@@ -125,10 +130,12 @@ export class ProjectGuard implements CanActivate {
       if (sessionOnly) throw new ForbiddenException('Sign in to the panel to manage keys and secrets');
       const found = await this.sim.authenticateKey(key);
       if (!found) throw new UnauthorizedException('Missing or invalid API key');
-      checkKeyPermission(found.key, req, this.reflector.getAllAndOverride<boolean>(SENDS, targets) ?? false);
       req.project = found.project;
       req.mode = found.mode;
       req.auth = 'key';
+      // Logged from here on, so the request log also shows what the key was not allowed to do.
+      this.activity.track(req as unknown as TrackedRequest, res, { project: found.project, mode: found.mode, key: found.key, sends, noAudit });
+      checkKeyPermission(found.key, req, sends);
       return true;
     }
 
@@ -143,6 +150,7 @@ export class ProjectGuard implements CanActivate {
     req.projectRole = access.role;
     req.mode = header(req, MODE_HEADER) === 'live' ? 'live' : 'test';
     req.auth = 'session';
+    this.activity.track(req as unknown as TrackedRequest, res, { project: access.project, mode: req.mode, user: req.user!, sends, noAudit });
     return true;
   }
 }

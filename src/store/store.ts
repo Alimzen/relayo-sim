@@ -1,4 +1,4 @@
-import type { ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { AuditEntry, ApiRequestLog, ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -170,6 +170,14 @@ export interface SimStore {
   /** Frees a key whose request failed, so it can be retried. */
   releaseIdempotencyKey(projectId: string, key: string): Promise<void>;
 
+  // Audit and request logs
+  addAudit(entry: AuditEntry): Promise<void>;
+  /** Newest first. */
+  listAudit(projectId: string, query: { limit: number; before?: Date }): Promise<AuditEntry[]>;
+  addApiRequest(entry: ApiRequestLog): Promise<void>;
+  /** Newest first. `failed`: only answers of 400 and up; `keyId`: one key's. */
+  listApiRequests(projectId: string, query: { limit: number; before?: Date; failed?: boolean; keyId?: string }): Promise<ApiRequestLog[]>;
+
   // Webhook delivery log
   addWebhookAttempt(attempt: WebhookAttempt): Promise<void>;
   /** Newest first. `failed`: only attempts that did not get a 2xx. */
@@ -184,11 +192,12 @@ export interface SimStore {
   getUsage(projectId: string, month: string): Promise<number>;
 
   /**
-   * Deletes messages created before a date (with their events and content), webhook attempts older than it,
-   * and expired sessions, tokens and counters. Messages of `keepProjects` (their own retention) are left.
+   * Deletes messages created before a date (with their events and content), webhook attempts and API
+   * requests older than it, audit entries older than a year, and expired sessions, tokens and counters.
+   * Messages and requests of `keepProjects` (their own retention) are left.
    */
   purge(before: Date, keepProjects?: string[]): Promise<{ messages: number }>;
-  /** Deletes one project's messages created before a date (its own retention). */
+  /** Deletes one project's messages and API requests created before a date (its own retention). */
   purgeProject(projectId: string, before: Date): Promise<number>;
 
   /** Answers when the database does (health checks). In-memory stores leave it out. */

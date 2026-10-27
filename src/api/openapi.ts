@@ -365,6 +365,39 @@ const schemas = {
       createdAt: { type: 'string', format: 'date-time' },
     },
   },
+  ApiRequest: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      keyId: { type: 'string' },
+      keyName: { type: 'string' },
+      mode: { type: 'string', enum: ['test', 'live'] },
+      method: { type: 'string' },
+      path: { type: 'string' },
+      status: { type: 'integer' },
+      durationMs: { type: 'integer' },
+      ip: { type: 'string' },
+      error: { type: 'string', description: 'El mensaje de error, si la respuesta fue 400 o más.' },
+      createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  AuditEntry: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      actor: {
+        type: 'object',
+        description: 'Una persona del panel (`user`), una clave de API (`key`) o un administrador de la plataforma (`admin`).',
+        properties: { kind: { type: 'string', enum: ['user', 'key', 'admin'] }, id: { type: 'string' }, email: { type: 'string' }, name: { type: 'string' } },
+      },
+      action: { type: 'string', description: 'Método y ruta: `POST /v1/project/keys`.' },
+      params: { type: 'object', additionalProperties: { type: 'string' } },
+      details: { type: 'object', description: 'Los campos inofensivos de la petición (nombres, roles…); nunca secretos.' },
+      ip: { type: 'string' },
+      mode: { type: 'string', enum: ['test', 'live'] },
+      createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
   Suppression: {
     type: 'object',
     properties: {
@@ -697,6 +730,34 @@ const paths = {
       description: 'Envía otra vez, ahora, el evento de un intento a la URL actual del webhook.',
       parameters: [id('id', 'Id del intento.')],
       responses: { 200: ok('El nuevo intento.', ref('WebhookDelivery')), 400: error('Sin URL de webhook, o el evento ya se borró por retención.'), 404: notFound },
+    },
+  },
+  '/v1/project/requests': {
+    get: {
+      tags: ['Proyecto'],
+      summary: 'Registro de peticiones',
+      operationId: 'listApiRequests',
+      description: 'Cada petición hecha con una clave de API del proyecto, con su respuesta; la más reciente primero. Se guardan lo mismo que los mensajes.',
+      parameters: [
+        query('status', 'Solo las que respondieron 400 o más.', { type: 'string', enum: ['failed'] }),
+        query('key', 'Solo las de una clave (su id).', { type: 'string' }),
+        query('before', 'Fecha ISO: anteriores (paginación).', { type: 'string', format: 'date-time' }),
+        query('limit', 'Hasta 200 (50 por defecto).', { type: 'integer' }),
+      ],
+      responses: { 200: ok('Peticiones.', list('ApiRequest')) },
+    },
+  },
+  '/v1/project/audit': {
+    get: {
+      tags: ['Proyecto'],
+      summary: 'Registro de auditoría',
+      operationId: 'listAudit',
+      description: 'Quién cambió qué en el proyecto (claves, equipo, ajustes, plantillas, conexiones…), lo más reciente primero. Los envíos no aparecen: tienen el registro de mensajes. Se guarda un año.',
+      parameters: [
+        query('before', 'Fecha ISO: anteriores (paginación).', { type: 'string', format: 'date-time' }),
+        query('limit', 'Hasta 200 (50 por defecto).', { type: 'integer' }),
+      ],
+      responses: { 200: ok('Cambios.', list('AuditEntry')) },
     },
   },
   '/v1/project/webhook/test': {

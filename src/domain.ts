@@ -307,3 +307,43 @@ export interface ProjectStats {
   /** Per UTC day, oldest first, including days without events. */
   daily: Array<{ date: string; delivered: number; bounced: number; deferred: number; complained: number }>;
 }
+
+/** Who changed something in a project: a person from the panel, an API key, or a platform admin. */
+export type AuditActor =
+  | { kind: 'user'; id: string; email: string }
+  | { kind: 'key'; id: string; name: string }
+  | { kind: 'admin'; email?: string };
+
+/** One change to a project: the audit log. */
+export interface AuditEntry {
+  id: string;
+  projectId: string;
+  actor: AuditActor;
+  /** Method and route: `POST /v1/project/keys`, `DELETE /v1/project/keys/:id`. */
+  action: string;
+  /** The route's parameters (ids). */
+  params?: Record<string, string>;
+  /** The harmless fields of the request (names, roles, permissions…), never secrets. */
+  details?: Record<string, unknown>;
+  ip?: string;
+  mode: Mode;
+  createdAt: Date;
+}
+
+/** A request made with an API key: the request log. */
+export interface ApiRequestLog {
+  id: string;
+  projectId: string;
+  keyId: string;
+  keyName: string;
+  mode: Mode;
+  method: string;
+  /** The path as called, without the query. */
+  path: string;
+  status: number;
+  durationMs: number;
+  ip?: string;
+  /** What the API answered, when it was an error. */
+  error?: string;
+  createdAt: Date;
+}

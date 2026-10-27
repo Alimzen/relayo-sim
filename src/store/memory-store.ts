@@ -1,4 +1,4 @@
-import type { TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { AuditEntry, ApiRequestLog, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -17,6 +17,8 @@ export class MemoryStore implements SimStore {
   private readonly domains = new Map<string, SendingDomain>();
   private readonly usage = new Map<string, number>();
   private readonly webhookAttempts: WebhookAttempt[] = [];
+  private readonly audit: AuditEntry[] = [];
+  private readonly requests: ApiRequestLog[] = [];
   private readonly templates = new Map<string, Template>();
   private readonly scheduled = new Map<string, ScheduledSend>();
   private readonly members = new Map<string, ProjectMember>();
@@ -194,6 +196,8 @@ export class MemoryStore implements SimStore {
     }
     const kept = this.webhookAttempts.filter((a) => a.projectId !== id);
     this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
+    keep(this.audit, (e) => e.projectId !== id);
+    keep(this.requests, (r) => r.projectId !== id);
   }
 
   async deleteUser(id: string): Promise<void> {
@@ -372,6 +376,7 @@ export class MemoryStore implements SimStore {
       this.contents.delete(id);
       deleted++;
     }
+    keep(this.requests, (r) => r.projectId !== projectId || r.createdAt >= before);
     return deleted;
   }
 
@@ -391,6 +396,9 @@ export class MemoryStore implements SimStore {
     }
     const kept = this.webhookAttempts.filter((a) => a.createdAt >= before);
     this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
+    keep(this.requests, (r) => r.createdAt >= before || keepProjects.includes(r.projectId));
+    const yearAgo = new Date(Date.now() - 365 * 86_400_000);
+    keep(this.audit, (e) => e.createdAt >= yearAgo);
     const now = new Date();
     for (const [hash, session] of this.sessions) if (session.expiresAt <= now) this.sessions.delete(hash);
     for (const [hash, reset] of this.resets) if (reset.expiresAt <= now) this.resets.delete(hash);
@@ -507,6 +515,29 @@ export class MemoryStore implements SimStore {
     this.idempotency.delete(`${projectId}|${key}`);
   }
 
+  async addAudit(entry: AuditEntry): Promise<void> {
+    this.audit.push(structuredClone(entry));
+  }
+
+  async listAudit(projectId: string, query: { limit: number; before?: Date }): Promise<AuditEntry[]> {
+    return newest(this.audit.filter((e) => e.projectId === projectId && (!query.before || e.createdAt < query.before)), query.limit);
+  }
+
+  async addApiRequest(entry: ApiRequestLog): Promise<void> {
+    this.requests.push({ ...entry });
+  }
+
+  async listApiRequests(projectId: string, query: { limit: number; before?: Date; failed?: boolean; keyId?: string }): Promise<ApiRequestLog[]> {
+    const found = this.requests.filter(
+      (r) =>
+        r.projectId === projectId &&
+        (!query.before || r.createdAt < query.before) &&
+        (!query.failed || r.status >= 400) &&
+        (!query.keyId || r.keyId === query.keyId),
+    );
+    return newest(found, query.limit);
+  }
+
   async addWebhookAttempt(attempt: WebhookAttempt): Promise<void> {
     this.webhookAttempts.push({ ...attempt });
   }
@@ -600,4 +631,13 @@ export class MemoryStore implements SimStore {
       (a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.id.localeCompare(b.id),
     );
   }
+}
+
+/** Keeps, in place, the items that pass. */
+function keep<T>(list: T[], test: (item: T) => boolean): void {
+  list.splice(0, list.length, ...list.filter(test));
+}
+
+function newest<T extends { createdAt: Date }>(list: T[], limit: number): T[] {
+  return [...list].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit);
 }

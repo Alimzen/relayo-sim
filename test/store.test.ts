@@ -323,6 +323,57 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
   });
 
+  it('keeps the audit log for a year and API requests by retention, newest first', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const now = Date.now();
+    const audit = (id: string, daysAgo: number) => ({
+      id,
+      projectId: 'prj_1',
+      actor: { kind: 'user' as const, id: 'usr_1', email: 'ana@empresa.com' },
+      action: 'POST /v1/project/keys',
+      mode: 'test' as const,
+      createdAt: new Date(now - daysAgo * 86_400_000),
+    });
+    await store.addAudit({ ...audit('aud_1', 400) });
+    await store.addAudit({ ...audit('aud_2', 2), params: { id: 'key_1' }, details: { name: 'Servidor' }, ip: '10.0.0.1' });
+    await store.addAudit({ ...audit('aud_3', 1), actor: { kind: 'key', id: 'key_1', name: 'Servidor' } });
+    expect((await store.listAudit('prj_1', { limit: 10 })).map((e) => e.id)).toEqual(['aud_3', 'aud_2', 'aud_1']);
+    expect((await store.listAudit('prj_1', { limit: 1, before: new Date(now - 86_400_000 - 1) }))[0]).toEqual({
+      ...audit('aud_2', 2),
+      params: { id: 'key_1' },
+      details: { name: 'Servidor' },
+      ip: '10.0.0.1',
+    });
+
+    const request = (id: string, daysAgo: number, status: number, keyId = 'key_1') => ({
+      id,
+      projectId: 'prj_1',
+      keyId,
+      keyName: 'Servidor',
+      mode: 'test' as const,
+      method: 'POST',
+      path: '/v1/messages',
+      status,
+      durationMs: 12,
+      createdAt: new Date(now - daysAgo * 86_400_000),
+    });
+    await store.addApiRequest(request('req_1', 10, 202));
+    await store.addApiRequest({ ...request('req_2', 1, 400), error: 'Missing from', ip: '10.0.0.2' });
+    await store.addApiRequest(request('req_3', 0, 202, 'key_2'));
+    expect((await store.listApiRequests('prj_1', { limit: 10 })).map((r) => r.id)).toEqual(['req_3', 'req_2', 'req_1']);
+    expect(await store.listApiRequests('prj_1', { limit: 10, failed: true })).toEqual([{ ...request('req_2', 1, 400), error: 'Missing from', ip: '10.0.0.2' }]);
+    expect((await store.listApiRequests('prj_1', { limit: 10, keyId: 'key_1' })).map((r) => r.id)).toEqual(['req_2', 'req_1']);
+
+    await store.purge(new Date(now - 7 * 86_400_000));
+    expect((await store.listApiRequests('prj_1', { limit: 10 })).map((r) => r.id)).toEqual(['req_3', 'req_2']);
+    expect((await store.listAudit('prj_1', { limit: 10 })).map((e) => e.id)).toEqual(['aud_3', 'aud_2']);
+    await store.purgeProject('prj_1', new Date(now - 12 * 3_600_000));
+    expect((await store.listApiRequests('prj_1', { limit: 10 })).map((r) => r.id)).toEqual(['req_3']);
+    await store.deleteProject('prj_1');
+    expect(await store.listAudit('prj_1', { limit: 10 })).toEqual([]);
+  });
+
   it('keeps project plans, finds projects, and purges each one by its own retention', async () => {
     const store = await open();
     await store.createUser(user);

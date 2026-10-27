@@ -23,6 +23,7 @@ import {
   LucideTriangleAlert,
   LucideUser,
   LucideUsers,
+  LucideHistory,
   LucideWebhook,
 } from '@lucide/angular';
 import { Api } from '../core/api';
@@ -61,6 +62,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
     LucideTriangleAlert,
     LucideUser,
     LucideUsers,
+    LucideHistory,
     LucideWebhook,
   ],
   host: { '(document:click)': 'outside($event)', '(document:keydown.escape)': 'closeMenus()' },
@@ -138,6 +140,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
           @if (projectAdmin()) {
             <a class="nav-link" routerLink="/webhooks" routerLinkActive="active"><svg lucideWebhook [size]="16"></svg>Webhooks</a>
           }
+          <a class="nav-link" routerLink="/activity" routerLinkActive="active"><svg lucideHistory [size]="16"></svg>Actividad</a>
           <a class="nav-link" routerLink="/team" routerLinkActive="active"><svg lucideUsers [size]="16"></svg>Equipo</a>
           <a class="nav-link" routerLink="/settings" routerLinkActive="active"><svg lucideSettings [size]="16"></svg>Ajustes</a>
           @if (session.user()?.admin) {

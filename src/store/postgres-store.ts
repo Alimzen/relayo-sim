@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -215,6 +215,33 @@ CREATE TABLE IF NOT EXISTS webhook_attempts (
   created_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS webhook_attempts_project_created ON webhook_attempts (project_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  actor jsonb NOT NULL,
+  action text NOT NULL,
+  params jsonb,
+  details jsonb,
+  ip text,
+  mode text NOT NULL,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audit_log_project_created ON audit_log (project_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS api_requests (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  key_id text NOT NULL,
+  key_name text NOT NULL,
+  mode text NOT NULL,
+  method text NOT NULL,
+  path text NOT NULL,
+  status integer NOT NULL,
+  duration_ms integer NOT NULL,
+  ip text,
+  error text,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS api_requests_project_created ON api_requests (project_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS smtp_attempts (
   key text PRIMARY KEY,
   count integer NOT NULL,
@@ -780,6 +807,72 @@ export class PostgresStore implements SimStore {
     await this.pool.query('DELETE FROM idempotency_keys WHERE project_id = $1 AND key = $2', [projectId, key]);
   }
 
+  async addAudit(e: AuditEntry): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO audit_log (id, project_id, actor, action, params, details, ip, mode, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      [
+        e.id,
+        e.projectId,
+        JSON.stringify(e.actor),
+        e.action,
+        e.params ? JSON.stringify(e.params) : null,
+        e.details ? JSON.stringify(e.details) : null,
+        e.ip ?? null,
+        e.mode,
+        e.createdAt,
+      ],
+    );
+  }
+
+  async listAudit(projectId: string, query: { limit: number; before?: Date }): Promise<AuditEntry[]> {
+    const values: unknown[] = [projectId, query.limit];
+    const where = ['project_id = $1'];
+    if (query.before) where.push(`created_at < $${values.push(query.before)}`);
+    const { rows } = await this.pool.query<AuditRow>(`SELECT * FROM audit_log WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $2`, values);
+    return rows.map((row) => ({
+      id: row.id,
+      projectId: row.project_id,
+      actor: row.actor,
+      action: row.action,
+      mode: row.mode,
+      createdAt: row.created_at,
+      ...(row.params && { params: row.params }),
+      ...(row.details && { details: row.details }),
+      ...(row.ip !== null && { ip: row.ip }),
+    }));
+  }
+
+  async addApiRequest(r: ApiRequestLog): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO api_requests (id, project_id, key_id, key_name, mode, method, path, status, duration_ms, ip, error, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [r.id, r.projectId, r.keyId, r.keyName, r.mode, r.method, r.path, r.status, r.durationMs, r.ip ?? null, r.error ?? null, r.createdAt],
+    );
+  }
+
+  async listApiRequests(projectId: string, query: { limit: number; before?: Date; failed?: boolean; keyId?: string }): Promise<ApiRequestLog[]> {
+    const values: unknown[] = [projectId, query.limit];
+    const where = ['project_id = $1'];
+    if (query.before) where.push(`created_at < $${values.push(query.before)}`);
+    if (query.failed) where.push('status >= 400');
+    if (query.keyId) where.push(`key_id = $${values.push(query.keyId)}`);
+    const { rows } = await this.pool.query<RequestRow>(`SELECT * FROM api_requests WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $2`, values);
+    return rows.map((row) => ({
+      id: row.id,
+      projectId: row.project_id,
+      keyId: row.key_id,
+      keyName: row.key_name,
+      mode: row.mode,
+      method: row.method,
+      path: row.path,
+      status: row.status,
+      durationMs: row.duration_ms,
+      createdAt: row.created_at,
+      ...(row.ip !== null && { ip: row.ip }),
+      ...(row.error !== null && { error: row.error }),
+    }));
+  }
+
   async addWebhookAttempt(a: WebhookAttempt): Promise<void> {
     await this.pool.query(
       `INSERT INTO webhook_attempts (id, project_id, event_id, event_type, recipient, url, attempt, max_attempts, trigger, ok, status_code, error,
@@ -1048,6 +1141,8 @@ export class PostgresStore implements SimStore {
     // Events and captured content go with their message (ON DELETE CASCADE).
     const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1 AND NOT (project_id = ANY($2))', [before, keepProjects]);
     await this.pool.query('DELETE FROM webhook_attempts WHERE created_at < $1', [before]);
+    await this.pool.query('DELETE FROM api_requests WHERE created_at < $1 AND NOT (project_id = ANY($2))', [before, keepProjects]);
+    await this.pool.query("DELETE FROM audit_log WHERE created_at < now() - interval '365 days'");
     await this.pool.query('DELETE FROM idempotency_keys WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM project_invites WHERE expires_at <= now()');
     await this.pool.query("DELETE FROM scheduled_sends WHERE status IN ('sent', 'failed', 'canceled') AND updated_at < $1", [before]);
@@ -1059,6 +1154,7 @@ export class PostgresStore implements SimStore {
 
   async purgeProject(projectId: string, before: Date): Promise<number> {
     const { rowCount } = await this.pool.query('DELETE FROM messages WHERE project_id = $1 AND created_at < $2', [projectId, before]);
+    await this.pool.query('DELETE FROM api_requests WHERE project_id = $1 AND created_at < $2', [projectId, before]);
     return rowCount ?? 0;
   }
 
@@ -1080,7 +1176,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE audit_log, api_requests, project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
@@ -1181,6 +1277,33 @@ function toTemplate(row: TemplateRow): Template {
     ...(row.text !== null && { text: row.text }),
     ...(row.body !== null && { body: row.body }),
   };
+}
+
+interface AuditRow {
+  id: string;
+  project_id: string;
+  actor: AuditActor;
+  action: string;
+  params: Record<string, string> | null;
+  details: Record<string, unknown> | null;
+  ip: string | null;
+  mode: Mode;
+  created_at: Date;
+}
+
+interface RequestRow {
+  id: string;
+  project_id: string;
+  key_id: string;
+  key_name: string;
+  mode: Mode;
+  method: string;
+  path: string;
+  status: number;
+  duration_ms: number;
+  ip: string | null;
+  error: string | null;
+  created_at: Date;
 }
 
 interface AttemptRow {

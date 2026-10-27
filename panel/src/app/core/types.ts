@@ -122,6 +122,32 @@ export interface PlanRow {
   usage: { messages: number; live: number };
 }
 
+export interface AuditEntry {
+  id: string;
+  actor: { kind: 'user'; id: string; email: string } | { kind: 'key'; id: string; name: string } | { kind: 'admin'; email?: string };
+  /** Method and route: `POST /v1/project/keys`. */
+  action: string;
+  params?: Record<string, string>;
+  details?: Record<string, unknown>;
+  ip?: string;
+  mode: Mode;
+  createdAt: string;
+}
+
+export interface ApiRequestLog {
+  id: string;
+  keyId: string;
+  keyName: string;
+  mode: Mode;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  ip?: string;
+  error?: string;
+  createdAt: string;
+}
+
 export interface ManagedRequest {
   project: Project;
   owner: { email: string; name: string; createdAt: string } | null;
