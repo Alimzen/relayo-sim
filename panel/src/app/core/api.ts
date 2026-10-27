@@ -56,8 +56,14 @@ export class Api {
   // Auth
   authConfig = () => this.call<{ signup: boolean; minPassword: number }>('GET', '/v1/auth/config');
   me = () => this.call<{ user: User; projects: Project[] }>('GET', '/v1/auth/me');
+  /** With two-factor on, answers a ticket for `loginWithCode` instead of the session. */
   login = (email: string, password: string) =>
-    this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/login', { email, password });
+    this.call<{ user: User; projects: Project[] } | { twoFactor: true; ticket: string }>('POST', '/v1/auth/login', { email, password });
+  loginWithCode = (ticket: string, code: string) =>
+    this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/login/2fa', { ticket, code });
+  setupTwoFactor = () => this.call<{ secret: string; otpauthUrl: string }>('POST', '/v1/auth/2fa/setup');
+  enableTwoFactor = (code: string) => this.call<{ recoveryCodes: string[] }>('POST', '/v1/auth/2fa/enable', { code });
+  disableTwoFactor = (password: string, code: string) => this.call<void>('POST', '/v1/auth/2fa/disable', { password, code });
   signup = (name: string, email: string, password: string, invite?: string) =>
     this.call<{ user: User; projects: Project[] }>('POST', '/v1/auth/signup', { name, email, password, ...(invite && { invite }) });
   logout = () => this.call<void>('POST', '/v1/auth/logout');

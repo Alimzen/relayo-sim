@@ -931,6 +931,7 @@ export const UNDOCUMENTED = [
   'GET /v1/auth/config', 'POST /v1/auth/signup', 'POST /v1/auth/login', 'POST /v1/auth/logout', 'GET /v1/auth/me', 'PATCH /v1/auth/me',
   'POST /v1/auth/verify', 'POST /v1/auth/verify/resend', 'POST /v1/auth/forgot', 'POST /v1/auth/reset', 'POST /v1/auth/password',
   'GET /v1/auth/me/export', 'DELETE /v1/auth/me', 'DELETE /v1/project',
+  'POST /v1/auth/login/2fa', 'POST /v1/auth/2fa/setup', 'POST /v1/auth/2fa/enable', 'POST /v1/auth/2fa/disable',
   'GET /v1/projects', 'POST /v1/projects/claim', 'POST /v1/projects',
   'GET /v1/project/keys', 'POST /v1/project/keys', 'DELETE /v1/project/keys/:id',
   'GET /v1/project/webhook-secret', 'POST /v1/project/webhook-secret/rotate',

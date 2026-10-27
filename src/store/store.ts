@@ -1,4 +1,4 @@
-import type { ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -49,7 +49,9 @@ export interface SimStore {
    * Consumes an emailed token of a purpose (password reset by default): returns its user if it exists and has
    * not expired, and deletes it either way.
    */
-  usePasswordReset(tokenHash: string, purpose?: 'reset' | 'verify'): Promise<string | undefined>;
+  usePasswordReset(tokenHash: string, purpose?: TokenPurpose): Promise<string | undefined>;
+  /** Replaces a user's two-factor state; `null` turns it off. */
+  setTwoFactor(userId: string, state: TwoFactor | null): Promise<void>;
 
   // Projects and keys
   createProject(project: Project): Promise<void>;

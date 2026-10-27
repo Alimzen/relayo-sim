@@ -1,4 +1,4 @@
-import type { ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -320,7 +320,16 @@ export class MemoryStore implements SimStore {
     this.resets.set(reset.tokenHash, reset);
   }
 
-  async usePasswordReset(tokenHash: string, purpose: 'reset' | 'verify' = 'reset'): Promise<string | undefined> {
+  async setTwoFactor(userId: string, state: TwoFactor | null): Promise<void> {
+    const user = this.users.get(userId);
+    if (!user) return;
+    const next = { ...user };
+    if (state) next.twoFactor = structuredClone(state);
+    else delete next.twoFactor;
+    this.users.set(userId, next);
+  }
+
+  async usePasswordReset(tokenHash: string, purpose: TokenPurpose = 'reset'): Promise<string | undefined> {
     const reset = this.resets.get(tokenHash);
     if (!reset || (reset.purpose ?? 'reset') !== purpose) return undefined;
     this.resets.delete(tokenHash);

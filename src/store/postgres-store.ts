@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -32,6 +32,7 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS managed_access text;
 -- Accounts created before email verification existed count as verified (the default fills them once).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz DEFAULT now();
 ALTER TABLE users ALTER COLUMN email_verified_at DROP DEFAULT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor jsonb;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id text REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE projects ALTER COLUMN api_key_hash DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS projects_owner ON projects (owner_id);
@@ -224,6 +225,7 @@ interface UserRow {
   name: string;
   password_hash: string;
   email_verified_at: Date | null;
+  two_factor: (Omit<TwoFactor, 'enabledAt'> & { enabledAt?: string }) | null;
   created_at: Date;
 }
 
@@ -987,7 +989,11 @@ export class PostgresStore implements SimStore {
     ]);
   }
 
-  async usePasswordReset(tokenHash: string, purpose: 'reset' | 'verify' = 'reset'): Promise<string | undefined> {
+  async setTwoFactor(userId: string, state: TwoFactor | null): Promise<void> {
+    await this.pool.query('UPDATE users SET two_factor = $2 WHERE id = $1', [userId, state ? JSON.stringify(state) : null]);
+  }
+
+  async usePasswordReset(tokenHash: string, purpose: TokenPurpose = 'reset'): Promise<string | undefined> {
     const { rows } = await this.pool.query<{ user_id: string; expires_at: Date }>(
       'DELETE FROM password_resets WHERE token_hash = $1 AND purpose = $2 RETURNING user_id, expires_at',
       [tokenHash, purpose],
@@ -1195,6 +1201,9 @@ function toUser(row: UserRow): User {
     passwordHash: row.password_hash,
     createdAt: row.created_at,
     ...(row.email_verified_at && { emailVerifiedAt: row.email_verified_at }),
+    ...(row.two_factor && {
+      twoFactor: { ...row.two_factor, ...(row.two_factor.enabledAt && { enabledAt: new Date(row.two_factor.enabledAt) }) } as TwoFactor,
+    }),
   };
 }
 

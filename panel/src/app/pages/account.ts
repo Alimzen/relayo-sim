@@ -1,6 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import QRCode from 'qrcode';
 import { Api } from '../core/api';
 import { Session } from '../core/session';
 import { Modal, Toasts } from '../ui/ui';
@@ -68,6 +70,58 @@ import { Modal, Toasts } from '../ui/ui';
         <section class="card">
           <header class="card-head">
             <div>
+              <h2>Verificación en dos pasos</h2>
+              <p class="muted small">
+                Además de la contraseña, un código de tu app de autenticación (Google Authenticator, 1Password, Authy…) al entrar.
+              </p>
+            </div>
+            @if (session.user()?.twoFactor) {
+              <span class="badge" data-tone="good"><span class="badge-dot" aria-hidden="true"></span>Activada</span>
+            }
+          </header>
+          @if (recovery().length) {
+            <div class="card-body">
+              <div class="callout"><span>Guarda estos códigos de recuperación en un lugar seguro: sirven una vez cada uno si pierdes el móvil, y no se volverán a mostrar.</span></div>
+              <ul class="recovery-codes">
+                @for (c of recovery(); track c) {
+                  <li><code>{{ c }}</code></li>
+                }
+              </ul>
+            </div>
+            <footer class="card-foot">
+              <span></span>
+              <button type="button" class="btn btn-sm btn-primary" (click)="recovery.set([])">Ya los he guardado</button>
+            </footer>
+          } @else if (setup(); as s) {
+            <form class="card-body two-factor-setup" (ngSubmit)="enable2fa()">
+              <div class="qr" [innerHTML]="qr()"></div>
+              <div class="stack">
+                <p class="text-2">Escanea el código con tu app, o escribe esta clave: <code class="secret-key">{{ s.secret }}</code></p>
+                <div class="field field-last">
+                  <label for="totp">Código de 6 cifras</label>
+                  <input id="totp" class="input mono" name="totp" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required [(ngModel)]="totp" />
+                </div>
+                <div class="row">
+                  <button type="button" class="btn btn-sm" (click)="setup.set(null)">Cancelar</button>
+                  <button type="submit" class="btn btn-sm btn-primary" [disabled]="busy() || !totp.trim()">Activar</button>
+                </div>
+              </div>
+            </form>
+          } @else {
+            <footer class="card-foot">
+              <span></span>
+              @if (session.user()?.twoFactor) {
+                <button type="button" class="btn btn-sm" (click)="disabling.set(true)">Desactivar</button>
+              } @else {
+                <button type="button" class="btn btn-sm btn-primary" (click)="start2fa()" [disabled]="busy()">Activar</button>
+              }
+            </footer>
+          }
+        </section>
+
+        <section class="card">
+          <header class="card-head">
+            <div>
               <h2>Tus datos</h2>
               <p class="muted small">
                 Descarga en JSON todo lo que guardamos de tu cuenta y de tus proyectos: ajustes, plantillas, supresiones y los
@@ -99,6 +153,23 @@ import { Modal, Toasts } from '../ui/ui';
       </div>
     </div>
 
+    <app-modal heading="Desactivar la verificación en dos pasos" [open]="disabling()" (closed)="disabling.set(false)">
+      <form (ngSubmit)="disable2fa()">
+        <div class="field">
+          <label for="off-password">Contraseña</label>
+          <input id="off-password" class="input" type="password" name="offPassword" autocomplete="current-password" required [(ngModel)]="password" />
+        </div>
+        <div class="field">
+          <label for="off-code">Código de la app o de recuperación</label>
+          <input id="off-code" class="input mono" name="offCode" autocomplete="one-time-code" required [(ngModel)]="totp" />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" (click)="disabling.set(false)">Cancelar</button>
+          <button type="submit" class="btn btn-danger" [disabled]="busy() || !password || !totp.trim()">Desactivar</button>
+        </div>
+      </form>
+    </app-modal>
+
     <app-modal heading="Eliminar la cuenta" [open]="deleting()" (closed)="deleting.set(false)">
       <form (ngSubmit)="deleteAccount()">
         <p class="text-2 modal-lede">Escribe tu contraseña para confirmar. Te recomendamos exportar antes tus datos.</p>
@@ -126,6 +197,55 @@ export class AccountPage {
   protected next = '';
   protected password = '';
   protected readonly deleting = signal(false);
+  protected readonly disabling = signal(false);
+  protected readonly setup = signal<{ secret: string; otpauthUrl: string } | null>(null);
+  protected readonly qr = signal<SafeHtml>('');
+  protected readonly recovery = signal<string[]>([]);
+  protected totp = '';
+  private readonly sanitizer = inject(DomSanitizer);
+
+  protected async start2fa(): Promise<void> {
+    await this.run(async () => {
+      const setup = await this.api.setupTwoFactor();
+      // Our own SVG, drawn here from the otpauth link: nothing from outside goes into it.
+      this.qr.set(this.sanitizer.bypassSecurityTrustHtml(await QRCode.toString(setup.otpauthUrl, { type: 'svg', margin: 1, width: 168 })));
+      this.totp = '';
+      this.setup.set(setup);
+    });
+  }
+
+  protected async enable2fa(): Promise<void> {
+    await this.run(async () => {
+      const { recoveryCodes } = await this.api.enableTwoFactor(this.totp.trim());
+      this.setup.set(null);
+      this.recovery.set(recoveryCodes);
+      this.session.user.update((u) => u && { ...u, twoFactor: true });
+      this.toasts.show('Verificación en dos pasos activada');
+    });
+  }
+
+  protected async disable2fa(): Promise<void> {
+    await this.run(async () => {
+      await this.api.disableTwoFactor(this.password, this.totp.trim());
+      this.disabling.set(false);
+      this.password = '';
+      this.totp = '';
+      this.session.user.update((u) => u && { ...u, twoFactor: false });
+      this.toasts.show('Verificación en dos pasos desactivada');
+    });
+  }
+
+  private async run(action: () => Promise<void>): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      await action();
+    } catch (error) {
+      this.toasts.error(error);
+    } finally {
+      this.busy.set(false);
+    }
+  }
   private readonly router = inject(Router);
 
   constructor() {

@@ -219,6 +219,18 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect(await store.usePasswordReset('nope')).toBeUndefined();
   });
 
+  it('keeps a user\'s two-factor state, and clears it', async () => {
+    const store = await open();
+    await store.createUser(user);
+    const enabledAt = new Date('2026-10-20T10:00:00Z');
+    await store.setTwoFactor('usr_1', { secret: 'v1.sealed', enabledAt, recoveryCodes: ['h1', 'h2'] });
+    expect((await store.getUser('usr_1'))?.twoFactor).toEqual({ secret: 'v1.sealed', enabledAt, recoveryCodes: ['h1', 'h2'] });
+    await store.updateUser('usr_1', { name: 'Ana P.' });
+    expect((await store.findUserByEmail('ana@empresa.com'))?.twoFactor?.secret).toBe('v1.sealed');
+    await store.setTwoFactor('usr_1', null);
+    expect((await store.getUser('usr_1'))?.twoFactor).toBeUndefined();
+  });
+
   it('keeps verification tokens apart from reset tokens, and marks emails verified', async () => {
     const store = await open();
     await store.createUser(user);

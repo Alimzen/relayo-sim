@@ -203,6 +203,8 @@ export class AppModule {
               // Without a real mailer the verification link could not reach anyone.
               requireVerification: !!config.mail,
               ...(config.adminEmails && { adminEmails: config.adminEmails }),
+              // Two-factor secrets sealed like provider credentials.
+              ...(config.secretsKey && { secrets: new SecretBox(config.secretsKey, config.previousSecretsKeys) }),
             }),
           inject: [SIM_STORE, SimulationService],
         },

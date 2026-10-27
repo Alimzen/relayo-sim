@@ -16,6 +16,23 @@ export function safeNext(next: string | undefined): string {
   template: `
     <main class="auth">
       <a href="/" class="brand-link" aria-label="Relayo Sim, inicio"><app-brand /></a>
+      @if (ticket()) {
+        <form class="card auth-card" (ngSubmit)="submitCode()">
+          <h1>Verificación en dos pasos</h1>
+          <p class="lede">Escribe el código de 6 cifras de tu app de autenticación, o uno de tus códigos de recuperación.</p>
+          @if (error()) {
+            <p class="form-error" role="alert">{{ error() }}</p>
+          }
+          <div class="field">
+            <label for="code">Código</label>
+            <input id="code" class="input mono" name="code" autocomplete="one-time-code" inputmode="text" required [(ngModel)]="code" />
+          </div>
+          <button class="btn btn-primary btn-block" type="submit" [disabled]="busy() || !code.trim()">
+            {{ busy() ? 'Comprobando…' : 'Entrar' }}
+          </button>
+          <p class="auth-alt"><a href="" (click)="$event.preventDefault(); ticket.set(''); error.set('')">Volver</a></p>
+        </form>
+      } @else {
       <form class="card auth-card" (ngSubmit)="submit()">
         <h1>Entrar</h1>
         <p class="lede">Accede a tus proyectos de Relayo Sim.</p>
@@ -48,6 +65,7 @@ export function safeNext(next: string | undefined): string {
           {{ busy() ? 'Entrando…' : 'Entrar' }}
         </button>
       </form>
+      }
       @if (signupOpen()) {
         <p class="auth-alt">¿No tienes cuenta? <a routerLink="/signup" [queryParams]="next() ? { next: next() } : {}">Crear una</a></p>
       }
@@ -61,6 +79,9 @@ export class LoginPage {
   private readonly router = inject(Router);
   protected email = '';
   protected password = '';
+  protected code = '';
+  /** Set after the password when the account has two-factor on. */
+  protected readonly ticket = signal('');
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   protected readonly signupOpen = signal(false);
@@ -72,13 +93,34 @@ export class LoginPage {
     );
   }
 
+  protected async submitCode(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      const { user, projects } = await this.api.loginWithCode(this.ticket(), this.code.trim());
+      this.session.set(user, projects);
+      await this.router.navigateByUrl(safeNext(this.next()));
+    } catch (error) {
+      this.error.set(error instanceof Error ? error.message : String(error));
+      // The sign-in expired: back to the password.
+      if (/caducado/.test(String(error))) this.ticket.set('');
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   protected async submit(): Promise<void> {
     if (this.busy()) return;
     this.busy.set(true);
     this.error.set('');
     try {
-      const { user, projects } = await this.api.login(this.email.trim(), this.password);
-      this.session.set(user, projects);
+      const result = await this.api.login(this.email.trim(), this.password);
+      if ('ticket' in result) {
+        this.ticket.set(result.ticket);
+        return;
+      }
+      this.session.set(result.user, result.projects);
       await this.router.navigateByUrl(safeNext(this.next()));
     } catch (error) {
       this.error.set(error instanceof Error ? error.message : String(error));

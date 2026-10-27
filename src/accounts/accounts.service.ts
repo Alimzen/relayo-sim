@@ -4,6 +4,7 @@ import type { SimulationService } from '../simulation/simulation.service.js';
 import type { SimStore } from '../store/store.js';
 import { LogMailer, type Mailer, type MailToSend } from './mailer.js';
 import { hashPassword, verifyPassword } from './password.js';
+import { newSecret, otpauthUrl, recoveryCodes, verifyTotp } from './totp.js';
 
 export const SESSION_COOKIE = 'relayo_session';
 export const SESSION_DAYS = 30;
@@ -24,15 +25,18 @@ export interface PublicUser {
   email: string;
   name: string;
   emailVerified: boolean;
+  /** Two-factor authentication is on. */
+  twoFactor: boolean;
   admin: boolean;
   createdAt: Date;
 }
 
-export const publicUser = ({ id, email, name, createdAt, emailVerifiedAt }: User, admin = false): PublicUser => ({
+export const publicUser = ({ id, email, name, createdAt, emailVerifiedAt, twoFactor }: User, admin = false): PublicUser => ({
   id,
   email,
   name,
   emailVerified: !!emailVerifiedAt,
+  twoFactor: !!twoFactor?.enabledAt,
   admin,
   createdAt,
 });
@@ -83,7 +87,13 @@ export interface AccountsOptions {
   requireVerification?: boolean;
   /** Emails of the platform's admins (review of Relayo's own sending). */
   adminEmails?: string[];
+  /** Seals the two-factor secrets (SECRETS_KEY). Without it they are kept as they are. */
+  secrets?: { seal(value: unknown): string; open<T>(sealed: string): T };
 }
+
+/** Minutes to type the code after the password. */
+export const TWO_FACTOR_MINUTES = 5;
+export const TWO_FACTOR_ISSUER = 'Relayo';
 
 export const RESET_MINUTES = 60;
 export const VERIFY_HOURS = 24;
@@ -93,6 +103,8 @@ export class AccountsService {
   private readonly limiter = new AttemptLimiter();
   /** Reset emails: 3 per account and 20 per IP an hour, so the form cannot be used to flood someone's inbox. */
   private readonly resetLimiter = new AttemptLimiter(3, 20, 60 * 60_000);
+  /** Two-factor codes: 5 wrong ones per account in 15 minutes. */
+  private readonly codeLimiter = new AttemptLimiter(5, 50);
   /** Verification emails: 3 an hour per account. */
   private readonly verifyLimiter = new AttemptLimiter(3, 3, 60 * 60_000);
   private readonly mailer: Mailer;
@@ -153,7 +165,11 @@ export class AccountsService {
     return { user, project, token: await this.startSession(user.id) };
   }
 
-  async login(input: { email?: unknown; password?: unknown }, ip: string): Promise<{ user: User; token: string }> {
+  /**
+   * Checks email and password. With two-factor on, there is no session yet: a ticket, valid a few minutes,
+   * for `completeLogin` with the code.
+   */
+  async login(input: { email?: unknown; password?: unknown }, ip: string): Promise<{ user: User; token: string } | { user: User; ticket: string }> {
     const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
     const password = typeof input.password === 'string' ? input.password : '';
     const keys = [`email:${email}`, `ip:${ip}`];
@@ -166,7 +182,81 @@ export class AccountsService {
       throw new AccountError('Email o contraseña incorrectos.', 401);
     }
     this.limiter.reset(`email:${email}`);
+    if (user.twoFactor?.enabledAt) return { user, ticket: await this.twoFactorTicket(user.id) };
     return { user, token: await this.startSession(user.id) };
+  }
+
+  /** The second step of a sign-in with two-factor: the ticket and a code (or a recovery code). */
+  async completeLogin(input: { ticket?: unknown; code?: unknown }, ip: string): Promise<{ user: User; token: string }> {
+    const ticket = typeof input.ticket === 'string' ? input.ticket : '';
+    const code = typeof input.code === 'string' ? input.code : '';
+    const userId = ticket ? await this.store.usePasswordReset(hashToken(ticket), '2fa') : undefined;
+    const user = userId ? await this.store.getUser(userId) : undefined;
+    if (!user?.twoFactor?.enabledAt) throw new AccountError('El inicio de sesión ha caducado. Vuelve a escribir tu contraseña.', 401);
+    const keys = [`2fa:${user.id}`, `ip:${ip}`];
+    this.codeLimiter.check(...keys);
+    if (!(await this.checkCode(user, code))) {
+      this.codeLimiter.fail(...keys);
+      // A wrong code does not use up the ticket: the person can try again while it lasts.
+      await this.store.createPasswordReset({ tokenHash: hashToken(ticket), userId: user.id, expiresAt: new Date(Date.now() + TWO_FACTOR_MINUTES * 60_000), purpose: '2fa' });
+      throw new AccountError('El código no es correcto.', 401);
+    }
+    this.codeLimiter.reset(keys[0]!);
+    return { user, token: await this.startSession(user.id) };
+  }
+
+  /** Starts setting up two-factor: a new secret, confirmed later with a first code. */
+  async setupTwoFactor(user: User): Promise<{ secret: string; otpauthUrl: string }> {
+    if (user.twoFactor?.enabledAt) throw new AccountError('La verificación en dos pasos ya está activada.', 409);
+    const secret = newSecret();
+    await this.store.setTwoFactor(user.id, { pending: this.seal(secret) });
+    return { secret, otpauthUrl: otpauthUrl(TWO_FACTOR_ISSUER, user.email, secret) };
+  }
+
+  /** Turns two-factor on with a first code from the app. Returns the recovery codes, shown only this once. */
+  async enableTwoFactor(user: User, input: { code?: unknown }): Promise<string[]> {
+    const pending = user.twoFactor?.pending;
+    if (!pending) throw new AccountError('Empieza de nuevo la configuración.', 400);
+    const secret = this.open(pending);
+    if (typeof input.code !== 'string' || !verifyTotp(secret, input.code)) throw new AccountError('El código no es correcto: revisa la hora del móvil.', 400);
+    const codes = recoveryCodes();
+    await this.store.setTwoFactor(user.id, { secret: pending, enabledAt: new Date(), recoveryCodes: codes.map(hashToken) });
+    return codes;
+  }
+
+  /** Turns two-factor off: needs the password and a code (or a recovery code). */
+  async disableTwoFactor(user: User, input: { password?: unknown; code?: unknown }): Promise<void> {
+    if (!user.twoFactor?.enabledAt) return;
+    if (!(await verifyPassword(typeof input.password === 'string' ? input.password : '', user.passwordHash))) {
+      throw new AccountError('La contraseña no es correcta.', 400);
+    }
+    if (!(await this.checkCode(user, typeof input.code === 'string' ? input.code : ''))) throw new AccountError('El código no es correcto.', 400);
+    await this.store.setTwoFactor(user.id, null);
+  }
+
+  /** A code from the app, or an unused recovery code (which is then used up). */
+  private async checkCode(user: User, code: string): Promise<boolean> {
+    const state = user.twoFactor;
+    if (!state?.secret) return false;
+    if (verifyTotp(this.open(state.secret), code)) return true;
+    const hash = hashToken(code.trim().toLowerCase());
+    if (!state.recoveryCodes?.includes(hash)) return false;
+    await this.store.setTwoFactor(user.id, { ...state, recoveryCodes: state.recoveryCodes.filter((c) => c !== hash) });
+    return true;
+  }
+
+  private async twoFactorTicket(userId: string): Promise<string> {
+    const ticket = randomBytes(32).toString('base64url');
+    await this.store.createPasswordReset({ tokenHash: hashToken(ticket), userId, expiresAt: new Date(Date.now() + TWO_FACTOR_MINUTES * 60_000), purpose: '2fa' });
+    return ticket;
+  }
+
+  private seal(secret: string): string {
+    return this.options.secrets ? this.options.secrets.seal(secret) : `plain:${secret}`;
+  }
+
+  private open(sealed: string): string {
+    return sealed.startsWith('plain:') ? sealed.slice(6) : this.options.secrets!.open<string>(sealed);
   }
 
   /** The signed-in user for a session cookie value. */

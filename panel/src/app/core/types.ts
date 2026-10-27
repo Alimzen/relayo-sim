@@ -18,6 +18,8 @@ export interface User {
   name: string;
   /** Live mode needs it. */
   emailVerified: boolean;
+  /** Two-factor authentication is on. */
+  twoFactor: boolean;
   /** Reviews requests for Relayo's own sending. */
   admin: boolean;
   createdAt: string;

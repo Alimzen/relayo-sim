@@ -87,9 +87,43 @@ export class AuthController {
   @HttpCode(200)
   async login(@Req() req: AuthedRequest, @Body() body: Record<string, unknown>, @Res({ passthrough: true }) res: CookieResponse) {
     requireClientHeader(req);
-    const { user, token } = await run(() => this.accounts.login(body ?? {}, req.ip ?? 'unknown'));
+    const result = await run(() => this.accounts.login(body ?? {}, req.ip ?? 'unknown'));
+    // Two-factor on: no session until the code (POST /v1/auth/login/2fa with the ticket).
+    if ('ticket' in result) return { twoFactor: true, ticket: result.ticket };
+    res.setHeader('Set-Cookie', sessionCookie(result.token, this.config.secureCookies));
+    return { user: this.accounts.present(result.user), projects: await projectsOf(this.store, result.user) };
+  }
+
+  /** The second step of a sign-in with two-factor: the ticket from the first step and the code. */
+  @Post('login/2fa')
+  @HttpCode(200)
+  async login2fa(@Req() req: AuthedRequest, @Body() body: { ticket?: unknown; code?: unknown }, @Res({ passthrough: true }) res: CookieResponse) {
+    requireClientHeader(req);
+    const { user, token } = await run(() => this.accounts.completeLogin(body ?? {}, req.ip ?? 'unknown'));
     res.setHeader('Set-Cookie', sessionCookie(token, this.config.secureCookies));
     return { user: this.accounts.present(user), projects: await projectsOf(this.store, user) };
+  }
+
+  /** Starts setting up two-factor: the secret and the link for the QR code. */
+  @Post('2fa/setup')
+  @UseGuards(SessionGuard)
+  async setup2fa(@CurrentUser() user: User) {
+    return run(() => this.accounts.setupTwoFactor(user));
+  }
+
+  /** Turns two-factor on with a first code; answers the recovery codes, shown only once. */
+  @Post('2fa/enable')
+  @HttpCode(200)
+  @UseGuards(SessionGuard)
+  async enable2fa(@CurrentUser() user: User, @Body() body: { code?: unknown }) {
+    return { recoveryCodes: await run(() => this.accounts.enableTwoFactor(user, body ?? {})) };
+  }
+
+  @Post('2fa/disable')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async disable2fa(@CurrentUser() user: User, @Body() body: { password?: unknown; code?: unknown }) {
+    await run(() => this.accounts.disableTwoFactor(user, body ?? {}));
   }
 
   @Post('logout')

@@ -10,7 +10,19 @@ export interface User {
   passwordHash: string;
   /** When the user proved the email is theirs; live mode needs it. */
   emailVerifiedAt?: Date;
+  /** Two-factor authentication (TOTP), once set up. */
+  twoFactor?: TwoFactor;
   createdAt: Date;
+}
+
+/** A user's authenticator app: its secret (sealed with SECRETS_KEY) and the unused recovery codes (hashed). */
+export interface TwoFactor {
+  /** Being set up: confirmed with a first code, then it becomes `secret`. */
+  pending?: string;
+  secret?: string;
+  enabledAt?: Date;
+  /** SHA-256 of each recovery code not used yet. */
+  recoveryCodes?: string[];
 }
 
 export interface Session {
@@ -82,13 +94,16 @@ export interface Suppression {
   createdAt: Date;
 }
 
+/** What an emailed or one-time token is for: reset the password, verify the email, or finish a two-factor sign-in. */
+export type TokenPurpose = 'reset' | 'verify' | '2fa';
+
 export interface PasswordReset {
   /** SHA-256 of the token sent by email. */
   tokenHash: string;
   userId: string;
   expiresAt: Date;
   /** What the emailed token does: reset the password (default) or verify the email. */
-  purpose?: 'reset' | 'verify';
+  purpose?: TokenPurpose;
 }
 
 /**
