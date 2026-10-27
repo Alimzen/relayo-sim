@@ -48,6 +48,16 @@ export class LinkSigner {
     return `${this.publicUrl}/u/${this.sign(target)}`;
   }
 
+  /** The tracking pixel of an email: loading it is an open. */
+  openUrl(target: LinkTarget): string {
+    return `${this.publicUrl}/t/o/${this.sign(target)}.gif`;
+  }
+
+  /** A link of an email through Relayo: following it is a click, then the redirect to `url`. */
+  clickUrl(target: LinkTarget, url: string): string {
+    return `${this.publicUrl}/t/c/${this.sign(target, { u: url })}`;
+  }
+
   private mac(payload: string): string {
     return createHmac('sha256', this.key).update(payload).digest().subarray(0, 18).toString('base64url');
   }
@@ -55,3 +65,24 @@ export class LinkSigner {
 
 /** The placeholder people put in their emails for the unsubscribe link. */
 export const UNSUBSCRIBE_TAG = /\{\{\s*unsubscribe_url\s*\}\}/gi;
+
+const ANCHOR_HREF = /(<a\b[^>]*?\bhref\s*=\s*)(["'])(https?:\/\/[^"']+)\2/gi;
+const decodeEntities = (url: string) => url.replace(/&amp;/gi, '&').replace(/&#38;/g, '&');
+
+/**
+ * Sends every http(s) link of an HTML body through `wrap`; links that `keep` says to leave (the unsubscribe
+ * link, Relayo's own) stay as they are.
+ */
+export function rewriteLinks(html: string, wrap: (url: string) => string, keep: (url: string) => boolean): string {
+  return html.replace(ANCHOR_HREF, (whole, start: string, quote: string, href: string) => {
+    const url = decodeEntities(href);
+    return keep(url) ? whole : `${start}${quote}${wrap(url)}${quote}`;
+  });
+}
+
+/** The tracking pixel, before `</body>` (or at the end). */
+export function addPixel(html: string, src: string): string {
+  const pixel = `<img src="${src}" width="1" height="1" alt="" style="display:none;border:0;width:1px;height:1px">`;
+  const end = html.search(/<\/body\s*>/i);
+  return end === -1 ? html + pixel : html.slice(0, end) + pixel + html.slice(end);
+}

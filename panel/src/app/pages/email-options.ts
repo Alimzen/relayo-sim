@@ -4,7 +4,7 @@ import { Session } from '../core/session';
 import type { Project } from '../core/types';
 import { Toasts } from '../ui/ui';
 
-type Option = 'unsubscribeLinks';
+type Option = 'unsubscribeLinks' | 'trackOpens' | 'trackClicks';
 
 /** What Relayo adds to the project's real (live) emails. */
 @Component({
@@ -14,7 +14,10 @@ type Option = 'unsubscribeLinks';
       <header class="card-head">
         <div>
           <h2>Correos reales</h2>
-          <p class="muted small">Lo que Relayo añade a los correos que salen con claves <code>rly_live_</code>.</p>
+          <p class="muted small">
+            Lo que Relayo añade a los correos que salen con claves <code>rly_live_</code>, por cualquier conexión. Solo en correos a un
+            destinatario: los enlaces son de cada persona.
+          </p>
         </div>
       </header>
       <div class="card-body stack">
@@ -25,12 +28,30 @@ type Option = 'unsubscribeLinks';
             <span class="muted small block">
               Cabeceras <code>List-Unsubscribe</code> y <code>List-Unsubscribe-Post</code> hacia una página de baja de Relayo, como piden
               Gmail y Yahoo a los envíos masivos. Quien se da de baja pasa a Supresiones y te llega un evento <code>unsubscribed</code>.
-              Solo en correos a un destinatario.
+            </span>
+          </span>
+        </label>
+        <label class="check option">
+          <input type="checkbox" [checked]="project().trackOpens" (change)="toggle('trackOpens', $event)" [disabled]="busy()" />
+          <span>
+            <strong>Seguir aperturas</strong>
+            <span class="muted small block">
+              Una imagen invisible en el HTML: al cargarla llega un evento <code>opened</code> (uno por destinatario). Algunos clientes
+              cargan las imágenes solos, así que es una estimación.
+            </span>
+          </span>
+        </label>
+        <label class="check option">
+          <input type="checkbox" [checked]="project().trackClicks" (change)="toggle('trackClicks', $event)" [disabled]="busy()" />
+          <span>
+            <strong>Seguir clics</strong>
+            <span class="muted small block">
+              Los enlaces del HTML pasan por Relayo, que te manda un evento <code>clicked</code> con la URL y redirige al destino.
             </span>
           </span>
         </label>
         <p class="muted small">
-          Además, en el contenido (o en una plantilla) <code>{{ tag }}</code> se cambia por el enlace de baja de cada destinatario.
+          En el contenido (o en una plantilla), <code>{{ tag }}</code> se cambia por el enlace de baja de cada destinatario.
         </p>
       </div>
     </section>

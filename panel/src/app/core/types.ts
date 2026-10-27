@@ -183,6 +183,9 @@ export interface Project {
   managedAccess: ManagedAccess | null;
   /** One-click List-Unsubscribe on live emails. */
   unsubscribeLinks: boolean;
+  /** Opens and clicks of live emails, through Relayo. */
+  trackOpens: boolean;
+  trackClicks: boolean;
   createdAt: string;
 }
 

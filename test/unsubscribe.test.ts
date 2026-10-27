@@ -1,35 +1,12 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import type { AddressInfo } from 'node:net';
-import { SMTPServer } from 'smtp-server';
 import { describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module.js';
-import { webhookReceiver } from './helpers.js';
-
-/** The customer's provider: records what it receives, with headers unfolded and quoted-printable joined. */
-async function fakeProvider() {
-  const received: Array<{ to: string[]; raw: string }> = [];
-  const server = new SMTPServer({
-    authOptional: true,
-    disabledCommands: ['STARTTLS', 'AUTH'],
-    logger: false,
-    onData(stream, session, callback) {
-      const chunks: Buffer[] = [];
-      stream.on('data', (c: Buffer) => chunks.push(c));
-      stream.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8').replace(/\r\n[ \t]+/g, ' ').replace(/=\r\n/g, '');
-        received.push({ to: session.envelope.rcptTo.map((r) => r.address), raw });
-        callback();
-      });
-    },
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { received, port: (server.server.address() as AddressInfo).port, close: () => new Promise<void>((r) => server.close(() => r())) };
-}
+import { smtpProvider, webhookReceiver } from './helpers.js';
 
 describe('unsubscribe links', () => {
   it('adds one-click List-Unsubscribe to live emails, fills {{unsubscribe_url}}, and unsubscribes from the hosted page', async () => {
-    const provider = await fakeProvider();
+    const provider = await smtpProvider();
     const hooks = await webhookReceiver();
     const app = await NestFactory.create(
       AppModule.forRoot({ httpPort: 0, host: '127.0.0.1', timeScale: 0, maxHangMs: 300, signup: true, secureCookies: false, secretsKey: 'unsub-test-key' }),

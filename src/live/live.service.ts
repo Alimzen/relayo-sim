@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   AuthenticationError,
   createRelayo,
@@ -21,7 +21,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { SendingDomain } from '../domain.js';
 import { CircuitBreaker } from './breaker.js';
 import type { ManagedSending } from './managed.js';
-import { UNSUBSCRIBE_TAG, type LinkSigner } from './links.js';
+import { addPixel, rewriteLinks, UNSUBSCRIBE_TAG, type LinkSigner } from './links.js';
 import { buildDriver, canSendSms, MANAGED_PROVIDER, PROVIDERS, PROVIDERS_BY_NAME, splitValues, type ProviderSpec } from './providers.js';
 import type { SecretBox } from './secrets.js';
 
@@ -645,20 +645,52 @@ export class LiveService {
   }
 
   /**
-   * The links of one email: `{{unsubscribe_url}}` filled, and `List-Unsubscribe` added when the project
-   * wants it. They name one recipient, so emails to several get neither (the tag is emptied).
+   * The links of one email: `{{unsubscribe_url}}` filled, `List-Unsubscribe` added, and opens and clicks
+   * tracked, as the project wants. They name one recipient, so emails to several get none of it (the tag
+   * is emptied).
    */
   private personalize(project: Project, stored: SimMessage, message: EmailMessage, recipient: string | undefined): EmailMessage {
-    const url = recipient && this.links ? this.links.unsubscribeUrl({ projectId: project.id, messageId: stored.id, recipient }) : undefined;
+    const links = this.links;
+    const target = recipient && links ? { projectId: project.id, messageId: stored.id, recipient } : undefined;
+    const url = target && links!.unsubscribeUrl(target);
     const fillIn = (text: string) => text.replace(UNSUBSCRIBE_TAG, url ?? '');
     const hasHeader = Object.keys(message.headers ?? {}).some((name) => name.toLowerCase() === 'list-unsubscribe');
     const header = url && project.options?.unsubscribeLinks && !hasHeader;
+    let html = message.html === undefined ? undefined : fillIn(message.html);
+    if (html !== undefined && target && links) {
+      // Relayo's own links (unsubscribe) are not clicks to count.
+      if (project.options?.trackClicks) html = rewriteLinks(html, (to) => links.clickUrl(target, to), (to) => to.startsWith(`${links.publicUrl}/`));
+      if (project.options?.trackOpens) html = addPixel(html, links.openUrl(target));
+    }
     return {
       ...message,
-      ...(message.html !== undefined && { html: fillIn(message.html) }),
+      ...(html !== undefined && { html }),
       ...(message.text !== undefined && { text: fillIn(message.text) }),
       ...(header && { headers: { ...message.headers, 'List-Unsubscribe': `<${url}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } }),
     };
+  }
+
+  /**
+   * An open (the pixel) or a click (a tracked link) of a live email: an `opened` or `clicked` event, once per
+   * recipient (and per link), to the webhooks. Returns where a click goes; undefined for a bad token.
+   */
+  async track(kind: 'open' | 'click', token: string, userAgent?: string): Promise<{ url?: string } | undefined> {
+    const target = this.links?.open(token);
+    if (!target) return undefined;
+    const url = target.extra.u;
+    if (kind === 'click' && !(url && /^https?:\/\//i.test(url))) return undefined;
+    const project = await this.store.getProject(target.projectId);
+    const stored = await this.store.findMessage(target.messageId);
+    // Without the project or the message (retention), the click still goes where it pointed.
+    if (project && stored && stored.projectId === project.id) {
+      const suffix = kind === 'open' ? 'opened' : `clicked:${createHash('sha256').update(url!).digest('hex').slice(0, 16)}`;
+      const event = this.event(stored, target.recipient, kind === 'open' ? 'opened' : 'clicked', suffix, kind === 'click' ? { url } : {}, {
+        source: 'tracking',
+        ...(userAgent && { userAgent: userAgent.slice(0, 300) }),
+      });
+      if (!(await this.store.getEvent(project.id, event.id))) await this.record(project, [event]);
+    }
+    return kind === 'click' ? { url: url! } : {};
   }
 
   /** Who an unsubscribe link is for, and whether they already left. Undefined for a bad link. */

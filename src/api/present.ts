@@ -11,6 +11,8 @@ export function publicProject(project: Project, role?: ProjectRole) {
     reportsSmtpUrl: project.reportsSmtpUrl ? maskSmtpUrl(project.reportsSmtpUrl) : null,
     managedAccess: project.managedAccess ?? null,
     unsubscribeLinks: project.options?.unsubscribeLinks ?? false,
+    trackOpens: project.options?.trackOpens ?? false,
+    trackClicks: project.options?.trackClicks ?? false,
     createdAt: project.createdAt,
   };
 }

@@ -13,6 +13,7 @@ import { AuthController, ProjectsController } from './api/account.controllers.js
 import { AdminGuard, PlatformAdminGuard, ProjectGuard, SessionGuard } from './api/auth.js';
 import { ActivityLog } from './api/activity.js';
 import { UnsubscribeController } from './api/unsubscribe.js';
+import { TrackingController } from './api/tracking.js';
 import { LinkSigner } from './live/links.js';
 import { BatchSends } from './api/batch.js';
 import {
@@ -185,6 +186,7 @@ export class AppModule {
         AdminController,
         ManagedReviewController,
         UnsubscribeController,
+        TrackingController,
         WebhookDeliveriesController,
         TemplatesController,
         ScheduledController,

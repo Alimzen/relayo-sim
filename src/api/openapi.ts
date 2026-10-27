@@ -450,6 +450,8 @@ const schemas = {
       reportsSmtpUrl: { type: ['string', 'null'], description: 'Sin contraseña.' },
       managedAccess: { type: ['string', 'null'], enum: ['requested', 'approved', 'denied', null] },
       unsubscribeLinks: { type: 'boolean', description: 'Correos reales con `List-Unsubscribe` en un clic hacia la página de baja de Relayo.' },
+      trackOpens: { type: 'boolean', description: 'Correos reales con píxel de apertura: eventos `opened`.' },
+      trackClicks: { type: 'boolean', description: 'Enlaces de los correos reales a través de Relayo: eventos `clicked`.' },
       createdAt: { type: 'string', format: 'date-time' },
     },
   },
@@ -931,6 +933,11 @@ const paths = {
             description:
               'Añade a los correos reales de un destinatario `List-Unsubscribe` y `List-Unsubscribe-Post` (RFC 8058) hacia una página de baja de Relayo. Quien se da de baja pasa a las supresiones y genera un evento `unsubscribed`. `{{unsubscribe_url}}` en el contenido se rellena siempre.',
           },
+          trackOpens: { type: 'boolean', description: 'Una imagen invisible en el HTML de los correos reales de un destinatario: un evento `opened` la primera vez que se carga.' },
+          trackClicks: {
+            type: 'boolean',
+            description: 'Los enlaces http(s) del HTML de los correos reales de un destinatario pasan por Relayo: un evento `clicked` (con `url`) por enlace, y la redirección al destino.',
+          },
         },
       }),
       responses: { 200: ok('Guardado.', ref('Project')), 400: badRequest },
@@ -1144,5 +1151,5 @@ export const UNDOCUMENTED = [
   'POST /v1/inbound/managed/:token',
   'GET /v1/admin/plans', 'PATCH /v1/admin/plans/:projectId',
   'GET /v1/project/webhook/endpoints/:id/secret', 'POST /v1/project/webhook/endpoints/:id/secret/rotate',
-  'GET /openapi.json', 'GET /u/:token', 'POST /u/:token',
+  'GET /openapi.json', 'GET /u/:token', 'POST /u/:token', 'GET /t/o/:token', 'GET /t/c/:token',
 ];

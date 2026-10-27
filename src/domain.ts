@@ -160,6 +160,10 @@ export interface ProjectOptions {
    * recipient. `{{unsubscribe_url}}` in the content works either way.
    */
   unsubscribeLinks?: boolean;
+  /** A pixel in the HTML of emails to one recipient: `opened` events. */
+  trackOpens?: boolean;
+  /** Links of the HTML through Relayo, in emails to one recipient: `clicked` events. */
+  trackClicks?: boolean;
 }
 
 export type ManagedAccess = 'requested' | 'approved' | 'denied';
