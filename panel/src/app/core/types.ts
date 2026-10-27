@@ -128,11 +128,16 @@ export interface Project {
 
 export type Mode = 'test' | 'live';
 
+export type KeyPermission = 'full' | 'send' | 'read';
+
 export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
   mode: Mode;
+  permission: KeyPermission;
+  /** Send keys: the sender domains they may use; null for any. */
+  allowedDomains: string[] | null;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;

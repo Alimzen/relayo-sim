@@ -189,7 +189,7 @@ export class MemoryStore implements SimStore {
   }
 
   async createApiKey(key: ApiKey): Promise<void> {
-    this.keys.set(key.id, { ...key });
+    this.keys.set(key.id, { permission: 'full', ...key });
   }
 
   async listApiKeys(projectId: string): Promise<ApiKey[]> {

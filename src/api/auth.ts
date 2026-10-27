@@ -13,7 +13,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AccountsService, SESSION_COOKIE } from '../accounts/accounts.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
-import type { Mode, Project, ProjectRole, User } from '../domain.js';
+import type { ApiKey, Mode, Project, ProjectRole, User } from '../domain.js';
 import { isAdminRole, TeamService } from '../accounts/team.js';
 import { SimulationService } from '../simulation/simulation.service.js';
 
@@ -44,6 +44,10 @@ export interface AuthedRequest {
 const SESSION_ONLY = 'relayo:session-only';
 /** Marks endpoints that API keys cannot use: managing keys and secrets needs a signed-in person. */
 export const SessionOnly = () => SetMetadata(SESSION_ONLY, true);
+
+const SENDS = 'relayo:sends';
+/** Marks the send endpoints: the only ones a send-only key may call. */
+export const Sends = () => SetMetadata(SENDS, true);
 
 const PROJECT_ADMIN = 'relayo:project-admin';
 /** Marks endpoints only the project's owner and admins can use from the panel (session-only ones too). */
@@ -121,6 +125,7 @@ export class ProjectGuard implements CanActivate {
       if (sessionOnly) throw new ForbiddenException('Sign in to the panel to manage keys and secrets');
       const found = await this.sim.authenticateKey(key);
       if (!found) throw new UnauthorizedException('Missing or invalid API key');
+      checkKeyPermission(found.key, req, this.reflector.getAllAndOverride<boolean>(SENDS, targets) ?? false);
       req.project = found.project;
       req.mode = found.mode;
       req.auth = 'key';
@@ -139,6 +144,28 @@ export class ProjectGuard implements CanActivate {
     req.mode = header(req, MODE_HEADER) === 'live' ? 'live' : 'test';
     req.auth = 'session';
     return true;
+  }
+}
+
+/**
+ * What a limited key may do: a send key only sends (from its allowed domains, if it has them), a read key
+ * only reads (GET). Full keys do everything an API key can.
+ */
+function checkKeyPermission(key: ApiKey, req: AuthedRequest & { body?: unknown }, sends: boolean): void {
+  const permission = key.permission ?? 'full';
+  if (permission === 'read' && req.method !== 'GET') throw new ForbiddenException('This key can only read: use a key with send or full permission');
+  if (permission === 'send') {
+    if (!sends) throw new ForbiddenException('This key can only send messages');
+    if (key.allowedDomains?.length) {
+      const from = (req.body as { from?: unknown } | undefined)?.from;
+      const address = typeof from === 'string' ? from : (from as { address?: unknown } | undefined)?.address;
+      // SMS have no sender domain: only emails are checked.
+      if (address !== undefined) {
+        const domain = String(address).split('@').pop()!.toLowerCase();
+        const allowed = key.allowedDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
+        if (!allowed) throw new ForbiddenException(`This key can only send from ${key.allowedDomains.join(', ')}`);
+      }
+    }
   }
 }
 

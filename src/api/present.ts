@@ -25,6 +25,8 @@ export function publicKey(key: ApiKey) {
     name: key.name,
     prefix: key.prefix,
     mode: key.mode,
+    permission: key.permission ?? 'full',
+    allowedDomains: key.allowedDomains ?? null,
     createdAt: key.createdAt,
     lastUsedAt: key.lastUsedAt ?? null,
     revokedAt: key.revokedAt ?? null,

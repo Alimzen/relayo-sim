@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { BounceEvent, ClickEvent, RejectEvent, RelayoEvent } from '@alimzen/relayo';
-import type { ApiKey, Project, SimEvent, SimMessage, SimRecipient, Mode } from '../domain.js';
+import type { ApiKey, KeyPermission, Project, SimEvent, SimMessage, SimRecipient, Mode } from '../domain.js';
 import { buildReport, reportRecipient } from '../reports/reports.js';
 import type { ReportSender } from '../reports/sender.js';
 import type { SmtpReply, TimelineStep } from '../scenarios/catalog.js';
@@ -124,7 +124,12 @@ export class SimulationService {
    * A new API key for a project, returned only here. `rly_test_...` keys simulate; `rly_live_...` keys deliver
    * through the project's connections. Keys from before live mode (`sim_live_...`) are test keys.
    */
-  async createApiKey(projectId: string, name: string, mode: Mode = 'test'): Promise<{ key: ApiKey; apiKey: string }> {
+  async createApiKey(
+    projectId: string,
+    name: string,
+    mode: Mode = 'test',
+    limits: { permission?: KeyPermission; allowedDomains?: string[] } = {},
+  ): Promise<{ key: ApiKey; apiKey: string }> {
     const apiKey = `rly_${mode}_${randomBytes(24).toString('base64url')}`;
     const key: ApiKey = {
       id: `key_${randomUUID()}`,
@@ -133,6 +138,8 @@ export class SimulationService {
       mode,
       prefix: apiKey.slice(0, 13),
       keyHash: hashKey(apiKey),
+      permission: limits.permission ?? 'full',
+      ...(limits.allowedDomains?.length && { allowedDomains: limits.allowedDomains }),
       createdAt: new Date(),
     };
     await this.store.createApiKey(key);
@@ -151,7 +158,7 @@ export class SimulationService {
   }
 
   /** The project of a key and the mode the key works in. */
-  async authenticateKey(apiKey: string): Promise<{ project: Project; mode: Mode } | undefined> {
+  async authenticateKey(apiKey: string): Promise<{ project: Project; mode: Mode; key: ApiKey } | undefined> {
     const found = await this.store.findProjectByApiKeyHash(hashKey(apiKey));
     if (!found) return undefined;
     // "Last used" is a hint, not an audit log: write it at most once a minute per key.
@@ -159,7 +166,7 @@ export class SimulationService {
     if (!found.key.lastUsedAt || now.getTime() - found.key.lastUsedAt.getTime() > 60_000) {
       void this.store.touchApiKey(found.key.id, now).catch(() => undefined);
     }
-    return { project: found.project, mode: found.key.mode };
+    return { project: found.project, mode: found.key.mode, key: found.key };
   }
 
   // --- Quotas -----------------------------------------------------------------------------------

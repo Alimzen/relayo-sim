@@ -112,6 +112,8 @@ export interface PasswordReset {
  */
 export type Mode = 'test' | 'live';
 
+export type KeyPermission = 'full' | 'send' | 'read';
+
 export interface ApiKey {
   id: string;
   projectId: string;
@@ -121,6 +123,10 @@ export interface ApiKey {
   prefix: string;
   /** SHA-256 of the key; the key itself is shown once, when it is created. */
   keyHash: string;
+  /** What the key may do: everything (default), only send, or only read. */
+  permission?: KeyPermission;
+  /** Send keys: the sender domains it may use (`empresa.com` and its subdomains). Absent: any. */
+  allowedDomains?: string[];
   createdAt: Date;
   lastUsedAt?: Date;
   revokedAt?: Date;

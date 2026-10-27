@@ -72,7 +72,10 @@ describe.each(stores)('%s store', (_, open) => {
 
     expect(await store.findProjectByApiKeyHash('hash_1')).toMatchObject({ project: { id: 'prj_1', name: 'Tests' }, key: { id: 'key_1' } });
     expect(await store.findProjectByApiKeyHash('nope')).toBeUndefined();
-    expect((await store.listApiKeys('prj_1')).map((k) => k.name)).toEqual(['Local', 'CI']);
+    await store.createApiKey({ ...key, id: 'key_3', name: 'Envíos', keyHash: 'hash_3', permission: 'send', allowedDomains: ['empresa.com'] });
+    expect((await store.findProjectByApiKeyHash('hash_3'))?.key).toMatchObject({ permission: 'send', allowedDomains: ['empresa.com'] });
+    expect((await store.findProjectByApiKeyHash('hash_1'))?.key.permission).toBe('full');
+    expect((await store.listApiKeys('prj_1')).map((k) => k.name)).toEqual(['Local', 'CI', 'Envíos']);
 
     await store.touchApiKey('key_1', new Date('2026-10-18T12:00:00Z'));
     expect(await store.revokeApiKey('prj_other', 'key_1')).toBe(false);

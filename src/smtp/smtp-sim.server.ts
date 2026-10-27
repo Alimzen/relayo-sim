@@ -29,6 +29,8 @@ interface SessionState {
   accepted: Array<{ address: string; outcome: ResolvedScenario }>;
   /** Live mode: every recipient is accepted, the provider decides. */
   liveRecipients: string[];
+  /** A send key limited to these sender domains. */
+  allowedDomains?: string[];
 }
 
 const MESSAGE_ID_HEADER = 'x-relayo-message-id';
@@ -60,7 +62,16 @@ export class SmtpSimServer {
           (found) => {
             if (!found) return callback(smtpError(535, '5.7.8', 'Invalid API key'));
             if (found.mode === 'live' && !this.options.live) return callback(smtpError(535, '5.7.8', 'Live keys are not available over SMTP here'));
-            this.sessions.set(session.id, { project: found.project, mode: found.mode, from: '', accepted: [], liveRecipients: [] });
+            // SMTP only sends: read-only keys cannot sign in.
+            if (found.key.permission === 'read') return callback(smtpError(535, '5.7.8', 'This key can only read'));
+            this.sessions.set(session.id, {
+              project: found.project,
+              mode: found.mode,
+              from: '',
+              accepted: [],
+              liveRecipients: [],
+              ...(found.key.allowedDomains?.length && { allowedDomains: found.key.allowedDomains }),
+            });
             callback(null, { user: found.project.id });
           },
           (error: Error) => callback(error),
@@ -70,6 +81,12 @@ export class SmtpSimServer {
       onMailFrom: (address, session, callback) => {
         const state = this.sessions.get(session.id);
         if (!state) return callback(smtpError(530, '5.7.0', 'Authentication required'));
+        if (state.allowedDomains) {
+          const domain = address.address.split('@').pop()!.toLowerCase();
+          if (!state.allowedDomains.some((d) => domain === d || domain.endsWith(`.${d}`))) {
+            return callback(smtpError(550, '5.7.1', `This key can only send from ${state.allowedDomains.join(', ')}`));
+          }
+        }
         // Each transaction is one message against the project's plan.
         void this.sim.reserve(state.project, state.mode).then(
           () => {

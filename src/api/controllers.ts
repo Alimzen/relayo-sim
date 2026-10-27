@@ -32,7 +32,7 @@ import { SMS_SCENARIOS } from '../scenarios/sms.js';
 import { SimulationService } from '../simulation/simulation.service.js';
 import { SIM_CONFIG, type SimConfig } from '../config.js';
 import { SIM_STORE, type ProjectChanges, type SimStore } from '../store/store.js';
-import { AdminGuard, CurrentMode, CurrentProject, CurrentRole, CurrentUser, PlatformAdminGuard, ProjectAdmin, ProjectGuard, SessionGuard, SessionOnly } from './auth.js';
+import { AdminGuard, CurrentMode, CurrentProject, CurrentRole, CurrentUser, PlatformAdminGuard, ProjectAdmin, ProjectGuard, Sends, SessionGuard, SessionOnly } from './auth.js';
 import { TeamError, TeamService } from '../accounts/team.js';
 import { LiveService } from '../live/live.service.js';
 import { INFRASTRUCTURE, type Infrastructure } from '../infrastructure.js';
@@ -70,6 +70,7 @@ export class SmsController {
 
   /** Like a provider's SMS API: always accepted (202); each number plays its scenario as events. */
   @Post()
+  @Sends()
   @HttpCode(202)
   @UseInterceptors(IdempotencyInterceptor)
   async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendSmsBody) {
@@ -90,6 +91,7 @@ export class MessagesController {
 
   /** Test keys: the simulator plays the scenario. Live keys: real delivery through the project's connections. */
   @Post()
+  @Sends()
   @HttpCode(202)
   @UseInterceptors(IdempotencyInterceptor)
   async send(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Body() body: SendBody) {
@@ -248,12 +250,22 @@ export class ProjectController {
   /** A new API key. The key itself is only in this response. */
   @Post('keys')
   @SessionOnly()
-  async createKey(@CurrentProject() project: Project, @Body() body: { name?: unknown; mode?: unknown }) {
+  async createKey(
+    @CurrentProject() project: Project,
+    @Body() body: { name?: unknown; mode?: unknown; permission?: unknown; allowedDomains?: unknown },
+  ) {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     if (!name || name.length > 60) throw new BadRequestException('El nombre de la clave debe tener entre 1 y 60 caracteres.');
     if (body.mode !== undefined && body.mode !== 'test' && body.mode !== 'live') throw new BadRequestException('"mode" must be test or live');
+    const permission = body.permission ?? 'full';
+    if (permission !== 'full' && permission !== 'send' && permission !== 'read') throw new BadRequestException('"permission" must be full, send or read');
+    const allowedDomains = keyDomains(body.allowedDomains);
+    if (allowedDomains.length && permission !== 'send') throw new BadRequestException('Solo las claves de envío se limitan a dominios.');
     if (body.mode === 'live') await liveCall(() => this.live.assertCanGoLive(project));
-    const { key, apiKey } = await this.sim.createApiKey(project.id, name, body.mode === 'live' ? 'live' : 'test');
+    const { key, apiKey } = await this.sim.createApiKey(project.id, name, body.mode === 'live' ? 'live' : 'test', {
+      permission,
+      ...(allowedDomains.length && { allowedDomains }),
+    });
     return { ...publicKey(key), apiKey };
   }
 
@@ -275,6 +287,18 @@ export class ProjectController {
   async rotateWebhookSecret(@CurrentProject() project: Project) {
     return { webhookSecret: await this.sim.rotateWebhookSecret(project.id) };
   }
+}
+
+/** Sender domains for a send key: lowercased, valid, at most 20. */
+function keyDomains(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  const list = Array.isArray(value) ? value : String(value).split(/[\s,]+/);
+  const domains = [...new Set(list.map((d) => String(d).trim().toLowerCase().replace(/^@/, '')).filter(Boolean))];
+  const valid = /^(?=.{3,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+  const bad = domains.find((d) => !valid.test(d));
+  if (bad) throw new BadRequestException(`«${bad}» no es un dominio válido.`);
+  if (domains.length > 20) throw new BadRequestException('Una clave puede limitarse a 20 dominios como mucho.');
+  return domains;
 }
 
 /** `undefined`: leave as is; `null`: clear; otherwise a validated url. */

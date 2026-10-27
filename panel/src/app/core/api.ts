@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -93,7 +93,8 @@ export class Api {
   usage = () => this.call<ProjectUsage>('GET', '/v1/project/usage');
   stats = (days: number) => this.call<ProjectStats>('GET', `/v1/project/stats?days=${days}`);
   keys = () => this.call<{ data: ApiKey[] }>('GET', '/v1/project/keys').then((r) => r.data);
-  createKey = (name: string, mode: 'test' | 'live') => this.call<ApiKey & { apiKey: string }>('POST', '/v1/project/keys', { name, mode });
+  createKey = (body: { name: string; mode: 'test' | 'live'; permission: KeyPermission; allowedDomains?: string }) =>
+    this.call<ApiKey & { apiKey: string }>('POST', '/v1/project/keys', body);
 
   // Live delivery
   providers = () => this.call<{ data: Provider[] }>('GET', '/v1/project/providers').then((r) => r.data);

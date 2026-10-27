@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 CREATE INDEX IF NOT EXISTS api_keys_project ON api_keys (project_id);
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'test';
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS permission text NOT NULL DEFAULT 'full';
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS allowed_domains jsonb;
 -- Keys created before api_keys existed lived on the project row.
 INSERT INTO api_keys (id, project_id, name, prefix, key_hash, created_at)
   SELECT 'key_' || md5(p.api_key_hash), p.id, 'Default', 'sim_live_', p.api_key_hash, p.created_at
@@ -250,6 +252,8 @@ interface KeyRow {
   last_used_at: Date | null;
   revoked_at: Date | null;
   mode: Mode;
+  permission?: KeyPermission;
+  allowed_domains?: string[] | null;
 }
 
 interface ConnectionRow {
@@ -493,8 +497,8 @@ export class PostgresStore implements SimStore {
 
   async createApiKey(k: ApiKey): Promise<void> {
     await this.pool.query(
-      'INSERT INTO api_keys (id, project_id, name, prefix, key_hash, created_at, mode) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [k.id, k.projectId, k.name, k.prefix, k.keyHash, k.createdAt, k.mode],
+      'INSERT INTO api_keys (id, project_id, name, prefix, key_hash, created_at, mode, permission, allowed_domains) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      [k.id, k.projectId, k.name, k.prefix, k.keyHash, k.createdAt, k.mode, k.permission ?? 'full', k.allowedDomains ? JSON.stringify(k.allowedDomains) : null],
     );
   }
 
@@ -1271,6 +1275,8 @@ function toKey(row: KeyRow): ApiKey {
     prefix: row.prefix,
     keyHash: row.key_hash,
     mode: row.mode === 'live' ? 'live' : 'test',
+    permission: row.permission ?? 'full',
+    ...(row.allowed_domains && { allowedDomains: row.allowed_domains }),
     createdAt: new Date(row.created_at),
     ...(row.last_used_at && { lastUsedAt: new Date(row.last_used_at) }),
     ...(row.revoked_at && { revokedAt: new Date(row.revoked_at) }),

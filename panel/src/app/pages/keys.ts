@@ -4,7 +4,7 @@ import { LucideKeyRound, LucidePlus, LucideTrash, LucideTriangleAlert } from '@l
 import { Api } from '../core/api';
 import { Session } from '../core/session';
 import { fullDate, timeAgo } from '../core/format';
-import type { ApiKey } from '../core/types';
+import type { ApiKey, KeyPermission } from '../core/types';
 import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
 
 @Component({
@@ -46,6 +46,12 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
                     <td class="cell-main">
                       {{ key.name }}
                       <app-badge [tone]="key.mode === 'live' ? 'good' : 'neutral'">{{ key.mode === 'live' ? 'En vivo' : 'Prueba' }}</app-badge>
+                      @if (key.permission !== 'full') {
+                        <span class="chip">{{ key.permission === 'send' ? 'Solo envío' : 'Solo lectura' }}</span>
+                      }
+                      @if (key.allowedDomains) {
+                        <div class="muted small">Desde {{ key.allowedDomains.join(', ') }}</div>
+                      }
                     </td>
                     <td>
                       <code>{{ key.prefix }}…</code>
@@ -100,6 +106,22 @@ import { Badge, CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
               {{ mode === 'test' ? 'rly_test_…: simula los envíos con los escenarios; no se entrega nada.' : 'rly_live_…: entrega de verdad por tus conexiones.' }}
             </span>
           </div>
+          <div class="field">
+            <label for="key-permission">Permisos</label>
+            <select id="key-permission" class="select" name="permission" [(ngModel)]="permission">
+              <option value="full">Completos: enviar, consultar y configurar</option>
+              <option value="send">Solo enviar</option>
+              <option value="read">Solo consultar</option>
+            </select>
+            <span class="hint">Si una clave limitada se filtra, el daño también lo está.</span>
+          </div>
+          @if (permission === 'send') {
+            <div class="field">
+              <label for="key-domains">Dominios del remitente <span class="muted">(opcional)</span></label>
+              <input id="key-domains" class="input" name="domains" [(ngModel)]="domains" placeholder="empresa.com, tienda.es" />
+              <span class="hint">Solo podrá enviar desde estos dominios (y sus subdominios). Vacío: desde cualquiera.</span>
+            </div>
+          }
           <div class="modal-actions">
             <button type="button" class="btn" (click)="closeCreate()">Cancelar</button>
             <button type="submit" class="btn btn-primary" [disabled]="busy() || !name.trim()">Crear clave</button>
@@ -134,6 +156,8 @@ export class KeysPage {
   protected readonly ago = (value: string) => timeAgo(value);
   protected name = '';
   protected mode: 'test' | 'live' = 'test';
+  protected permission: KeyPermission = 'full';
+  protected domains = '';
 
   constructor() {
     void this.load();
@@ -142,6 +166,8 @@ export class KeysPage {
   protected openCreate(): void {
     this.name = '';
     this.mode = this.session.mode();
+    this.permission = 'full';
+    this.domains = '';
     this.created.set(null);
     this.creating.set(true);
   }
@@ -157,7 +183,12 @@ export class KeysPage {
 
   protected async create(): Promise<void> {
     await this.run(async () => {
-      const { apiKey } = await this.api.createKey(this.name.trim(), this.mode);
+      const { apiKey } = await this.api.createKey({
+        name: this.name.trim(),
+        mode: this.mode,
+        permission: this.permission,
+        ...(this.permission === 'send' && this.domains.trim() && { allowedDomains: this.domains.trim() }),
+      });
       this.created.set(apiKey);
       await this.load();
     });
