@@ -26,6 +26,8 @@ export interface SimConfig {
   limits?: { monthlyMessages: number; messagesPerMinute: number; liveMonthlyMessages?: number };
   /** Public address of the panel, for links in emails (password reset). */
   publicUrl?: string;
+  /** Where the sign-up form links to the terms of service and the privacy policy. Without them, no links. */
+  legal?: { termsUrl?: string; privacyUrl?: string };
   /** How the simulator sends its own email (password reset). Without it, links are logged instead. */
   mail?: { url: string; from: string };
   /**
@@ -78,9 +80,13 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SimConfig {
     publicUrl: (env.PUBLIC_URL ?? `http://localhost:${number(env.PORT, 3000)}`).replace(/\/+$/, ''),
   };
   if (env.SECRETS_KEY) config.secretsKey = env.SECRETS_KEY;
+  // Development only, and never over a key that was given.
+  else if (env.NODE_ENV !== 'production') config.secretsKey = 'relayo-development-only-insecure-key';
   const previous = (env.SECRETS_KEY_PREVIOUS ?? '').split(',').map((k) => k.trim()).filter(Boolean);
   if (previous.length) config.previousSecretsKeys = previous;
-  else if (env.NODE_ENV !== 'production') config.secretsKey = 'relayo-development-only-insecure-key';
+  if (env.TERMS_URL || env.PRIVACY_URL) {
+    config.legal = { ...(env.TERMS_URL && { termsUrl: env.TERMS_URL }), ...(env.PRIVACY_URL && { privacyUrl: env.PRIVACY_URL }) };
+  }
   if (env.MANAGED_SMTP_URL) {
     config.managed = {
       smtpUrl: smtpUrl('MANAGED_SMTP_URL', env.MANAGED_SMTP_URL),

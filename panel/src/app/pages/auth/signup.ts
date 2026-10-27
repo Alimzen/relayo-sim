@@ -50,10 +50,20 @@ import { safeNext } from './login';
             <span class="hint">Al menos {{ minPassword() }} caracteres.</span>
           </div>
 
-          <p class="hint">
-            Al crear la cuenta aceptas los <a href="/terminos" target="_blank" rel="noopener">términos</a> y la
-            <a href="/privacidad" target="_blank" rel="noopener">política de privacidad</a>.
-          </p>
+          @if (legal(); as l) {
+            <p class="hint">
+              Al crear la cuenta aceptas
+              @if (l.termsUrl) {
+                los <a [href]="l.termsUrl" target="_blank" rel="noopener">términos</a>
+              }
+              @if (l.termsUrl && l.privacyUrl) {
+                y
+              }
+              @if (l.privacyUrl) {
+                la <a [href]="l.privacyUrl" target="_blank" rel="noopener">política de privacidad</a>
+              }.
+            </p>
+          }
 
           <button class="btn btn-primary btn-block" type="submit" [disabled]="busy()">
             {{ busy() ? 'Creando cuenta…' : 'Crear cuenta' }}
@@ -79,12 +89,15 @@ export class SignupPage implements OnInit {
   protected readonly error = signal('');
   protected readonly closed = signal(false);
   protected readonly minPassword = signal(10);
+  /** The installation's legal pages, when it has them. */
+  protected readonly legal = signal<{ termsUrl: string | null; privacyUrl: string | null } | null>(null);
 
   constructor() {
     this.api.authConfig().then(
       (c) => {
         this.closed.set(!c.signup);
         this.minPassword.set(c.minPassword);
+        if (c.termsUrl || c.privacyUrl) this.legal.set({ termsUrl: c.termsUrl, privacyUrl: c.privacyUrl });
       },
       () => undefined,
     );

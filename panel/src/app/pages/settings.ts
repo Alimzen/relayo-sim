@@ -56,7 +56,7 @@ import { EmailOptions } from './email-options';
             <header class="card-head">
               <div>
                 <h2>Uso del plan</h2>
-                <p class="muted small">Gratis durante la beta.</p>
+                <p class="muted small">Este mes, frente a los límites del proyecto.</p>
               </div>
             </header>
             <div class="card-body">

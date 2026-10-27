@@ -13,4 +13,16 @@ describe('config', () => {
     expect(() => configFromEnv({ MAIL_URL: 'smtp.gmail.com:587' })).toThrow(/%40/);
     expect(() => configFromEnv({ MANAGED_SMTP_URL: 'https://example.com' })).toThrow(/MANAGED_SMTP_URL/);
   });
+
+  it('keeps a given SECRETS_KEY, and only falls back to the development key without one', () => {
+    expect(configFromEnv({ SECRETS_KEY: 'mine' }).secretsKey).toBe('mine');
+    expect(configFromEnv({ SECRETS_KEY: 'mine', SECRETS_KEY_PREVIOUS: 'old' })).toMatchObject({ secretsKey: 'mine', previousSecretsKeys: ['old'] });
+    expect(configFromEnv({}).secretsKey).toBe('relayo-development-only-insecure-key');
+    expect(configFromEnv({ NODE_ENV: 'production' }).secretsKey).toBeUndefined();
+  });
+
+  it('links the legal pages only when they are given', () => {
+    expect(configFromEnv({}).legal).toBeUndefined();
+    expect(configFromEnv({ TERMS_URL: 'https://x.com/terms' }).legal).toEqual({ termsUrl: 'https://x.com/terms' });
+  });
 });

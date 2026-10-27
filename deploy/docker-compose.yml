@@ -18,6 +18,8 @@ services:
       RETENTION_DAYS: ${RETENTION_DAYS:-7}
       MAIL_URL: ${MAIL_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      TERMS_URL: ${TERMS_URL:-}
+      PRIVACY_URL: ${PRIVACY_URL:-}
       SECRETS_KEY: ${SECRETS_KEY:-}
       SECRETS_KEY_PREVIOUS: ${SECRETS_KEY_PREVIOUS:-}
       MANAGED_SMTP_URL: ${MANAGED_SMTP_URL:-}
@@ -37,6 +39,8 @@ services:
       - "2525:2525"
     volumes:
       - certs:/certs:ro
+      # Your own website at / (index.html, other pages, assets under /site/): see site/README.md.
+      # - ./site:/app/site:ro
 
   # Caddy keeps its keys readable by root only; the simulator runs as an unprivileged user. This copies the
   # certificate, when it changes, to a volume the simulator can read.

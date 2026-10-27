@@ -1,4 +1,4 @@
-# Relayo Sim: API, SMTP, panel and landing page in one image.
+# Relayo Sim: API, SMTP and panel in one image (and the website in site/, when the build has one).
 #   docker build -t relayo-sim .
 FROM node:22-slim AS base
 RUN corepack enable
@@ -32,7 +32,9 @@ COPY package.json ./
 COPY --from=server /app/node_modules ./node_modules
 COPY --from=server /app/dist ./dist
 COPY --from=panel /app/panel/dist/panel/browser ./panel/dist/panel/browser
-COPY landing ./landing
+COPY public ./public
+# Empty in this repository (only its README); an installation may put its own website there before building.
+COPY site ./site
 USER node
 EXPOSE 3000 2525
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

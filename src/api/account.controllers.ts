@@ -71,7 +71,12 @@ export class AuthController {
   /** What the sign-in page needs to know before anyone is signed in. */
   @Get('config')
   config_() {
-    return { signup: this.accounts.signupOpen, minPassword: MIN_PASSWORD };
+    return {
+      signup: this.accounts.signupOpen,
+      minPassword: MIN_PASSWORD,
+      termsUrl: this.config.legal?.termsUrl ?? null,
+      privacyUrl: this.config.legal?.privacyUrl ?? null,
+    };
   }
 
   @Post('signup')

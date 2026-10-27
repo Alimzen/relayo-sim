@@ -59,8 +59,8 @@ jobs:
   deploy:
     name: Build & deploy
     needs: test
-    # Only main deploys; pull requests stop after the tests.
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Only main of this repository deploys (forks and pull requests stop after the tests).
+    if: github.repository == 'Alimzen/relayo-sim' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -76,6 +76,20 @@ jobs:
       IMAGE: ghcr.io/alimzen/relayo-sim
     steps:
       - uses: actions/checkout@v4
+
+      # relayo.alimzen.com's website (landing, terms, privacy) lives in a private repository: it goes into
+      # site/ for the image. Without the token the image has no website and / is the panel.
+      - name: Website
+        env:
+          SITE_REPO_TOKEN: ${{ secrets.SITE_REPO_TOKEN }}
+        run: |
+          if [ -z "$SITE_REPO_TOKEN" ]; then
+            echo "::warning title=Website::SITE_REPO_TOKEN is not set: deploying without the website."
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:${SITE_REPO_TOKEN}@github.com/Alimzen/relayo-site.git" /tmp/site
+          rm -rf /tmp/site/.git
+          cp -r /tmp/site/. site/
 
       - uses: docker/setup-buildx-action@v3
 

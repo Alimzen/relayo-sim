@@ -1,5 +1,6 @@
 {
   "name": "relayo-sim",
+  "license": "AGPL-3.0-only",
   "version": "0.0.0",
   "private": true,
   "description": "Relayo Sim: a delivery scenario simulator for email. Send to it and it answers like the real world.",

@@ -71,16 +71,26 @@ async function bootstrap(): Promise<void> {
 
   // --- Landing and panel --------------------------------------------------------------------------
 
-  // The landing page (landing/) is served at / exactly, with the legal pages and its assets under /site/.
-  const landingDir = process.env.LANDING_DIR ?? join(process.cwd(), 'landing');
-  const landingPages: Record<string, string> = { '/': 'index.html', '/docs': 'docs.html', '/terminos': 'terminos.html', '/privacidad': 'privacidad.html' };
-  if (existsSync(join(landingDir, 'index.html'))) {
-    app.useStaticAssets(landingDir, { prefix: '/site/', index: false, maxAge: '1d' });
+  // The API reference (public/docs.html), part of the platform.
+  const publicDir = join(process.cwd(), 'public');
+  app.use('/docs', (req: Request, res: Response, next: NextFunction) => {
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || (req.path !== '/' && req.path !== '')) return next();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(join(publicDir, 'docs.html'));
+  });
+
+  // An installation's own website (SITE_DIR, ./site by default; not in this repository): its index.html at /,
+  // each other page.html at /page, and its assets under /site/. Without one, / is the panel.
+  const siteDir = process.env.SITE_DIR ?? process.env.LANDING_DIR ?? join(process.cwd(), 'site');
+  if (existsSync(join(siteDir, 'index.html'))) {
+    app.useStaticAssets(siteDir, { prefix: '/site/', index: false, maxAge: '1d' });
     app.use((req: Request, res: Response, next: NextFunction) => {
-      const page = landingPages[req.path];
-      if ((req.method !== 'GET' && req.method !== 'HEAD') || !page || !existsSync(join(landingDir, page))) return next();
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      const name = req.path === '/' ? 'index' : /^\/[a-z0-9-]+$/i.test(req.path) ? req.path.slice(1) : undefined;
+      const page = name && join(siteDir, `${name}.html`);
+      if (!page || !existsSync(page)) return next();
       res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(join(landingDir, page));
+      res.sendFile(page);
     });
   }
 

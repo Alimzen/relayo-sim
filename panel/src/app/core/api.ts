@@ -54,7 +54,8 @@ export class Api {
   private readonly http = inject(HttpClient);
 
   // Auth
-  authConfig = () => this.call<{ signup: boolean; minPassword: number }>('GET', '/v1/auth/config');
+  authConfig = () =>
+    this.call<{ signup: boolean; minPassword: number; termsUrl: string | null; privacyUrl: string | null }>('GET', '/v1/auth/config');
   me = () => this.call<{ user: User; projects: Project[] }>('GET', '/v1/auth/me');
   /** With two-factor on, answers a ticket for `loginWithCode` instead of the session. */
   login = (email: string, password: string) =>

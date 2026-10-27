@@ -1,10 +1,22 @@
 # Relayo Sim
 
-Simulador de escenarios de entrega de correo (producto de pago de Relayo). La app envía al simulador —por
-SMTP o por la API HTTP— y este responde como el mundo real: rebotes, greylisting, bloqueos, buzón lleno,
-quejas, retrasos… y emite los eventos correspondientes como webhooks firmados con el formato de Relayo.
+Plataforma open source para probar y enviar correo y SMS:
 
-Repositorio privado. La librería y el driver `@alimzen/relayo-simulator` son open source: https://github.com/Alimzen/relayo
+- **Simulador** (modo de prueba): la app envía —por SMTP o por la API HTTP— y responde como el mundo real: rebotes,
+  greylisting, bloqueos, buzón lleno, quejas, retrasos… con los eventos como webhooks firmados con el formato de Relayo.
+- **Proveedor** (modo en vivo): entrega de verdad por las cuentas de proveedor de cada proyecto (SES, SendGrid, Resend,
+  Postmark, Mailgun, SMTP, Twilio) con failover, supresiones, enlaces de baja, seguimiento de aperturas y clics,
+  recepción de respuestas y entregabilidad por dominio, plantilla y etiqueta.
+- **Panel** para equipos: proyectos, claves con permisos, plantillas, webhooks con varios endpoints, registro de
+  actividad y auditoría, verificación en dos pasos.
+
+Se puede usar alojado en [relayo.alimzen.com](https://relayo.alimzen.com) o instalar en un servidor propio (ver
+[Despliegue](#despliegue)). La librería y los drivers (`@alimzen/relayo`, `@alimzen/relayo-cloud`,
+`@alimzen/relayo-simulator`…) están en [Alimzen/relayo](https://github.com/Alimzen/relayo).
+
+Licencia: [GNU AGPL-3.0](LICENSE). Puedes usarla, modificarla y alojarla; si ofreces a otros una versión modificada
+como servicio, tienes que publicar tus cambios con la misma licencia. Para contribuir, [CONTRIBUTING.md](CONTRIBUTING.md);
+para avisar de un fallo de seguridad, [SECURITY.md](SECURITY.md).
 
 ## Arquitectura
 
@@ -166,8 +178,8 @@ pnpm start          # http://localhost:4200, con proxy de /v1 a :3000
 pnpm build          # el servidor sirve panel/dist (PANEL_DIR para otra ruta)
 ```
 
-La landing (`landing/index.html`, HTML estático) se sirve en `/` exactamente, con sus recursos en `/site/`
-(`LANDING_DIR` para otra ruta); el panel atiende el resto de rutas (`/login`, `/overview`…).
+La referencia de la API (`public/docs.html`) se sirve en `/docs`. La plataforma no trae sitio web: `/` abre el panel.
+Una instalación puede poner el suyo en `site/` (o `SITE_DIR`): ver [site/README.md](site/README.md).
 
 Angular 22 pide Node ≥ 22.22; se usa la 21 porque el entorno tiene Node 22.17. Subir de versión al actualizar Node.
 
@@ -198,9 +210,11 @@ ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim 
 | `MONTHLY_MESSAGE_LIMIT` / `MESSAGES_PER_MINUTE` | 0 / 0 | Límites por proyecto (`0` = sin límite). Al pasarlos: HTTP 429; SMTP 452 (mes) o 421 (ritmo) |
 | `LIVE_MONTHLY_MESSAGE_LIMIT` | 0 | Envíos reales por proyecto y mes, contados aparte de los simulados (`0` = sin límite) |
 | `ADMIN_EMAILS` | — | Emails (separados por comas) de quienes revisan el envío de Relayo en el panel; deben estar confirmados |
-| `PUBLIC_URL` | `http://localhost:PORT` | Dirección pública, para el enlace del correo de recuperación de contraseña |
+| `PUBLIC_URL` | `http://localhost:PORT` | Dirección pública: enlaces de los correos (recuperar contraseña, bajas, seguimiento) y URLs de entrada |
+| `TERMS_URL` / `PRIVACY_URL` | — | Términos y política de privacidad, enlazados en el registro. Sin ellos, el registro no muestra enlaces |
+| `SITE_DIR` | `./site` | Sitio web propio servido en `/` (ver `site/README.md`) |
 | `MAIL_URL` / `MAIL_FROM` | — | SMTP para los correos de la plataforma (confirmar email, recuperar contraseña, respuestas a solicitudes). Sin él, los enlaces salen en el log y no se pide confirmar el email |
-| `SECRETS_KEY` | — | Clave para cifrar las credenciales de las conexiones. Sin ella no se pueden crear (en desarrollo, una clave fija) |
+| `SECRETS_KEY` | — | Clave para cifrar las credenciales de las conexiones y firmar los enlaces de baja y de seguimiento. Obligatoria en producción (sin ella no hay modo en vivo); en desarrollo, una clave fija |
 | `SECRETS_KEY_PREVIOUS` | — | Para cambiar `SECRETS_KEY`: la clave anterior (o varias, separadas por comas). Al arrancar se vuelve a cifrar todo con la nueva y el log dice cuándo se puede quitar |
 | `MANAGED_SMTP_URL` | — | Relay del envío de Relayo (p. ej. SMTP de Amazon SES). Sin él, la opción no aparece |
 | `MANAGED_SPF_INCLUDE` / `MANAGED_DAILY_LIMIT` | — / 200 | `include:` del SPF que se pide publicar, y envíos al día por proyecto |
@@ -210,7 +224,7 @@ ADMIN_TOKEN=dev DATABASE_URL=postgres://relayo:relayo@localhost:5433/relayo_sim 
 
 ## Despliegue
 
-Una imagen (`Dockerfile`) con API, SMTP, panel y landing. `deploy/` trae lo necesario para un servidor propio
+Una imagen (`Dockerfile`) con API, SMTP y panel. `deploy/` trae lo necesario para un servidor propio
 (cualquier VPS con Docker):
 
 - **Caddy** delante: HTTPS con Let's Encrypt, obtenido y renovado solo.
@@ -220,40 +234,41 @@ Una imagen (`Dockerfile`) con API, SMTP, panel y landing. `deploy/` trae lo nece
 - **PostgreSQL y Redis** con volúmenes persistentes.
 - **Copia diaria** de la base de datos (03:00 UTC) en `deploy/backups/`, con las 14 últimas.
 
-Producción: **relayo.alimzen.com**.
+Con un dominio propio (en el ejemplo, `relayo.example.com`):
 
-1. **DNS**: registro `A` de `relayo.alimzen.com` a la IP del servidor (y `AAAA` si tiene IPv6).
+1. **DNS**: registro `A` del dominio a la IP del servidor (y `AAAA` si tiene IPv6).
 2. **Cortafuegos**: abrir 80 y 443 (web y certificado) y 587 y 2525 (SMTP del simulador).
-3. **Correo del simulador** (recuperar contraseña): credenciales SMTP de un proveedor (SES, Resend, Postmark,
-   Brevo…) con el dominio del remitente verificado (SPF y DKIM de `alimzen.com`).
+3. **Correo de la plataforma** (confirmar cuentas, recuperar contraseña, avisos): credenciales SMTP de un proveedor
+   (SES, Resend, Postmark, Brevo…) con el dominio del remitente verificado (SPF y DKIM).
 4. En el servidor (Docker y el plugin compose instalados):
 
 ```sh
 git clone https://github.com/Alimzen/relayo-sim.git && cd relayo-sim/deploy
-cp .env.example .env            # rellenar: POSTGRES_PASSWORD, ADMIN_TOKEN, MAIL_URL, MAIL_FROM
+cp .env.example .env            # rellenar: SIM_DOMAIN, POSTGRES_PASSWORD, SECRETS_KEY, MAIL_URL, MAIL_FROM
 docker compose up -d --build
 docker compose logs -f sim      # la primera vez reinicia hasta que Caddy tiene el certificado (1–2 min)
 ```
 
-5. Comprobar: `https://relayo.alimzen.com` (landing), crear cuenta, "¿La olvidaste?" (debe llegar el correo), y un
-   envío por SMTP con STARTTLS a `relayo.alimzen.com:587`.
+5. Comprobar: `https://relayo.example.com` (el panel), crear cuenta, "¿La olvidaste?" (debe llegar el correo), y un
+   envío por SMTP con STARTTLS a `relayo.example.com:587`. Para administrar la plataforma (planes, revisión del envío
+   propio), pon tu email en `ADMIN_EMAILS`.
 
 ### Con Dokploy (CI/CD)
 
-`.github/workflows/ci-cd.yml`: en cada push y pull request ejecuta los tests (servidor contra PostgreSQL y Redis
-reales, y panel). En `main`, si pasan, construye la imagen, la sube a `ghcr.io/alimzen/relayo-sim` (`latest` y
-`sha-<commit>`), avisa a Dokploy (secreto `DOKPLOY_DEPLOY_URL`) y espera a que `https://relayo.alimzen.com/health`
-devuelva el commit nuevo.
+Así se despliega relayo.alimzen.com; sirve de ejemplo para otra instalación. `.github/workflows/ci-cd.yml`: en cada
+push y pull request ejecuta los tests (servidor contra PostgreSQL y Redis reales, y panel). En `main` de
+`Alimzen/relayo-sim` (nunca en un fork), si pasan, copia el sitio web de su repositorio privado en `site/` (secreto
+`SITE_REPO_TOKEN`), construye la imagen, la sube a `ghcr.io/alimzen/relayo-sim` (`latest` y `sha-<commit>`), avisa a
+Dokploy (secreto `DOKPLOY_DEPLOY_URL`) y espera a que `/health` devuelva el commit nuevo.
 
 En Dokploy la aplicación usa la imagen `ghcr.io/alimzen/relayo-sim:latest` (con credenciales del registro si el
 paquete es privado), Traefik pone el HTTPS y hay que configurar:
 
-- Variables: `DATABASE_URL`, `REDIS_URL`, `PUBLIC_URL=https://relayo.alimzen.com`, `TRUST_PROXY=1`, `ADMIN_TOKEN`,
-  `MONTHLY_MESSAGE_LIMIT`, `MESSAGES_PER_MINUTE`, `LIVE_MONTHLY_MESSAGE_LIMIT`, `RETENTION_DAYS`, `MAIL_URL`, `MAIL_FROM`,
-  `SECRETS_KEY`, `ADMIN_EMAILS` y, para el envío de Relayo, `MANAGED_*` (ver `deploy/.env.example`).
-- Un monitor de disponibilidad (UptimeRobot, Better Stack…) sobre `https://relayo.alimzen.com/health`: avisa si
-  cae la web, PostgreSQL o Redis.
-- Dominio `relayo.alimzen.com` al puerto 3000 del contenedor.
+- Variables: `DATABASE_URL`, `REDIS_URL`, `PUBLIC_URL`, `TRUST_PROXY=1`, `ADMIN_TOKEN`, `MONTHLY_MESSAGE_LIMIT`,
+  `MESSAGES_PER_MINUTE`, `LIVE_MONTHLY_MESSAGE_LIMIT`, `RETENTION_DAYS`, `MAIL_URL`, `MAIL_FROM`, `SECRETS_KEY`,
+  `ADMIN_EMAILS`, `TERMS_URL`, `PRIVACY_URL` y, para el envío propio, `MANAGED_*` (ver `deploy/.env.example`).
+- Un monitor de disponibilidad (UptimeRobot, Better Stack…) sobre `/health`: avisa si cae la web, PostgreSQL o Redis.
+- El dominio al puerto 3000 del contenedor.
 - Puertos publicados 587 y 2525 → 2525 del contenedor (SMTP). Sin `TLS_KEY_FILE`/`TLS_CERT_FILE` el SMTP no ofrece
   STARTTLS (los certificados de Traefik no son accesibles desde el contenedor).
 - PostgreSQL y Redis como servicios de Dokploy, con sus copias de seguridad. En `DATABASE_URL` y `REDIS_URL` va la
@@ -267,8 +282,7 @@ Las copias están en el mismo servidor: sácalas también fuera (otro servidor, 
 Las direcciones de escenario (`@sim.relayo.dev`) no necesitan DNS: los correos llegan al SMTP del simulador porque
 la aplicación lo usa como servidor de salida, no por MX.
 
-## Pendiente (fase 2)
+## Licencia
 
-- ~~PostgreSQL y BullMQ~~: probados (`test/store.test.ts`, `test/bullmq.test.ts`) contra `DATABASE_URL` y `REDIS_URL` del `.env`, con esquema y prefijo de colas temporales.
-- ~~Informes por correo~~: hechos (ver «Informes por correo»).
-- ~~Panel Angular~~: hecho (`panel/`).
+[GNU AGPL-3.0](LICENSE) © Alimzen y quienes contribuyen. La librería y los drivers de
+[Alimzen/relayo](https://github.com/Alimzen/relayo) son MIT.

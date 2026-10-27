@@ -4,3 +4,6 @@ dist/
 *.log
 panel/dist/
 panel/.angular/
+# An installation's own website: not part of the platform.
+site/*
+!site/README.md

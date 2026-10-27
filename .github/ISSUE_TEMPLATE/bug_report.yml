@@ -1,0 +1,40 @@
+name: Error
+description: Algo no funciona como debería.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Los fallos de seguridad no van aquí: usa **Security → Report a vulnerability**."
+  - type: textarea
+    id: what
+    attributes:
+      label: Qué pasó
+      description: Qué hiciste, qué esperabas y qué ocurrió.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Cómo reproducirlo
+      placeholder: "1. Envía por SMTP a hard-bounce@sim.relayo.dev\n2. …"
+  - type: dropdown
+    id: where
+    attributes:
+      label: Dónde
+      options:
+        - relayo.alimzen.com
+        - Instalación propia (Docker)
+        - Desarrollo local
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión
+      description: El commit que devuelve /health (campo commit), si es una instalación propia.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: Sin claves, contraseñas ni datos personales.
+      render: text
