@@ -12,8 +12,8 @@ API de Relayo: envía correos y SMS (también WhatsApp) simulados o reales, y re
 Todas las peticiones llevan una clave del proyecto: \`Authorization: Bearer rly_test_…\`. Las claves se crean en el
 panel (**Claves de API**) y solo se muestran una vez.
 
-Una clave puede tener permisos completos, **solo enviar** (`POST /v1/messages` y `/v1/sms`, y opcionalmente solo desde
-ciertos dominios de remitente) o **solo consultar** (peticiones `GET`). Lo que una clave no puede hacer responde 403.
+Una clave puede tener permisos completos, **solo enviar** (\`POST /v1/messages\` y \`/v1/sms\`, y opcionalmente solo desde
+ciertos dominios de remitente) o **solo consultar** (peticiones \`GET\`). Lo que una clave no puede hacer responde 403.
 
 ## Prueba y en vivo
 
