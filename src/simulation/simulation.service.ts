@@ -177,13 +177,14 @@ export class SimulationService {
    * ones, against their own monthly limit; the per-minute rate covers both.
    */
   async reserve(project: Project, mode: Mode = 'test'): Promise<void> {
-    const { messagesPerMinute } = this.limits;
+    const limits = this.limitsOf(project);
+    const { messagesPerMinute } = limits;
     if (messagesPerMinute > 0) {
       const minute = Math.floor(Date.now() / 60_000);
       const count = await this.store.nextAttempt(`rate|${project.id}|${minute}`, 120_000);
       if (count > messagesPerMinute) throw new QuotaExceededError('rate', messagesPerMinute, mode);
     }
-    const limit = mode === 'live' ? this.limits.liveMonthlyMessages : this.limits.monthlyMessages;
+    const limit = mode === 'live' ? limits.liveMonthlyMessages : limits.monthlyMessages;
     const counter = usageCounter(mode);
     if (limit > 0 && (await this.store.getUsage(project.id, counter)) >= limit) {
       throw new QuotaExceededError('monthly', limit, mode);
@@ -197,7 +198,17 @@ export class SimulationService {
       month: usageMonth(),
       messages: await this.store.getUsage(project.id, usageCounter('test')),
       live: await this.store.getUsage(project.id, usageCounter('live')),
-      limits: this.limits,
+      limits: this.limitsOf(project),
+    };
+  }
+
+  /** The project's plan: its own limits where it has them, the platform's otherwise. */
+  limitsOf(project: Project): Limits {
+    const own = project.limits ?? {};
+    return {
+      monthlyMessages: own.monthlyMessages ?? this.limits.monthlyMessages,
+      messagesPerMinute: own.messagesPerMinute ?? this.limits.messagesPerMinute,
+      liveMonthlyMessages: own.liveMonthlyMessages ?? this.limits.liveMonthlyMessages,
     };
   }
 

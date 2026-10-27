@@ -105,6 +105,23 @@ export interface WebhookStats {
   latest: WebhookDelivery | null;
 }
 
+/** A project's plan: limits that replace the platform's (0 = no limit; retention 0 = forever). */
+export interface PlanLimits {
+  monthlyMessages: number;
+  messagesPerMinute: number;
+  liveMonthlyMessages: number;
+  retentionDays: number;
+}
+
+export interface PlanRow {
+  project: Project;
+  ownerEmail: string | null;
+  /** Only the limits the project has of its own. */
+  plan: Partial<PlanLimits>;
+  effective: PlanLimits;
+  usage: { messages: number; live: number };
+}
+
 export interface ManagedRequest {
   project: Project;
   owner: { email: string; name: string; createdAt: string } | null;

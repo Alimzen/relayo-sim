@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore } from './store.js';
 
@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS reports_smtp_url text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS managed_access text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS limits jsonb;
 -- Accounts created before email verification existed count as verified (the default fills them once).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz DEFAULT now();
 ALTER TABLE users ALTER COLUMN email_verified_at DROP DEFAULT;
@@ -239,6 +240,7 @@ interface ProjectRow {
   webhook_secret: string;
   reports_smtp_url: string | null;
   managed_access: ManagedAccess | null;
+  limits: ProjectLimits | null;
   created_at: Date;
 }
 
@@ -468,18 +470,37 @@ export class PostgresStore implements SimStore {
     return (rowCount ?? 0) > 0;
   }
 
+  async searchProjects(query: { text?: string; limit: number }): Promise<Array<{ project: Project; ownerEmail?: string }>> {
+    const text = query.text?.trim();
+    const { rows } = await this.pool.query<ProjectRow & { owner_email: string | null }>(
+      `SELECT p.*, u.email AS owner_email FROM projects p LEFT JOIN users u ON u.id = p.owner_id
+       ${text ? 'WHERE p.name ILIKE $2 OR p.id = $3 OR u.email ILIKE $2' : ''}
+       ORDER BY p.created_at DESC LIMIT $1`,
+      text ? [query.limit, `%${text.replace(/[%_\\]/g, (c) => `\\${c}`)}%`, text] : [query.limit],
+    );
+    return rows.map((row) => ({ project: toProject(row), ...(row.owner_email && { ownerEmail: row.owner_email }) }));
+  }
+
+  async listCustomRetention(): Promise<Array<{ projectId: string; days: number }>> {
+    const { rows } = await this.pool.query<{ id: string; days: number }>(
+      "SELECT id, (limits->>'retentionDays')::int AS days FROM projects WHERE limits ? 'retentionDays'",
+    );
+    return rows.map((r) => ({ projectId: r.id, days: r.days }));
+  }
+
   async listManagedAccess(): Promise<Project[]> {
     const { rows } = await this.pool.query<ProjectRow>('SELECT * FROM projects WHERE managed_access IS NOT NULL ORDER BY created_at DESC');
     return rows.map(toProject);
   }
 
   async updateProject(id: string, changes: ProjectChanges): Promise<void> {
-    const columns = { name: 'name', webhookUrl: 'webhook_url', reportsSmtpUrl: 'reports_smtp_url', webhookSecret: 'webhook_secret', ownerId: 'owner_id', managedAccess: 'managed_access' } as const;
+    const columns = { name: 'name', webhookUrl: 'webhook_url', reportsSmtpUrl: 'reports_smtp_url', webhookSecret: 'webhook_secret', ownerId: 'owner_id', managedAccess: 'managed_access', limits: 'limits' } as const;
     const sets: string[] = [];
     const values: unknown[] = [id];
     for (const [key, column] of Object.entries(columns) as Array<[keyof ProjectChanges, string]>) {
       if (changes[key] === undefined) continue;
-      values.push(changes[key]);
+      const value = changes[key];
+      values.push(key === 'limits' && value !== null ? JSON.stringify(value) : value);
       sets.push(`${column} = $${values.length}`);
     }
     if (sets.length) await this.pool.query(`UPDATE projects SET ${sets.join(', ')} WHERE id = $1`, values);
@@ -1023,9 +1044,9 @@ export class PostgresStore implements SimStore {
     return rows[0]?.messages ?? 0;
   }
 
-  async purge(before: Date): Promise<{ messages: number }> {
+  async purge(before: Date, keepProjects: string[] = []): Promise<{ messages: number }> {
     // Events and captured content go with their message (ON DELETE CASCADE).
-    const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1', [before]);
+    const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1 AND NOT (project_id = ANY($2))', [before, keepProjects]);
     await this.pool.query('DELETE FROM webhook_attempts WHERE created_at < $1', [before]);
     await this.pool.query('DELETE FROM idempotency_keys WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM project_invites WHERE expires_at <= now()');
@@ -1034,6 +1055,11 @@ export class PostgresStore implements SimStore {
     await this.pool.query('DELETE FROM password_resets WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM smtp_attempts WHERE expires_at <= now()');
     return { messages: deleted.rowCount ?? 0 };
+  }
+
+  async purgeProject(projectId: string, before: Date): Promise<number> {
+    const { rowCount } = await this.pool.query('DELETE FROM messages WHERE project_id = $1 AND created_at < $2', [projectId, before]);
+    return rowCount ?? 0;
   }
 
   async nextAttempt(key: string, ttlMs: number): Promise<number> {
@@ -1221,6 +1247,7 @@ function toProject(row: ProjectRow): Project {
     ...(row.webhook_url && { webhookUrl: row.webhook_url }),
     ...(row.reports_smtp_url && { reportsSmtpUrl: row.reports_smtp_url }),
     ...(row.managed_access && { managedAccess: row.managed_access }),
+    ...(row.limits && { limits: row.limits }),
   };
 }
 

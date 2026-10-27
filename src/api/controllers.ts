@@ -23,7 +23,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { readAttachment, readContent } from '../capture/capture.js';
-import type { Mode, Project, ProjectRole, User, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
+import type { Mode, Project, ProjectLimits, ProjectRole, User, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
 import { ScheduledSends } from './scheduled.js';
 import { TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
 import { attemptRecord, attemptWebhook, recordAttempt, webhookBody } from '../webhooks/webhooks.js';
@@ -228,7 +228,7 @@ export class ProjectController {
   /** This month's usage against the plan, and how long messages are kept. */
   @Get('usage')
   async usage(@CurrentProject() project: Project) {
-    return { ...(await this.sim.usage(project)), retentionDays: this.config.retentionDays ?? 7 };
+    return { ...(await this.sim.usage(project)), retentionDays: project.limits?.retentionDays ?? this.config.retentionDays ?? 7 };
   }
 
   /** Totals and a per-day series over the last `days` days (1–90, default 7). */
@@ -555,6 +555,60 @@ export class WebhookDeliveriesController {
 function publicAttempt(attempt: WebhookAttempt) {
   const { projectId: _projectId, ...rest } = attempt;
   return rest;
+}
+
+/** Platform admins: every project, its usage, and its plan (limits that replace the platform's). */
+@Controller('v1/admin/plans')
+@UseGuards(PlatformAdminGuard)
+export class PlansController {
+  constructor(
+    @Inject(SIM_STORE) private readonly store: SimStore,
+    @Inject(SimulationService) private readonly sim: SimulationService,
+    @Inject(SIM_CONFIG) private readonly config: SimConfig,
+  ) {}
+
+  /** Projects (searching name, id or owner's email), with this month's usage and their effective limits. */
+  @Get()
+  async list(@Query('q') q?: string) {
+    const found = await this.store.searchProjects({ ...(q?.trim() && { text: q.trim() }), limit: 50 });
+    const data = await Promise.all(found.map((f) => this.row(f.project, f.ownerEmail)));
+    return { defaults: { ...this.sim.limitsOf({} as Project), retentionDays: this.config.retentionDays ?? 7 }, data };
+  }
+
+  /** Sets a project's plan; a field set to null goes back to the platform's value. */
+  @Patch(':projectId')
+  async update(@Param('projectId') projectId: string, @Body() body: Record<string, unknown>) {
+    const project = await this.store.getProject(projectId);
+    if (!project) throw new NotFoundException('Proyecto no encontrado');
+    const limits: ProjectLimits = { ...project.limits };
+    for (const key of ['monthlyMessages', 'messagesPerMinute', 'liveMonthlyMessages', 'retentionDays'] as const) {
+      if (!(key in (body ?? {}))) continue;
+      const value = body[key];
+      if (value === null || value === '') {
+        delete limits[key];
+        continue;
+      }
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100_000_000) {
+        throw new BadRequestException(`"${key}" must be a whole number from 0 (no limit) up, or null for the platform's value`);
+      }
+      limits[key] = value;
+    }
+    await this.store.updateProject(projectId, { limits: Object.keys(limits).length ? limits : null });
+    const updated = (await this.store.getProject(projectId))!;
+    const owner = updated.ownerId ? await this.store.getUser(updated.ownerId) : undefined;
+    return this.row(updated, owner?.email);
+  }
+
+  private async row(project: Project, ownerEmail?: string) {
+    const usage = await this.sim.usage(project);
+    return {
+      project: publicProject(project),
+      ownerEmail: ownerEmail ?? null,
+      plan: project.limits ?? {},
+      effective: { ...usage.limits, retentionDays: project.limits?.retentionDays ?? this.config.retentionDays ?? 7 },
+      usage: { messages: usage.messages, live: usage.live },
+    };
+  }
 }
 
 /** Platform admins (ADMIN_EMAILS, or the admin token): review of Relayo's own sending. */

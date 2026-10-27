@@ -323,6 +323,29 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listWebhookAttempts('prj_1', { limit: 10 })).map((a) => a.id)).toEqual(['wha_2']);
   });
 
+  it('keeps project plans, finds projects, and purges each one by its own retention', async () => {
+    const store = await open();
+    await store.createUser(user);
+    await store.createProject({ ...project('prj_long'), ownerId: 'usr_1', name: 'Largo' });
+    await store.createProject({ ...project('prj_std'), name: 'Normal', createdAt: new Date('2026-10-19T10:00:00Z') });
+    await store.updateProject('prj_long', { limits: { retentionDays: 90, monthlyMessages: 5000 } });
+    expect((await store.getProject('prj_long'))?.limits).toEqual({ retentionDays: 90, monthlyMessages: 5000 });
+    expect(await store.listCustomRetention()).toEqual([{ projectId: 'prj_long', days: 90 }]);
+
+    expect((await store.searchProjects({ limit: 10 })).map((p) => p.project.id)).toEqual(['prj_std', 'prj_long']);
+    expect(await store.searchProjects({ text: 'ana@', limit: 10 })).toEqual([expect.objectContaining({ ownerEmail: 'ana@empresa.com' })]);
+    expect((await store.searchProjects({ text: 'prj_std', limit: 10 })).map((p) => p.project.id)).toEqual(['prj_std']);
+
+    for (const id of ['prj_long', 'prj_std']) await store.saveMessage({ ...message(`old_${id}`, '2026-09-01T10:00:00Z'), projectId: id });
+    expect(await store.purge(new Date('2026-10-01T00:00:00Z'), ['prj_long'])).toEqual({ messages: 1 });
+    expect(await store.getMessage('prj_long', 'old_prj_long')).toBeDefined();
+    expect(await store.purgeProject('prj_long', new Date('2026-08-01T00:00:00Z'))).toBe(0);
+    expect(await store.purgeProject('prj_long', new Date('2026-10-01T00:00:00Z'))).toBe(1);
+
+    await store.updateProject('prj_long', { limits: null });
+    expect((await store.getProject('prj_long'))?.limits).toBeUndefined();
+  });
+
   it('deletes a project with everything in it, and an account with the projects it owns', async () => {
     const store = await open();
     await store.createUser(user);

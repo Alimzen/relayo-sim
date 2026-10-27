@@ -133,6 +133,20 @@ export class MemoryStore implements SimStore {
     return this.invites.delete(id);
   }
 
+  async searchProjects(query: { text?: string; limit: number }): Promise<Array<{ project: Project; ownerEmail?: string }>> {
+    const text = query.text?.trim().toLowerCase();
+    return [...this.projects.values()]
+      .map((project) => ({ project, ownerEmail: project.ownerId ? this.users.get(project.ownerId)?.email : undefined }))
+      .filter(({ project, ownerEmail }) => !text || project.name.toLowerCase().includes(text) || project.id === query.text?.trim() || !!ownerEmail?.includes(text))
+      .sort((a, b) => b.project.createdAt.getTime() - a.project.createdAt.getTime())
+      .slice(0, query.limit)
+      .map(({ project, ownerEmail }) => ({ project, ...(ownerEmail && { ownerEmail }) }));
+  }
+
+  async listCustomRetention(): Promise<Array<{ projectId: string; days: number }>> {
+    return [...this.projects.values()].flatMap((p) => (p.limits?.retentionDays !== undefined ? [{ projectId: p.id, days: p.limits.retentionDays }] : []));
+  }
+
   async listManagedAccess(): Promise<Project[]> {
     return [...this.projects.values()].filter((p) => p.managedAccess).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
@@ -151,6 +165,8 @@ export class MemoryStore implements SimStore {
     }
     if (changes.managedAccess === null) delete next.managedAccess;
     else if (changes.managedAccess !== undefined) next.managedAccess = changes.managedAccess;
+    if (changes.limits === null) delete next.limits;
+    else if (changes.limits !== undefined) next.limits = { ...changes.limits };
     this.projects.set(id, next);
   }
 
@@ -347,10 +363,22 @@ export class MemoryStore implements SimStore {
     return this.usage.get(`${projectId}|${month}`) ?? 0;
   }
 
-  async purge(before: Date): Promise<{ messages: number }> {
+  async purgeProject(projectId: string, before: Date): Promise<number> {
+    let deleted = 0;
+    for (const [id, message] of this.messages) {
+      if (message.projectId !== projectId || message.createdAt >= before) continue;
+      this.messages.delete(id);
+      this.events.delete(id);
+      this.contents.delete(id);
+      deleted++;
+    }
+    return deleted;
+  }
+
+  async purge(before: Date, keepProjects: string[] = []): Promise<{ messages: number }> {
     let messages = 0;
     for (const [id, message] of this.messages) {
-      if (message.createdAt >= before) continue;
+      if (message.createdAt >= before || keepProjects.includes(message.projectId)) continue;
       this.messages.delete(id);
       this.events.delete(id);
       this.contents.delete(id);

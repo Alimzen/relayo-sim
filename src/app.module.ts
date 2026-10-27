@@ -23,6 +23,7 @@ import {
   SmsController,
   InvitesController,
   OpenApiController,
+  PlansController,
   ScheduledController,
   TeamController,
   TemplatesController,
@@ -97,16 +98,21 @@ class Lifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
     else this.logger.log('SECRETS_KEY rotation: every secret uses the new key, SECRETS_KEY_PREVIOUS can be removed');
   }
 
-  /** Deletes messages older than RETENTION_DAYS (and expired sessions and tokens): at start, then every hour. */
+  /**
+   * Deletes messages older than RETENTION_DAYS (and expired sessions and tokens): at start, then every hour.
+   * Projects with their own retention (their plan) are purged by it instead.
+   */
   private startRetention(): void {
     const days = this.config.retentionDays ?? 7;
-    const purge = () => {
-      const before = new Date(Date.now() - days * 86_400_000);
-      void this.store.purge(days > 0 ? before : new Date(0)).then(
-        ({ messages }) => messages && this.logger.log(`Retention: deleted ${messages} messages older than ${days} days`),
-        (error: Error) => this.logger.warn(`Retention purge failed: ${error.message}`),
-      );
+    const cutoff = (d: number) => (d > 0 ? new Date(Date.now() - d * 86_400_000) : new Date(0));
+    const run = async () => {
+      const custom = await this.store.listCustomRetention();
+      const { messages } = await this.store.purge(cutoff(days), custom.map((c) => c.projectId));
+      let own = 0;
+      for (const { projectId, days: projectDays } of custom) own += await this.store.purgeProject(projectId, cutoff(projectDays));
+      if (messages + own) this.logger.log(`Retention: deleted ${messages + own} messages`);
     };
+    const purge = () => void run().catch((error: Error) => this.logger.warn(`Retention purge failed: ${error.message}`));
     purge();
     this.purgeTimer = setInterval(purge, 60 * 60_000);
     this.purgeTimer.unref();
@@ -161,6 +167,7 @@ export class AppModule {
       controllers: [
         HealthController,
         OpenApiController,
+        PlansController,
         ScenariosController,
         AuthController,
         ProjectsController,

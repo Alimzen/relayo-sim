@@ -1,4 +1,4 @@
-import type { TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -7,6 +7,7 @@ export interface ProjectChanges {
   webhookSecret?: string;
   ownerId?: string;
   managedAccess?: ManagedAccess | null;
+  limits?: ProjectLimits | null;
 }
 
 export interface MessageQuery {
@@ -73,6 +74,10 @@ export interface SimStore {
   /** The invitation of a token, if it has not expired. */
   findInvite(tokenHash: string): Promise<ProjectInvite | undefined>;
   deleteInvite(projectId: string, id: string): Promise<boolean>;
+  /** Projects whose name, id or owner's email contains the text (all of them without it), newest first. */
+  searchProjects(query: { text?: string; limit: number }): Promise<Array<{ project: Project; ownerEmail?: string }>>;
+  /** Projects with their own retention, for the purge. */
+  listCustomRetention(): Promise<Array<{ projectId: string; days: number }>>;
   /** Projects that asked for Relayo's own sending (whatever the answer), newest first. */
   listManagedAccess(): Promise<Project[]>;
   /** `null` clears an optional field; missing keys are left as they are. */
@@ -180,9 +185,11 @@ export interface SimStore {
 
   /**
    * Deletes messages created before a date (with their events and content), webhook attempts older than it,
-   * and expired sessions, tokens and counters.
+   * and expired sessions, tokens and counters. Messages of `keepProjects` (their own retention) are left.
    */
-  purge(before: Date): Promise<{ messages: number }>;
+  purge(before: Date, keepProjects?: string[]): Promise<{ messages: number }>;
+  /** Deletes one project's messages created before a date (its own retention). */
+  purgeProject(projectId: string, before: Date): Promise<number>;
 
   /** Answers when the database does (health checks). In-memory stores leave it out. */
   ping?(): Promise<void>;

@@ -146,10 +146,20 @@ export interface Project {
   reportsSmtpUrl?: string;
   /** Relayo's own sending is reviewed by an admin before a project can use it. */
   managedAccess?: ManagedAccess;
+  /** The project's plan: limits that replace the platform's (each one absent uses the platform's). */
+  limits?: ProjectLimits;
   createdAt: Date;
 }
 
 export type ManagedAccess = 'requested' | 'approved' | 'denied';
+
+/** Per-project limits; 0 means no limit (retention: kept forever). */
+export interface ProjectLimits {
+  monthlyMessages?: number;
+  messagesPerMinute?: number;
+  liveMonthlyMessages?: number;
+  retentionDays?: number;
+}
 
 export interface SimRecipient {
   address: string;

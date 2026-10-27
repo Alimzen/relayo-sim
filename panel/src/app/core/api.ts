@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -80,6 +80,10 @@ export class Api {
   resendVerification = () => this.call<void>('POST', '/v1/auth/verify/resend');
 
   // Platform admin
+  plans = (q: string) =>
+    this.call<{ defaults: PlanLimits; data: PlanRow[] }>('GET', `/v1/admin/plans${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  updatePlan = (projectId: string, plan: Record<string, number | null>) =>
+    this.call<PlanRow>('PATCH', `/v1/admin/plans/${encodeURIComponent(projectId)}`, plan);
   managedRequests = () => this.call<{ data: ManagedRequest[] }>('GET', '/v1/admin/managed').then((r) => r.data);
   decideManagedAccess = (projectId: string, decision: 'approved' | 'denied') =>
     this.call<Project>('POST', `/v1/admin/managed/${encodeURIComponent(projectId)}`, { decision });

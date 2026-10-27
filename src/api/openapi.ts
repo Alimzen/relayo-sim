@@ -945,5 +945,6 @@ export const UNDOCUMENTED = [
   'POST /v1/project/connections', 'POST /v1/project/connections/order', 'PATCH /v1/project/connections/:id',
   'DELETE /v1/project/connections/:id', 'POST /v1/project/connections/:id/test',
   'POST /v1/inbound/managed/:token',
+  'GET /v1/admin/plans', 'PATCH /v1/admin/plans/:projectId',
   'GET /openapi.json',
 ];
