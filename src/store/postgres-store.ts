@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ProjectOptions, WebhookEndpoint, AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { InboundEmail, ProjectOptions, WebhookEndpoint, AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore, AttemptQuery, WebhookEndpointChanges } from './store.js';
 
@@ -31,6 +31,8 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS reports_smtp_url text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS managed_access text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS limits jsonb;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS options jsonb;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS inbound_token text;
+CREATE UNIQUE INDEX IF NOT EXISTS projects_inbound_token ON projects (inbound_token) WHERE inbound_token IS NOT NULL;
 -- Accounts created before email verification existed count as verified (the default fills them once).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz DEFAULT now();
 ALTER TABLE users ALTER COLUMN email_verified_at DROP DEFAULT;
@@ -230,6 +232,13 @@ CREATE TABLE IF NOT EXISTS webhook_endpoints (
   created_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS webhook_endpoints_project ON webhook_endpoints (project_id, created_at);
+CREATE TABLE IF NOT EXISTS inbound_emails (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  body jsonb NOT NULL,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS inbound_emails_project_created ON inbound_emails (project_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS audit_log (
   id text PRIMARY KEY,
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -284,6 +293,7 @@ interface ProjectRow {
   managed_access: ManagedAccess | null;
   limits: ProjectLimits | null;
   options: ProjectOptions | null;
+  inbound_token: string | null;
   created_at: Date;
 }
 
@@ -538,7 +548,7 @@ export class PostgresStore implements SimStore {
   }
 
   async updateProject(id: string, changes: ProjectChanges): Promise<void> {
-    const columns = { name: 'name', webhookUrl: 'webhook_url', reportsSmtpUrl: 'reports_smtp_url', webhookSecret: 'webhook_secret', ownerId: 'owner_id', managedAccess: 'managed_access', limits: 'limits', options: 'options' } as const;
+    const columns = { name: 'name', webhookUrl: 'webhook_url', reportsSmtpUrl: 'reports_smtp_url', webhookSecret: 'webhook_secret', ownerId: 'owner_id', managedAccess: 'managed_access', limits: 'limits', options: 'options', inboundToken: 'inbound_token' } as const;
     const sets: string[] = [];
     const values: unknown[] = [id];
     for (const [key, column] of Object.entries(columns) as Array<[keyof ProjectChanges, string]>) {
@@ -823,6 +833,42 @@ export class PostgresStore implements SimStore {
 
   async releaseIdempotencyKey(projectId: string, key: string): Promise<void> {
     await this.pool.query('DELETE FROM idempotency_keys WHERE project_id = $1 AND key = $2', [projectId, key]);
+  }
+
+  async findProjectByInboundToken(token: string): Promise<Project | undefined> {
+    const { rows } = await this.pool.query<ProjectRow>('SELECT * FROM projects WHERE inbound_token = $1', [token]);
+    return rows[0] && toProject(rows[0]);
+  }
+
+  async saveInbound(email: InboundEmail): Promise<void> {
+    const { id, projectId, createdAt, ...body } = email;
+    await this.pool.query('INSERT INTO inbound_emails (id, project_id, body, created_at) VALUES ($1, $2, $3, $4)', [id, projectId, JSON.stringify(body), createdAt]);
+  }
+
+  async listInbound(projectId: string, query: { limit: number; before?: Date }): Promise<InboundEmail[]> {
+    const values: unknown[] = [projectId, query.limit];
+    const before = query.before ? `AND created_at < $${values.push(query.before)}` : '';
+    const { rows } = await this.pool.query<InboundRow>(
+      `SELECT * FROM inbound_emails WHERE project_id = $1 ${before} ORDER BY created_at DESC LIMIT $2`,
+      values,
+    );
+    return rows.map(toInbound);
+  }
+
+  async getInbound(projectId: string, id: string): Promise<InboundEmail | undefined> {
+    const { rows } = await this.pool.query<InboundRow>('SELECT * FROM inbound_emails WHERE project_id = $1 AND id = $2', [projectId, id]);
+    return rows[0] && toInbound(rows[0]);
+  }
+
+  async findMessageByReference(projectId: string, ids: string[]): Promise<SimMessage | undefined> {
+    if (!ids.length) return undefined;
+    const { rows } = await this.pool.query<MessageRow>(
+      `SELECT * FROM messages WHERE project_id = $1
+         AND (headers->>'message-id' = ANY($2) OR delivery->>'providerMessageId' = ANY($2))
+       ORDER BY created_at DESC LIMIT 1`,
+      [projectId, ids],
+    );
+    return rows[0] && toMessage(rows[0]);
   }
 
   async addAudit(e: AuditEntry): Promise<void> {
@@ -1224,6 +1270,7 @@ export class PostgresStore implements SimStore {
     const deleted = await this.pool.query('DELETE FROM messages WHERE created_at < $1 AND NOT (project_id = ANY($2))', [before, keepProjects]);
     await this.pool.query('DELETE FROM webhook_attempts WHERE created_at < $1', [before]);
     await this.pool.query('DELETE FROM api_requests WHERE created_at < $1 AND NOT (project_id = ANY($2))', [before, keepProjects]);
+    await this.pool.query('DELETE FROM inbound_emails WHERE created_at < $1 AND NOT (project_id = ANY($2))', [before, keepProjects]);
     await this.pool.query("DELETE FROM audit_log WHERE created_at < now() - interval '365 days'");
     await this.pool.query('DELETE FROM idempotency_keys WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM project_invites WHERE expires_at <= now()');
@@ -1237,6 +1284,7 @@ export class PostgresStore implements SimStore {
   async purgeProject(projectId: string, before: Date): Promise<number> {
     const { rowCount } = await this.pool.query('DELETE FROM messages WHERE project_id = $1 AND created_at < $2', [projectId, before]);
     await this.pool.query('DELETE FROM api_requests WHERE project_id = $1 AND created_at < $2', [projectId, before]);
+    await this.pool.query('DELETE FROM inbound_emails WHERE project_id = $1 AND created_at < $2', [projectId, before]);
     return rowCount ?? 0;
   }
 
@@ -1258,7 +1306,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE webhook_endpoints, audit_log, api_requests, project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE inbound_emails, webhook_endpoints, audit_log, api_requests, project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
@@ -1359,6 +1407,17 @@ function toTemplate(row: TemplateRow): Template {
     ...(row.text !== null && { text: row.text }),
     ...(row.body !== null && { body: row.body }),
   };
+}
+
+interface InboundRow {
+  id: string;
+  project_id: string;
+  body: Omit<InboundEmail, 'id' | 'projectId' | 'createdAt'>;
+  created_at: Date;
+}
+
+function toInbound(row: InboundRow): InboundEmail {
+  return { id: row.id, projectId: row.project_id, ...row.body, createdAt: row.created_at };
 }
 
 interface AuditRow {
@@ -1482,6 +1541,7 @@ function toProject(row: ProjectRow): Project {
     ...(row.managed_access && { managedAccess: row.managed_access }),
     ...(row.limits && { limits: row.limits }),
     ...(row.options && { options: row.options }),
+    ...(row.inbound_token && { inboundToken: row.inbound_token }),
   };
 }
 

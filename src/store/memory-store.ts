@@ -1,4 +1,4 @@
-import type { WebhookEndpoint, AuditEntry, ApiRequestLog, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { InboundEmail, WebhookEndpoint, AuditEntry, ApiRequestLog, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { AttemptQuery, MessageQuery, ProjectChanges, SealedValue, SimStore, WebhookEndpointChanges } from './store.js';
 
@@ -19,6 +19,7 @@ export class MemoryStore implements SimStore {
   private readonly webhookAttempts: WebhookAttempt[] = [];
   private readonly audit: AuditEntry[] = [];
   private readonly endpoints: WebhookEndpoint[] = [];
+  private readonly inbound: InboundEmail[] = [];
   private readonly requests: ApiRequestLog[] = [];
   private readonly templates = new Map<string, Template>();
   private readonly scheduled = new Map<string, ScheduledSend>();
@@ -172,6 +173,8 @@ export class MemoryStore implements SimStore {
     else if (changes.limits !== undefined) next.limits = { ...changes.limits };
     if (changes.options === null) delete next.options;
     else if (changes.options !== undefined) next.options = { ...changes.options };
+    if (changes.inboundToken === null) delete next.inboundToken;
+    else if (changes.inboundToken !== undefined) next.inboundToken = changes.inboundToken;
     this.projects.set(id, next);
   }
 
@@ -201,6 +204,7 @@ export class MemoryStore implements SimStore {
     this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
     keep(this.audit, (e) => e.projectId !== id);
     keep(this.endpoints, (e) => e.projectId !== id);
+    keep(this.inbound, (e) => e.projectId !== id);
     keep(this.requests, (r) => r.projectId !== id);
   }
 
@@ -381,6 +385,7 @@ export class MemoryStore implements SimStore {
       deleted++;
     }
     keep(this.requests, (r) => r.projectId !== projectId || r.createdAt >= before);
+    keep(this.inbound, (e) => e.projectId !== projectId || e.createdAt >= before);
     return deleted;
   }
 
@@ -401,6 +406,7 @@ export class MemoryStore implements SimStore {
     const kept = this.webhookAttempts.filter((a) => a.createdAt >= before);
     this.webhookAttempts.splice(0, this.webhookAttempts.length, ...kept);
     keep(this.requests, (r) => r.createdAt >= before || keepProjects.includes(r.projectId));
+    keep(this.inbound, (e) => e.createdAt >= before || keepProjects.includes(e.projectId));
     const yearAgo = new Date(Date.now() - 365 * 86_400_000);
     keep(this.audit, (e) => e.createdAt >= yearAgo);
     const now = new Date();
@@ -517,6 +523,36 @@ export class MemoryStore implements SimStore {
 
   async releaseIdempotencyKey(projectId: string, key: string): Promise<void> {
     this.idempotency.delete(`${projectId}|${key}`);
+  }
+
+  async findProjectByInboundToken(token: string): Promise<Project | undefined> {
+    return [...this.projects.values()].find((p) => p.inboundToken === token);
+  }
+
+  async saveInbound(email: InboundEmail): Promise<void> {
+    this.inbound.push(structuredClone(email));
+  }
+
+  async listInbound(projectId: string, query: { limit: number; before?: Date }): Promise<InboundEmail[]> {
+    return newest(this.inbound.filter((e) => e.projectId === projectId && (!query.before || e.createdAt < query.before)), query.limit).map((e) =>
+      structuredClone(e),
+    );
+  }
+
+  async getInbound(projectId: string, id: string): Promise<InboundEmail | undefined> {
+    const found = this.inbound.find((e) => e.projectId === projectId && e.id === id);
+    return found && structuredClone(found);
+  }
+
+  async findMessageByReference(projectId: string, ids: string[]): Promise<SimMessage | undefined> {
+    const wanted = new Set(ids);
+    return [...this.messages.values()]
+      .filter((m) => m.projectId === projectId)
+      .filter((m) => {
+        const header = Object.entries(m.headers ?? {}).find(([name]) => name.toLowerCase() === 'message-id')?.[1];
+        return (header && wanted.has(header)) || (m.delivery?.providerMessageId && wanted.has(m.delivery.providerMessageId));
+      })
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
   }
 
   async addAudit(entry: AuditEntry): Promise<void> {

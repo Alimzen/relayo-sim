@@ -26,7 +26,8 @@ import { readAttachment, readContent } from '../capture/capture.js';
 import type { ApiKey, WebhookEndpoint, Mode, Project, ProjectLimits, ProjectRole, User, ScheduledSend, SimEvent, Template, WebhookAttempt } from '../domain.js';
 import { ScheduledSends } from './scheduled.js';
 import { TemplatesService, variablesOf as templateVariables } from '../templates/templates.js';
-import { attemptRecord, attemptWebhook, recordAttempt, WEBHOOK_EVENT_TYPES, webhookBody, type WebhookTarget } from '../webhooks/webhooks.js';
+import { attemptRecord, attemptWebhook, recordAttempt, WEBHOOK_EVENT_TYPES, webhookBody, type WebhookPayload, type WebhookTarget } from '../webhooks/webhooks.js';
+import { inboundPayload } from '../inbound/inbound.js';
 import { SCENARIOS } from '../scenarios/catalog.js';
 import { SMS_SCENARIOS } from '../scenarios/sms.js';
 import { newWebhookSecret, SimulationService } from '../simulation/simulation.service.js';
@@ -546,7 +547,7 @@ export class WebhookDeliveriesController {
   async get(@CurrentProject() project: Project, @Param('id') id: string) {
     const attempt = await this.store.getWebhookAttempt(project.id, id);
     if (!attempt) throw new NotFoundException('Entrega no encontrada');
-    const event = await this.store.getEvent(project.id, attempt.eventId);
+    const event = await this.payload(project, attempt.eventId);
     return { ...publicAttempt(attempt), event: event ? JSON.parse(webhookBody(event)) : null };
   }
 
@@ -556,7 +557,7 @@ export class WebhookDeliveriesController {
   async redeliver(@CurrentProject() project: Project, @Param('id') id: string) {
     const attempt = await this.store.getWebhookAttempt(project.id, id);
     if (!attempt) throw new NotFoundException('Entrega no encontrada');
-    const event = await this.store.getEvent(project.id, attempt.eventId);
+    const event = await this.payload(project, attempt.eventId);
     if (!event) throw new BadRequestException('El evento ya no existe: se borró con su mensaje al pasar el periodo de retención.');
     return publicAttempt(await this.send(event, await this.target(project, attempt.endpointId), 'redeliver'));
   }
@@ -602,7 +603,7 @@ export class WebhookDeliveriesController {
     const queue = [...jobs];
     const worker = async () => {
       for (let job = queue.shift(); job; job = queue.shift()) {
-        const event = await this.store.getEvent(project.id, job.eventId);
+        const event = await this.payload(project, job.eventId);
         const target = targets.get(job.endpointId ?? '');
         if (event && target) await this.send(event, target, 'redeliver').catch(() => undefined);
       }
@@ -709,7 +710,16 @@ export class WebhookDeliveriesController {
     return { url: endpoint.url, secret: endpoint.secret, endpointId: endpoint.id };
   }
 
-  private async send(event: SimEvent, target: WebhookTarget, trigger: 'redeliver' | 'test'): Promise<WebhookAttempt> {
+  /** What a try carried: an event, or a received email (`inb_…`). */
+  private async payload(project: Project, eventId: string): Promise<WebhookPayload | undefined> {
+    if (eventId.startsWith('inb_')) {
+      const email = await this.store.getInbound(project.id, eventId);
+      return email && inboundPayload(email);
+    }
+    return this.store.getEvent(project.id, eventId);
+  }
+
+  private async send(event: WebhookPayload, target: WebhookTarget, trigger: 'redeliver' | 'test'): Promise<WebhookAttempt> {
     const result = await attemptWebhook(event, target, fetch, trigger === 'test' ? { 'Relayo-Test': 'true' } : {});
     const attempt = attemptRecord(event, target, result, { attempt: 1, maxAttempts: 1, trigger, willRetry: false });
     await recordAttempt(this.infra.webhookLog, attempt);

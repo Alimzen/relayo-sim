@@ -1,9 +1,10 @@
-import type { ProjectOptions, WebhookEndpoint, AuditEntry, ApiRequestLog, ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { InboundEmail, ProjectOptions, WebhookEndpoint, AuditEntry, ApiRequestLog, ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
   webhookUrl?: string | null;
   options?: ProjectOptions | null;
+  inboundToken?: string | null;
   reportsSmtpUrl?: string | null;
   webhookSecret?: string;
   ownerId?: string;
@@ -189,6 +190,18 @@ export interface SimStore {
   completeIdempotencyKey(projectId: string, key: string, response: unknown): Promise<void>;
   /** Frees a key whose request failed, so it can be retried. */
   releaseIdempotencyKey(projectId: string, key: string): Promise<void>;
+
+  // Received emails
+  findProjectByInboundToken(token: string): Promise<Project | undefined>;
+  saveInbound(email: InboundEmail): Promise<void>;
+  /** Newest first. */
+  listInbound(projectId: string, query: { limit: number; before?: Date }): Promise<InboundEmail[]>;
+  getInbound(projectId: string, id: string): Promise<InboundEmail | undefined>;
+  /**
+   * The newest message of the project that one of these ids names: its `Message-ID` header, or the id its
+   * provider gave it (SES, SMTP), with or without angle brackets.
+   */
+  findMessageByReference(projectId: string, ids: string[]): Promise<SimMessage | undefined>;
 
   // Audit and request logs
   addAudit(entry: AuditEntry): Promise<void>;

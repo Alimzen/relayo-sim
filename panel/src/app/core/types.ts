@@ -78,7 +78,7 @@ export interface TemplatePreview {
 export interface WebhookDelivery {
   id: string;
   eventId: string;
-  eventType: EventType;
+  eventType: EventType | 'inbound';
   recipient: string;
   url: string;
   /** The extra endpoint it went to; absent for the main URL. */
@@ -100,8 +100,8 @@ export interface WebhookEndpoint {
   id: string;
   url: string;
   description: string | null;
-  /** The event types it gets; null means all. */
-  events: EventType[] | null;
+  /** The event types it gets; null means all (but received emails, asked for as `inbound`). */
+  events: Array<EventType | 'inbound'> | null;
   /** Only one mode's events; null means both. */
   mode: Mode | null;
   enabled: boolean;
@@ -161,6 +161,30 @@ export interface ApiRequestLog {
   ip?: string;
   error?: string;
   createdAt: string;
+}
+
+/** An email the project received. */
+export interface InboundEmail {
+  id: string;
+  from: string;
+  fromName?: string;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  inReplyTo?: string;
+  /** The message it answers, when Relayo sent it. */
+  replyTo?: { messageId: string; relayoId: string; metadata?: Record<string, string> };
+  attachments: Array<{ filename: string; contentType: string; size: number }>;
+  headers: Record<string, string>;
+  size: number;
+  createdAt: string;
+}
+
+export interface ProjectInbound {
+  enabled: boolean;
+  url: string | null;
 }
 
 export type DeliverabilityGroup = 'domain' | 'template' | 'tag';

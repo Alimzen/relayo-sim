@@ -1,7 +1,7 @@
 import { Queue, Worker, type ConnectionOptions } from 'bullmq';
 import type { SimEvent } from '../domain.js';
 import type { EventScheduler, ScheduledStep, StepHandler } from '../scheduler/scheduler.js';
-import { type WebhookTarget, attemptRecord, attemptWebhook, recordAttempt, type WebhookDispatcher, type WebhookLog } from '../webhooks/webhooks.js';
+import { type WebhookPayload, type WebhookTarget, attemptRecord, attemptWebhook, recordAttempt, type WebhookDispatcher, type WebhookLog } from '../webhooks/webhooks.js';
 
 const TIMELINE_QUEUE = 'sim-timeline';
 const WEBHOOK_QUEUE = 'sim-webhooks';
@@ -65,7 +65,7 @@ export class BullScheduler implements EventScheduler {
 }
 
 interface WebhookJob {
-  event: SimEvent;
+  event: WebhookPayload;
   target: WebhookTarget;
 }
 
@@ -97,7 +97,7 @@ export class BullDispatcher implements WebhookDispatcher {
     );
   }
 
-  async dispatch(event: SimEvent, target: WebhookTarget): Promise<void> {
+  async dispatch(event: WebhookPayload, target: WebhookTarget): Promise<void> {
     await this.queue.add('deliver', { event, target }, {
       // One job per event and URL: the same event goes to every endpoint that wants it.
       jobId: `${event.id}${target.endpointId ? `|${target.endpointId}` : ''}`.replaceAll(':', '|'),

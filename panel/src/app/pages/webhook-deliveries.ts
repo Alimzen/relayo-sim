@@ -185,7 +185,8 @@ export class WebhookDeliveries {
   protected readonly format = formatNumber;
   protected readonly ago = (value: string) => timeAgo(value);
   protected readonly full = (value: string) => fullDate(value);
-  protected readonly lookOf = (d: WebhookDelivery) => lookOf({ type: d.eventType });
+  protected readonly lookOf = (d: WebhookDelivery): { label: string; tone: Tone } =>
+    d.eventType === 'inbound' ? { label: 'Recibido', tone: 'info' } : lookOf({ type: d.eventType });
   private static readonly PAGE = 50;
 
   constructor() {

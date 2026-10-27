@@ -40,6 +40,8 @@ const ACTIONS: Record<string, string> = {
   'POST /v1/project/suppressions': 'Añadió una supresión',
   'DELETE /v1/project/suppressions/:address': 'Quitó una supresión',
   'PATCH /v1/admin/plans/:projectId': 'Cambió el plan del proyecto',
+  'POST /v1/project/inbound': 'Activó la dirección de entrada',
+  'DELETE /v1/project/inbound': 'Desactivó la dirección de entrada',
 };
 
 const FIELDS: Record<string, string> = {

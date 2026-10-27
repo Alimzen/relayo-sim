@@ -433,6 +433,31 @@ const schemas = {
       error: { type: 'object', properties: { statusCode: { type: 'integer' }, message: { type: 'string' } } },
     },
   },
+  InboundEmail: {
+    type: 'object',
+    description:
+      'Un correo recibido. Su webhook (`type: inbound`) lleva estos campos más los de todo evento: `messageId` es el id del mensaje al que responde (o el suyo), y `metadata` la de ese mensaje. Solo llega a los endpoints que piden `inbound`.',
+    properties: {
+      id: { type: 'string', description: '`inb_…`' },
+      from: { type: 'string' },
+      fromName: { type: 'string' },
+      to: { type: 'array', items: { type: 'string' } },
+      cc: { type: 'array', items: { type: 'string' } },
+      subject: { type: 'string' },
+      text: { type: 'string' },
+      html: { type: 'string' },
+      inReplyTo: { type: 'string' },
+      replyTo: {
+        type: 'object',
+        description: 'El mensaje al que responde, si lo envió el proyecto (por In-Reply-To o References).',
+        properties: { messageId: { type: 'string' }, relayoId: { type: 'string' }, metadata: { type: 'object', additionalProperties: { type: 'string' } } },
+      },
+      attachments: { type: 'array', items: { type: 'object', properties: { filename: { type: 'string' }, contentType: { type: 'string' }, size: { type: 'integer' } } } },
+      headers: { type: 'object', additionalProperties: { type: 'string' }, description: 'Message-ID, In-Reply-To, References, Reply-To, Date, List-Id y las X-…' },
+      size: { type: 'integer' },
+      createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
   Suppression: {
     type: 'object',
     properties: {
@@ -533,6 +558,7 @@ const tags = [
   { name: 'Programados', description: 'Envíos con `sendAt`.' },
   { name: 'Plantillas', description: 'Contenido guardado con variables.' },
   { name: 'Webhooks', description: 'Registro de entregas a tu endpoint.' },
+  { name: 'Recepción', description: 'Correos que recibe tu dominio, normalizados a webhooks.' },
   { name: 'Proyecto', description: 'Ajustes, uso y estadísticas.' },
   { name: 'Supresiones', description: 'Direcciones y números a los que no se envía.' },
   { name: 'Modo en vivo', description: 'Conexiones y dominios (se gestionan en el panel).' },
@@ -907,6 +933,46 @@ const paths = {
       },
     },
   },
+  '/v1/project/inbound': {
+    get: {
+      tags: ['Recepción'],
+      summary: 'Dirección de entrada',
+      operationId: 'getInbound',
+      description: 'La URL a la que tu proveedor envía los correos que recibe tu dominio: el original (`message/rfc822`), SendGrid Inbound Parse con «raw», Mailgun (`body-mime`), Postmark (`RawEmail`) o Amazon SES por SNS.',
+      responses: { 200: ok('Si está activa, y su URL.', { type: 'object', properties: { enabled: { type: 'boolean' }, url: { type: ['string', 'null'] } } }) },
+    },
+    post: {
+      tags: ['Recepción'],
+      summary: 'Activar la recepción',
+      operationId: 'enableInbound',
+      description: 'Crea una URL secreta nueva; la anterior, si la había, deja de funcionar.',
+      responses: { 200: ok('La URL.', { type: 'object', properties: { enabled: { type: 'boolean' }, url: { type: 'string' } } }) },
+    },
+    delete: {
+      tags: ['Recepción'],
+      summary: 'Desactivar la recepción',
+      operationId: 'disableInbound',
+      responses: { 204: { description: 'Desactivada: la URL deja de funcionar.' } },
+    },
+  },
+  '/v1/project/inbound/emails': {
+    get: {
+      tags: ['Recepción'],
+      summary: 'Correos recibidos',
+      operationId: 'listInboundEmails',
+      parameters: [query('before', 'Fecha ISO: anteriores (paginación).', { type: 'string', format: 'date-time' }), query('limit', 'Hasta 100 (25 por defecto).', { type: 'integer' })],
+      responses: { 200: ok('Los más recientes primero.', list('InboundEmail')) },
+    },
+  },
+  '/v1/project/inbound/emails/{id}': {
+    get: {
+      tags: ['Recepción'],
+      summary: 'Un correo recibido',
+      operationId: 'getInboundEmail',
+      parameters: [id('id', 'Id del correo (`inb_…`).')],
+      responses: { 200: ok('El correo.', ref('InboundEmail')), 404: notFound },
+    },
+  },
   '/v1/project/requests': {
     get: {
       tags: ['Proyecto'],
@@ -1194,5 +1260,5 @@ export const UNDOCUMENTED = [
   'POST /v1/inbound/managed/:token',
   'GET /v1/admin/plans', 'PATCH /v1/admin/plans/:projectId',
   'GET /v1/project/webhook/endpoints/:id/secret', 'POST /v1/project/webhook/endpoints/:id/secret/rotate',
-  'GET /openapi.json', 'GET /u/:token', 'POST /u/:token', 'GET /t/o/:token', 'GET /t/c/:token',
+  'GET /openapi.json', 'GET /u/:token', 'POST /u/:token', 'POST /v1/inbound/email/:token', 'GET /t/o/:token', 'GET /t/c/:token',
 ];

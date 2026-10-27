@@ -1,9 +1,26 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import type { Mode, Project, SimEvent, WebhookAttempt } from '../domain.js';
+import type { InboundEmail, Mode, Project, SimEvent, WebhookAttempt } from '../domain.js';
 import type { SimStore } from '../store/store.js';
 
 export const WEBHOOK_DISPATCHER = Symbol.for('relayo-sim:webhooks');
 export const SIGNATURE_HEADER = 'relayo-signature';
+
+/** The webhook of a received email: the email, with the fields every event has. */
+export type InboundPayload = Omit<InboundEmail, 'projectId' | 'createdAt'> & {
+  type: 'inbound';
+  channel: 'email';
+  provider: 'relayo';
+  /** The Relayo id of the message it answers, or its own id. */
+  messageId: string;
+  /** Its first `to` address. */
+  recipient: string;
+  timestamp: Date;
+  metadata?: Record<string, string>;
+  projectId: string;
+};
+
+/** What a webhook carries: an event about a message, or a received email. */
+export type WebhookPayload = SimEvent | InboundPayload;
 
 /** Where an event goes: the main webhook URL, or an extra endpoint (`endpointId`). */
 export interface WebhookTarget {
@@ -24,14 +41,19 @@ export const WEBHOOK_EVENT_TYPES = [
   'clicked',
   'unsubscribed',
   'failed',
-] as const satisfies ReadonlyArray<SimEvent['type']>;
+  'inbound',
+] as const satisfies ReadonlyArray<SimEvent['type'] | 'inbound'>;
 
-/** Every URL an event of a project goes to: the main one, and the enabled endpoints that want it. */
-export async function webhookTargets(store: SimStore, project: Project, event: SimEvent, mode: Mode): Promise<WebhookTarget[]> {
-  const targets: WebhookTarget[] = project.webhookUrl ? [{ url: project.webhookUrl, secret: project.webhookSecret }] : [];
+/**
+ * Every URL an event of a project goes to: the main one, and the enabled endpoints that want it. Received
+ * emails only go to the endpoints that ask for `inbound` by name.
+ */
+export async function webhookTargets(store: SimStore, project: Project, event: WebhookPayload, mode: Mode): Promise<WebhookTarget[]> {
+  const inbound = event.type === 'inbound';
+  const targets: WebhookTarget[] = project.webhookUrl && !inbound ? [{ url: project.webhookUrl, secret: project.webhookSecret }] : [];
   for (const endpoint of await store.listWebhookEndpoints(project.id)) {
     if (!endpoint.enabled || (endpoint.mode && endpoint.mode !== mode)) continue;
-    if (endpoint.events?.length && !endpoint.events.includes(event.type)) continue;
+    if (inbound ? !endpoint.events?.includes('inbound') : endpoint.events?.length && !endpoint.events.includes(event.type)) continue;
     targets.push({ url: endpoint.url, secret: endpoint.secret, endpointId: endpoint.id });
   }
   return targets;
@@ -39,12 +61,12 @@ export async function webhookTargets(store: SimStore, project: Project, event: S
 
 /** Sends events to a project's webhook URLs, retrying failures. */
 export interface WebhookDispatcher {
-  dispatch(event: SimEvent, target: WebhookTarget): Promise<void>;
+  dispatch(event: WebhookPayload, target: WebhookTarget): Promise<void>;
   stop(): Promise<void>;
 }
 
 /** The JSON body of a webhook: one Relayo event, without the internal project id. */
-export function webhookBody(event: SimEvent): string {
+export function webhookBody(event: WebhookPayload): string {
   const { projectId: _projectId, ...rest } = event;
   return JSON.stringify(rest);
 }
@@ -79,7 +101,7 @@ export interface DeliveryResult {
 
 /** POSTs one event and says what happened. Never throws: a failure is a result. */
 export async function attemptWebhook(
-  event: SimEvent,
+  event: WebhookPayload,
   target: { url: string; secret: string },
   doFetch = fetch,
   extraHeaders: Record<string, string> = {},
@@ -112,7 +134,7 @@ export async function attemptWebhook(
 }
 
 /** POSTs one event. Throws on network errors and non-2xx answers so the caller can retry. */
-export async function deliverWebhook(event: SimEvent, target: { url: string; secret: string }, doFetch = fetch): Promise<void> {
+export async function deliverWebhook(event: WebhookPayload, target: { url: string; secret: string }, doFetch = fetch): Promise<void> {
   const result = await attemptWebhook(event, target, doFetch);
   if (!result.ok) throw new Error(result.error ?? `Webhook answered ${result.statusCode}`);
 }
@@ -131,7 +153,7 @@ export type WebhookLog = (attempt: WebhookAttempt) => Promise<void>;
 
 /** The log entry for one try of an event. */
 export function attemptRecord(
-  event: SimEvent,
+  event: WebhookPayload,
   target: Pick<WebhookTarget, 'url' | 'endpointId'>,
   result: DeliveryResult,
   info: Pick<WebhookAttempt, 'attempt' | 'maxAttempts' | 'trigger' | 'willRetry'>,
@@ -167,7 +189,7 @@ export const DEFAULT_RETRY: RetryPolicy = { attempts: 8, delayMs: (retry) => 10_
 /** In-process dispatcher with retries on timers. Lost on restart; fine for tests and local runs. */
 export class MemoryDispatcher implements WebhookDispatcher {
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
-  readonly failures: Array<{ event: SimEvent; error: unknown }> = [];
+  readonly failures: Array<{ event: WebhookPayload; error: unknown }> = [];
 
   constructor(
     private readonly retry: RetryPolicy = DEFAULT_RETRY,
@@ -175,7 +197,7 @@ export class MemoryDispatcher implements WebhookDispatcher {
     private readonly log?: WebhookLog,
   ) {}
 
-  async dispatch(event: SimEvent, target: WebhookTarget): Promise<void> {
+  async dispatch(event: WebhookPayload, target: WebhookTarget): Promise<void> {
     const attempt = async (n: number): Promise<void> => {
       const result = await attemptWebhook(event, target, this.doFetch);
       const willRetry = !result.ok && n < this.retry.attempts;

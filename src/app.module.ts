@@ -14,6 +14,8 @@ import { AdminGuard, PlatformAdminGuard, ProjectGuard, SessionGuard } from './ap
 import { ActivityLog } from './api/activity.js';
 import { UnsubscribeController } from './api/unsubscribe.js';
 import { TrackingController } from './api/tracking.js';
+import { InboundEmailController, ProjectInboundController } from './api/inbound.js';
+import { InboundService } from './inbound/inbound.js';
 import { LinkSigner } from './live/links.js';
 import { DeliverabilityAlerts } from './analytics/deliverability.js';
 import { BatchSends } from './api/batch.js';
@@ -190,6 +192,8 @@ export class AppModule {
         ManagedReviewController,
         UnsubscribeController,
         TrackingController,
+        InboundEmailController,
+        ProjectInboundController,
         WebhookDeliveriesController,
         TemplatesController,
         ScheduledController,
@@ -251,6 +255,11 @@ export class AppModule {
         ScheduledSends,
         ActivityLog,
         BatchSends,
+        {
+          provide: InboundService,
+          useFactory: (store: SimStore, dispatcher: WebhookDispatcher) => new InboundService(store, dispatcher),
+          inject: [SIM_STORE, WEBHOOK_DISPATCHER],
+        },
         ProjectGuard,
         SessionGuard,
         AdminGuard,

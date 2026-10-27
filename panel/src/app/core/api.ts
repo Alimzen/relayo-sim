@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { Deliverability, DeliverabilityGroup, WebhookEndpoint, AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { InboundEmail, ProjectInbound, Deliverability, DeliverabilityGroup, WebhookEndpoint, AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -122,6 +122,11 @@ export class Api {
   revokeKey = (id: string) => this.call<void>('DELETE', `/v1/project/keys/${encodeURIComponent(id)}`);
   webhookSecret = () => this.call<{ webhookSecret: string }>('GET', '/v1/project/webhook-secret');
   rotateWebhookSecret = () => this.call<{ webhookSecret: string }>('POST', '/v1/project/webhook-secret/rotate');
+  inbound = () => this.call<ProjectInbound>('GET', '/v1/project/inbound');
+  enableInbound = () => this.call<ProjectInbound>('POST', '/v1/project/inbound');
+  disableInbound = () => this.call<void>('DELETE', '/v1/project/inbound');
+  inboundEmails = (query: { limit?: number; before?: string } = {}) =>
+    this.call<{ data: InboundEmail[] }>('GET', `/v1/project/inbound/emails?${toQuery(query)}`).then((r) => r.data);
   deliverability = (query: { by: DeliverabilityGroup; days: number }) =>
     this.call<Deliverability>('GET', `/v1/project/deliverability?${toQuery(query)}`);
   apiRequests = (query: { limit?: number; before?: string; status?: 'failed' } = {}) =>

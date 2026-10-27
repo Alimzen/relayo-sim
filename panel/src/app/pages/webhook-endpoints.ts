@@ -13,6 +13,7 @@ interface Draft {
   description: string;
   mode: Mode | '';
   events: Partial<Record<EventType, boolean>>;
+  inbound: boolean;
   enabled: boolean;
 }
 
@@ -115,8 +116,12 @@ interface Draft {
                 </label>
               }
             </div>
-            <span class="hint">Sin marcar ninguno, recibe todos.</span>
+            <span class="hint">Sin marcar ninguno, recibe todos los de los mensajes (con «Correos recibidos», solo esos correos).</span>
           </fieldset>
+          <label class="check field">
+            <input type="checkbox" name="inbound" [(ngModel)]="d.inbound" />Correos recibidos (<code>inbound</code>): las respuestas y lo que llegue a
+            la dirección de entrada
+          </label>
           @if (editing()) {
             <label class="check">
               <input type="checkbox" name="enabled" [(ngModel)]="d.enabled" />Activo
@@ -180,13 +185,13 @@ export class WebhookEndpoints {
     return EVENT_LABELS[type];
   }
 
-  protected labels(types: EventType[]): string {
-    return types.map((t) => EVENT_LABELS[t]).join(', ');
+  protected labels(types: Array<EventType | 'inbound'>): string {
+    return types.map((t) => (t === 'inbound' ? 'Recibidos' : EVENT_LABELS[t])).join(', ');
   }
 
   protected add(): void {
     this.editing.set(null);
-    this.draft.set({ url: '', description: '', mode: '', events: {}, enabled: true });
+    this.draft.set({ url: '', description: '', mode: '', events: {}, inbound: false, enabled: true });
   }
 
   protected edit(e: WebhookEndpoint): void {
@@ -195,7 +200,8 @@ export class WebhookEndpoints {
       url: e.url,
       description: e.description ?? '',
       mode: e.mode ?? '',
-      events: Object.fromEntries((e.events ?? []).map((t) => [t, true])),
+      events: Object.fromEntries((e.events ?? []).filter((t) => t !== 'inbound').map((t) => [t, true])),
+      inbound: e.events?.includes('inbound') ?? false,
       enabled: e.enabled,
     });
   }
@@ -203,12 +209,14 @@ export class WebhookEndpoints {
   protected async save(): Promise<void> {
     const d = this.draft();
     if (!d || this.busy()) return;
-    const events = EVENT_TYPES.filter((t) => d.events[t]);
+    const picked = EVENT_TYPES.filter((t) => d.events[t]);
+    // Received emails only with their box; ticked alone, the endpoint gets only them.
+    const events: Array<EventType | 'inbound'> | null = d.inbound ? [...picked, 'inbound'] : picked.length ? picked : null;
     const body = {
       url: d.url.trim(),
       description: d.description.trim() || null,
       mode: d.mode || null,
-      events: events.length ? events : null,
+      events,
       ...(this.editing() && { enabled: d.enabled }),
     };
     await this.run(async () => {

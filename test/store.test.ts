@@ -707,6 +707,46 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listMessages('prj_1', { limit: 10, status: 'bounced' })).map((m) => m.id)).toEqual(['sim_1']);
   });
 
+  it('keeps received emails, finds the project by its inbound token and the message a reply names', async () => {
+    const store = await open();
+    await store.createProject(project());
+    await store.updateProject('prj_1', { inboundToken: 'inb_secret' });
+    expect((await store.findProjectByInboundToken('inb_secret'))?.id).toBe('prj_1');
+    expect(await store.findProjectByInboundToken('inb_other')).toBeUndefined();
+
+    await store.saveMessage(message('m_1', '2026-10-18T10:00:00Z', { headers: { 'message-id': '<abc@empresa.com>' } }));
+    await store.saveMessage(message('m_2', '2026-10-18T11:00:00Z', { mode: 'live', delivery: { connectionId: 'c', provider: 'managed', providerMessageId: '0100018abc' } }));
+    expect((await store.findMessageByReference('prj_1', ['<abc@empresa.com>']))?.id).toBe('m_1');
+    expect((await store.findMessageByReference('prj_1', ['x', '0100018abc']))?.id).toBe('m_2');
+    expect(await store.findMessageByReference('prj_1', ['nada'])).toBeUndefined();
+    expect(await store.findMessageByReference('prj_other', ['0100018abc'])).toBeUndefined();
+
+    const email = (id: string, at: string) => ({
+      id,
+      projectId: 'prj_1',
+      from: 'ana@cliente.com',
+      to: ['pedidos@empresa.com'],
+      subject: 'Re: hola',
+      text: 'gracias',
+      replyTo: { messageId: 'm_1', relayoId: 'm_1' },
+      attachments: [{ filename: 'a.csv', contentType: 'text/csv', size: 3 }],
+      headers: { 'message-id': '<r@cliente.com>' },
+      size: 120,
+      createdAt: new Date(at),
+    });
+    await store.saveInbound(email('inb_1', '2026-10-18T10:00:00Z'));
+    await store.saveInbound(email('inb_2', '2026-10-18T12:00:00Z'));
+    expect((await store.listInbound('prj_1', { limit: 10 })).map((e) => e.id)).toEqual(['inb_2', 'inb_1']);
+    expect((await store.listInbound('prj_1', { limit: 10, before: new Date('2026-10-18T11:00:00Z') })).map((e) => e.id)).toEqual(['inb_1']);
+    expect(await store.getInbound('prj_1', 'inb_1')).toEqual(email('inb_1', '2026-10-18T10:00:00Z'));
+    expect(await store.getInbound('prj_other', 'inb_1')).toBeUndefined();
+
+    await store.purge(new Date('2026-10-18T11:00:00Z'));
+    expect((await store.listInbound('prj_1', { limit: 10 })).map((e) => e.id)).toEqual(['inb_2']);
+    await store.updateProject('prj_1', { inboundToken: null });
+    expect(await store.findProjectByInboundToken('inb_secret')).toBeUndefined();
+  });
+
   it('groups events by recipient domain, template and tag, once per recipient', async () => {
     const store = await open();
     await store.createProject(project());

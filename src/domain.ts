@@ -150,6 +150,8 @@ export interface Project {
   limits?: ProjectLimits;
   /** What Relayo adds to the project's live emails. */
   options?: ProjectOptions;
+  /** Secret of the project's inbound URL (`/v1/inbound/email/<token>`), when receiving is on. */
+  inboundToken?: string;
   createdAt: Date;
 }
 
@@ -286,7 +288,8 @@ export interface WebhookAttempt {
   id: string;
   projectId: string;
   eventId: string;
-  eventType: SimEvent['type'];
+  /** `inbound` for a received email. */
+  eventType: SimEvent['type'] | 'inbound';
   recipient: string;
   url: string;
   /** The extra endpoint it went to; absent for the project's main webhook URL. */
@@ -375,10 +378,33 @@ export interface WebhookEndpoint {
   /** Its own signing secret (`whsec_…`). */
   secret: string;
   description?: string;
-  /** The event types it gets; absent means all. */
-  events?: Array<SimEvent['type']>;
+  /** The event types it gets; absent means all of them but `inbound`, which an endpoint asks for by name. */
+  events?: Array<SimEvent['type'] | 'inbound'>;
   /** Only the events of one mode; absent means both. */
   mode?: Mode;
   enabled: boolean;
+  createdAt: Date;
+}
+
+/** An email received for a project: a reply to one it sent, or anything sent to its inbound address. */
+export interface InboundEmail {
+  id: string;
+  projectId: string;
+  from: string;
+  fromName?: string;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  /** Its `Message-ID` header. */
+  messageIdHeader?: string;
+  inReplyTo?: string;
+  /** The message it answers, when its In-Reply-To or References name one the project sent. */
+  replyTo?: { messageId: string; relayoId: string; metadata?: Record<string, string> };
+  attachments: Array<{ filename: string; contentType: string; size: number }>;
+  /** Threading and routing headers (Message-ID, In-Reply-To, References, Reply-To, Date, List-Id, X-…). */
+  headers: Record<string, string>;
+  size: number;
   createdAt: Date;
 }

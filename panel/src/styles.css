@@ -2303,6 +2303,14 @@ pre {
   max-width: 280px;
 }
 
+/* Provider instructions, one per line. */
+.hints {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
 /* A grid of checkboxes (webhook endpoint events). */
 .check-grid {
   display: grid;

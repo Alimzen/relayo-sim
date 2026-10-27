@@ -62,8 +62,12 @@ async function bootstrap(): Promise<void> {
 
   // API sends carry attachments in base64: room for a 25 MB message.
   app.useBodyParser('json', { limit: '35mb' });
-  // Amazon SNS posts its JSON as text/plain.
-  app.useBodyParser('text', { type: 'text/plain', limit: '1mb' });
+  // Amazon SNS posts its JSON as text/plain (received emails included: room for them).
+  app.useBodyParser('text', { type: 'text/plain', limit: '35mb' });
+  // Received emails posted as they are.
+  app.useBodyParser('raw', { type: 'message/rfc822', limit: '35mb' });
+  // Mailgun routes post their fields (the whole email in body-mime) form-encoded.
+  app.useBodyParser('urlencoded', { extended: false, limit: '35mb' });
 
   // --- Landing and panel --------------------------------------------------------------------------
 
