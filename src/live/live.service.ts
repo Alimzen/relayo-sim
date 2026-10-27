@@ -45,6 +45,8 @@ export interface LiveEmail {
   raw?: Buffer;
   /** Original headers, shown in the panel. */
   headers?: Record<string, string>;
+  /** The saved template it was sent with. */
+  template?: string;
 }
 
 /** What the panel shows of a connection: never its secrets. */
@@ -82,6 +84,8 @@ export class LiveService {
     private readonly publicUrl?: string,
     /** Signs the links put in emails (unsubscribe); without it they are left out. */
     private readonly links?: LinkSigner,
+    /** Told about bounces and complaints, to warn the project when they pile up. */
+    private readonly alerts?: { check(project: Project): Promise<unknown> },
   ) {}
 
   /** The providers a project can connect here, Relayo's own sending first when it is offered. */
@@ -371,6 +375,7 @@ export class LiveService {
       ...(input.relayoMessageId && { relayoMessageId: input.relayoMessageId }),
       ...(message.metadata && { metadata: message.metadata }),
       ...(message.tags?.length && { tags: message.tags }),
+      ...(input.template && { template: input.template }),
       ...(input.headers && Object.keys(input.headers).length && { headers: input.headers }),
       ...(input.raw && { size: input.raw.length }),
     };
@@ -444,6 +449,7 @@ export class LiveService {
       relayoMessageId?: string;
       metadata?: Record<string, string>;
       tags?: string[];
+      template?: string;
       /** WhatsApp's approved template (Twilio). */
       whatsapp?: { contentSid?: string; contentVariables?: Record<string, string> };
     },
@@ -477,6 +483,7 @@ export class LiveService {
       ...(input.relayoMessageId && { relayoMessageId: input.relayoMessageId }),
       ...(input.metadata && { metadata: input.metadata }),
       ...(input.tags?.length && { tags: input.tags }),
+      ...(input.template && { template: input.template }),
     };
     await this.store.saveMessage(stored);
 
@@ -755,6 +762,9 @@ export class LiveService {
     for (const event of events) {
       await this.store.addEvent(event);
       for (const target of await webhookTargets(this.store, project, event, 'live')) await this.webhooks.dispatch(event, target);
+    }
+    if (this.alerts && events.some((e) => e.type === 'bounced' || e.type === 'complained')) {
+      void this.alerts.check(project).catch(() => undefined);
     }
   }
 }

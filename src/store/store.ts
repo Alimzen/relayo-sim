@@ -217,6 +217,14 @@ export interface SimStore {
   /** Attempts since a date: how many got a 2xx and how many did not. */
   webhookStats(projectId: string, since: Date): Promise<{ ok: number; failed: number }>;
   stats(projectId: string, since: Date, mode?: Mode): Promise<ProjectStats>;
+  /**
+   * Events since a date grouped by the recipient's domain (emails only), the template or each tag: per group,
+   * how many recipients had each type of event. The `limit` groups with most accepted recipients.
+   */
+  deliverability(
+    projectId: string,
+    query: { since: Date; mode: Mode; by: 'domain' | 'template' | 'tag'; limit: number },
+  ): Promise<Array<{ key: string; counts: Partial<Record<SimEvent['type'], number>> }>>;
 
   /** Adds one message to a project's usage for a month (`2026-10`) and returns the new total. */
   incrementUsage(projectId: string, month: string): Promise<number>;

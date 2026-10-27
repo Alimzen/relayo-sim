@@ -653,6 +653,35 @@ export class MemoryStore implements SimStore {
     return stats;
   }
 
+  async deliverability(
+    projectId: string,
+    query: { since: Date; mode: Mode; by: 'domain' | 'template' | 'tag'; limit: number },
+  ): Promise<Array<{ key: string; counts: Partial<Record<SimEvent['type'], number>> }>> {
+    const groups = new Map<string, Map<SimEvent['type'], Set<string>>>();
+    for (const message of this.messages.values()) {
+      if (message.projectId !== projectId || (message.mode ?? 'test') !== query.mode) continue;
+      if (query.by === 'domain' && message.channel === 'sms') continue;
+      for (const event of this.eventsOf(message.id)) {
+        if (event.timestamp < query.since) continue;
+        const recipient = event.recipient.toLowerCase();
+        const keys =
+          query.by === 'domain' ? [recipient.split('@')[1] ?? ''] : query.by === 'template' ? [message.template ?? ''] : (message.tags ?? []);
+        for (const key of keys) {
+          if (!key) continue;
+          const types = groups.get(key) ?? new Map<SimEvent['type'], Set<string>>();
+          groups.set(key, types);
+          const seen = types.get(event.type) ?? new Set<string>();
+          types.set(event.type, seen);
+          seen.add(`${message.id}|${recipient}`);
+        }
+      }
+    }
+    return [...groups.entries()]
+      .map(([key, types]) => ({ key, counts: Object.fromEntries([...types].map(([type, seen]) => [type, seen.size])) }))
+      .sort((a, b) => (b.counts.accepted ?? 0) - (a.counts.accepted ?? 0))
+      .slice(0, query.limit);
+  }
+
   async nextAttempt(key: string, ttlMs: number): Promise<number> {
     const now = Date.now();
     const current = this.attempts.get(key);

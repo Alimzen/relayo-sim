@@ -163,6 +163,36 @@ export interface ApiRequestLog {
   createdAt: string;
 }
 
+export type DeliverabilityGroup = 'domain' | 'template' | 'tag';
+
+export interface DeliverabilityAlert {
+  kind: 'bounces' | 'complaints';
+  level: 'warning' | 'critical';
+  rate: number;
+  threshold: number;
+}
+
+export interface DeliverabilityRow {
+  key: string;
+  sent: number;
+  delivered: number;
+  bounced: number;
+  complained: number;
+  opened: number;
+  clicked: number;
+  unsubscribed: number;
+  /** Bounces over sent; complaints, opens and clicks over delivered. */
+  rates: { delivery: number | null; bounce: number | null; complaint: number | null; open: number | null; click: number | null };
+}
+
+export interface Deliverability {
+  since: string;
+  by: DeliverabilityGroup;
+  overall: DeliverabilityRow;
+  alerts: DeliverabilityAlert[];
+  data: Array<DeliverabilityRow & { alerts: DeliverabilityAlert[] }>;
+}
+
 export interface ManagedRequest {
   project: Project;
   owner: { email: string; name: string; createdAt: string } | null;

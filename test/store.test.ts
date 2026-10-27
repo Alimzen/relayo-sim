@@ -707,6 +707,43 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listMessages('prj_1', { limit: 10, status: 'bounced' })).map((m) => m.id)).toEqual(['sim_1']);
   });
 
+  it('groups events by recipient domain, template and tag, once per recipient', async () => {
+    const store = await open();
+    await store.createProject(project());
+    const to = (address: string) => [{ address, scenario: { name: 'delivered', source: 'default' as const } }];
+    await store.saveMessage(message('m_1', '2026-10-18T10:00:00Z', { mode: 'live', recipients: to('ana@gmail.com'), tags: ['boletin', 'otoño'], template: 'oferta' }));
+    await store.saveMessage(message('m_2', '2026-10-18T10:00:00Z', { mode: 'live', recipients: to('luis@Gmail.com'), tags: ['boletin'] }));
+    await store.saveMessage(message('m_3', '2026-10-18T10:00:00Z', { mode: 'live', recipients: to('eva@outlook.com'), template: 'oferta' }));
+    await store.saveMessage(message('m_4', '2026-10-18T10:00:00Z', { recipients: to('test@gmail.com') }));
+    const add = async (id: string, messageId: string, type: SimEvent['type'], recipient: string, at = '2026-10-18T10:01:00Z') =>
+      store.addEvent({ ...event(id, messageId, type, at), recipient });
+    await add('e1', 'm_1', 'accepted', 'ana@gmail.com');
+    await add('e2', 'm_1', 'delivered', 'ana@gmail.com');
+    await add('e3', 'm_1', 'opened', 'ana@gmail.com');
+    await add('e3b', 'm_1', 'opened', 'ana@gmail.com', '2026-10-18T11:00:00Z');
+    await add('e4', 'm_2', 'accepted', 'luis@Gmail.com');
+    await add('e5', 'm_2', 'bounced', 'luis@Gmail.com');
+    await add('e6', 'm_3', 'accepted', 'eva@outlook.com');
+    await add('e7', 'm_4', 'accepted', 'test@gmail.com');
+    await add('e8', 'm_3', 'delivered', 'eva@outlook.com', '2026-10-01T00:00:00Z');
+    const since = new Date('2026-10-18T00:00:00Z');
+
+    expect(await store.deliverability('prj_1', { since, mode: 'live', by: 'domain', limit: 10 })).toEqual([
+      { key: 'gmail.com', counts: { accepted: 2, delivered: 1, opened: 1, bounced: 1 } },
+      { key: 'outlook.com', counts: { accepted: 1 } },
+    ]);
+    expect(await store.deliverability('prj_1', { since, mode: 'live', by: 'template', limit: 10 })).toEqual([
+      { key: 'oferta', counts: { accepted: 2, delivered: 1, opened: 1 } },
+    ]);
+    const tags = await store.deliverability('prj_1', { since, mode: 'live', by: 'tag', limit: 10 });
+    expect(tags.map((t) => [t.key, t.counts.accepted])).toEqual([
+      ['boletin', 2],
+      ['otoño', 1],
+    ]);
+    expect((await store.deliverability('prj_1', { since, mode: 'live', by: 'domain', limit: 1 })).map((g) => g.key)).toEqual(['gmail.com']);
+    expect(await store.deliverability('prj_1', { since, mode: 'test', by: 'domain', limit: 10 })).toEqual([{ key: 'gmail.com', counts: { accepted: 1 } }]);
+  });
+
   it('counts messages, events and bounces by type and day', async () => {
     const store = await open();
     await store.createProject(project());

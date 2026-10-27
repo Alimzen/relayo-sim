@@ -56,6 +56,8 @@ export interface IncomingMessage {
   relayoMessageId?: string;
   metadata?: Record<string, string>;
   tags?: string[];
+  /** The saved template it was sent with. */
+  template?: string;
   /** Value of `X-Sim-Scenario`, applied to every recipient. */
   scenarioHeader?: string;
   /** SMTP envelope sender, when different from `from`. */
@@ -77,6 +79,7 @@ export interface IncomingSms {
   tags?: string[];
   /** Scenario for every recipient, instead of the magic numbers. */
   scenario?: string;
+  template?: string;
 }
 
 /** Ties scenarios, storage, scheduling and webhooks together. */
@@ -236,6 +239,7 @@ export class SimulationService {
         ...(input.relayoMessageId && { relayoMessageId: input.relayoMessageId }),
         ...(input.metadata && { metadata: input.metadata }),
         ...(input.tags && { tags: input.tags }),
+        ...(input.template && { template: input.template }),
       },
       recipients,
       'api',
@@ -312,6 +316,7 @@ export class SimulationService {
       ...(input.relayoMessageId && { relayoMessageId: input.relayoMessageId }),
       ...(input.metadata && { metadata: input.metadata }),
       ...(input.tags?.length && { tags: input.tags }),
+      ...(input.template && { template: input.template }),
       ...(input.envelopeFrom && input.envelopeFrom !== input.from && { envelopeFrom: input.envelopeFrom }),
       ...(input.headers && Object.keys(input.headers).length && { headers: input.headers }),
       ...(input.raw && { size: input.raw.length }),

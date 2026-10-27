@@ -864,6 +864,49 @@ const paths = {
       responses: { 200: ok('El nuevo intento.', ref('WebhookDelivery')), 400: error('Sin URL de webhook, o el evento ya se borró por retención.'), 404: notFound },
     },
   },
+  '/v1/project/deliverability': {
+    get: {
+      tags: ['Proyecto'],
+      summary: 'Entregabilidad',
+      operationId: 'getDeliverability',
+      description:
+        'Cómo llegan los envíos del modo de la clave, por dominio del destinatario, plantilla o etiqueta (los 100 grupos con más envíos). Los rebotes se cuentan sobre lo enviado; quejas, aperturas y clics, sobre lo entregado. Con 50 envíos o más, `alerts` avisa de rebotes desde el 2 % (crítico el 5 %) y quejas desde el 0,1 % (crítico el 0,3 %).',
+      parameters: [
+        query('by', 'Cómo agrupar.', { type: 'string', enum: ['domain', 'template', 'tag'] }),
+        query('days', 'Días hacia atrás, de 1 a 90 (7 por defecto).', { type: 'integer' }),
+      ],
+      responses: {
+        200: ok('Totales, avisos y una fila por grupo.', {
+          type: 'object',
+          properties: {
+            since: { type: 'string', format: 'date-time' },
+            by: { type: 'string' },
+            overall: { type: 'object', description: 'Lo mismo que una fila, para todo el proyecto.' },
+            alerts: { type: 'array', items: { type: 'object', properties: { kind: { type: 'string', enum: ['bounces', 'complaints'] }, level: { type: 'string', enum: ['warning', 'critical'] }, rate: { type: 'number' }, threshold: { type: 'number' } } } },
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string' },
+                  sent: { type: 'integer' },
+                  delivered: { type: 'integer' },
+                  bounced: { type: 'integer' },
+                  complained: { type: 'integer' },
+                  opened: { type: 'integer' },
+                  clicked: { type: 'integer' },
+                  unsubscribed: { type: 'integer' },
+                  rates: { type: 'object', description: '`delivery`, `bounce`, `complaint`, `open`, `click`: de 0 a 1, o `null` sin base.' },
+                  alerts: { type: 'array', items: { type: 'object' } },
+                },
+              },
+            },
+          },
+        }),
+        400: badRequest,
+      },
+    },
+  },
   '/v1/project/requests': {
     get: {
       tags: ['Proyecto'],

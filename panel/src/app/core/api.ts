@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { WebhookEndpoint, AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { Deliverability, DeliverabilityGroup, WebhookEndpoint, AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -122,6 +122,8 @@ export class Api {
   revokeKey = (id: string) => this.call<void>('DELETE', `/v1/project/keys/${encodeURIComponent(id)}`);
   webhookSecret = () => this.call<{ webhookSecret: string }>('GET', '/v1/project/webhook-secret');
   rotateWebhookSecret = () => this.call<{ webhookSecret: string }>('POST', '/v1/project/webhook-secret/rotate');
+  deliverability = (query: { by: DeliverabilityGroup; days: number }) =>
+    this.call<Deliverability>('GET', `/v1/project/deliverability?${toQuery(query)}`);
   apiRequests = (query: { limit?: number; before?: string; status?: 'failed' } = {}) =>
     this.call<{ data: ApiRequestLog[] }>('GET', `/v1/project/requests?${toQuery(query)}`).then((r) => r.data);
   audit = (query: { limit?: number; before?: string } = {}) =>

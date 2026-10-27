@@ -193,6 +193,7 @@ export class SendingService {
         this.live.sendEmail(project, {
           via: 'api',
           raw,
+          ...(typeof input.template === 'string' && { template: input.template }),
           headers: quotedHeaders(readHeaders(raw.toString('utf8'))),
           ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
           message: {
@@ -230,6 +231,7 @@ export class SendingService {
       ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
       ...(body.metadata && { metadata: body.metadata }),
       ...(body.tags && { tags: body.tags }),
+      ...(typeof input.template === 'string' && { template: input.template }),
       ...(scenarioHeader && { scenarioHeader }),
     });
     return { id: message.id, status: 'queued', recipients: message.recipients };
@@ -280,6 +282,7 @@ export class SendingService {
           ...(body.relayoMessageId && { relayoMessageId: body.relayoMessageId }),
           ...(body.metadata && { metadata: body.metadata }),
           ...(body.tags && { tags: body.tags }),
+          ...(typeof input.template === 'string' && { template: input.template }),
         }),
       );
       return { id: live.id, status: 'queued', recipients: live.recipients };
@@ -293,6 +296,7 @@ export class SendingService {
       ...(body.metadata && { metadata: body.metadata }),
       ...(body.tags && { tags: body.tags }),
       ...(body.scenario && { scenario: body.scenario }),
+      ...(typeof input.template === 'string' && { template: input.template }),
     });
     return { id: message.id, status: 'queued', recipients: message.recipients };
   }

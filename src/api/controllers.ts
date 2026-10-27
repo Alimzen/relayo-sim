@@ -43,6 +43,7 @@ import { liveCall, renderTemplate, SendingService, variablesOf, type SendBody, t
 import { publicKey, publicMessage, publicProject } from './present.js';
 import { ActivityLog, NoAudit } from './activity.js';
 import { BatchSends } from './batch.js';
+import { deliverability, type DeliverabilityGroup } from '../analytics/deliverability.js';
 
 const EVENT_TYPES: ReadonlySet<string> = new Set<SimEvent['type']>([
   'accepted', 'delivered', 'deferred', 'bounced', 'complained', 'rejected', 'opened', 'clicked', 'unsubscribed', 'failed',
@@ -791,6 +792,22 @@ export class ActivityController {
       ...(key && { keyId: key }),
     });
     return { data: requests.map(({ projectId: _p, ...rest }) => rest) };
+  }
+}
+
+/** How the project's sending is doing: by recipient domain, template or tag, with the rates that need watching. */
+@Controller('v1/project/deliverability')
+@UseGuards(ProjectGuard)
+export class DeliverabilityController {
+  constructor(@Inject(SIM_STORE) private readonly store: SimStore) {}
+
+  /** The last `days` (1 to 90, 7 by default) of the mode it is asked in, split `by` domain, template or tag. */
+  @Get()
+  async get(@CurrentProject() project: Project, @CurrentMode() mode: Mode, @Query('by') by?: string, @Query('days') days?: string) {
+    const group: DeliverabilityGroup = by === 'template' || by === 'tag' ? by : 'domain';
+    if (by !== undefined && by !== group) throw new BadRequestException('"by" must be domain, template or tag');
+    const span = Math.min(90, Math.max(1, Math.floor(Number(days) || 7)));
+    return deliverability(this.store, project, { since: new Date(Date.now() - span * 86_400_000), mode, by: group });
   }
 }
 

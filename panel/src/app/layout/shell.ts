@@ -24,6 +24,7 @@ import {
   LucideUser,
   LucideUsers,
   LucideHistory,
+  LucideGauge,
   LucideWebhook,
 } from '@lucide/angular';
 import { Api } from '../core/api';
@@ -63,6 +64,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
     LucideUser,
     LucideUsers,
     LucideHistory,
+    LucideGauge,
     LucideWebhook,
   ],
   host: { '(document:click)': 'outside($event)', '(document:keydown.escape)': 'closeMenus()' },
@@ -126,6 +128,7 @@ import { Brand, CopyButton, Modal, Toasts } from '../ui/ui';
         <nav>
           <a class="nav-link" routerLink="/overview" routerLinkActive="active"><svg lucideLayoutDashboard [size]="16"></svg>Resumen</a>
           <a class="nav-link" routerLink="/messages" routerLinkActive="active"><svg lucideMail [size]="16"></svg>Mensajes</a>
+          <a class="nav-link" routerLink="/deliverability" routerLinkActive="active"><svg lucideGauge [size]="16"></svg>Entregabilidad</a>
           <a class="nav-link" routerLink="/send" routerLinkActive="active"><svg lucideSend [size]="16"></svg>Enviar</a>
           <a class="nav-link" routerLink="/templates" routerLinkActive="active"><svg lucideFileText [size]="16"></svg>Plantillas</a>
           <a class="nav-link" routerLink="/scheduled" routerLinkActive="active"><svg lucideClock [size]="16"></svg>Programados</a>

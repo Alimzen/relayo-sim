@@ -15,6 +15,7 @@ import { ActivityLog } from './api/activity.js';
 import { UnsubscribeController } from './api/unsubscribe.js';
 import { TrackingController } from './api/tracking.js';
 import { LinkSigner } from './live/links.js';
+import { DeliverabilityAlerts } from './analytics/deliverability.js';
 import { BatchSends } from './api/batch.js';
 import {
   AdminController,
@@ -29,6 +30,7 @@ import {
   InvitesController,
   OpenApiController,
   ActivityController,
+  DeliverabilityController,
   PlansController,
   ScheduledController,
   TeamController,
@@ -174,6 +176,7 @@ export class AppModule {
         HealthController,
         OpenApiController,
         ActivityController,
+        DeliverabilityController,
         PlansController,
         ScenariosController,
         AuthController,
@@ -226,15 +229,16 @@ export class AppModule {
         },
         {
           provide: LiveService,
-          useFactory: (store: SimStore, dispatcher: WebhookDispatcher) => {
+          useFactory: (store: SimStore, dispatcher: WebhookDispatcher, accounts: AccountsService) => {
             const box = config.secretsKey ? new SecretBox(config.secretsKey, config.previousSecretsKeys) : undefined;
             const identities = config.managed?.sesRegion ? new SesIdentities(config.managed.sesRegion) : undefined;
             const managed = config.managed && box ? new ManagedSending(store, box, config.managed, undefined, identities) : undefined;
             const publicUrl = config.publicUrl ?? `http://localhost:${config.httpPort}`;
             const links = config.secretsKey ? new LinkSigner(config.secretsKey, publicUrl) : undefined;
-            return new LiveService(store, dispatcher, box, managed, config.publicUrl, links);
+            const alerts = new DeliverabilityAlerts(store, (mail) => accounts.deliver(mail), publicUrl);
+            return new LiveService(store, dispatcher, box, managed, config.publicUrl, links, alerts);
           },
-          inject: [SIM_STORE, WEBHOOK_DISPATCHER],
+          inject: [SIM_STORE, WEBHOOK_DISPATCHER, AccountsService],
         },
         { provide: TemplatesService, useFactory: (store: SimStore) => new TemplatesService(store), inject: [SIM_STORE] },
         SendingService,

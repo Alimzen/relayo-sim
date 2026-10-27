@@ -77,6 +77,7 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'ema
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS body text;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'test';
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivery jsonb;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS template text;
 CREATE INDEX IF NOT EXISTS messages_project_mode_created ON messages (project_id, mode, created_at DESC);
 CREATE TABLE IF NOT EXISTS connections (
   id text PRIMARY KEY,
@@ -330,6 +331,7 @@ interface MessageRow {
   body: string | null;
   mode: Mode;
   delivery: SimMessage['delivery'] | null;
+  template?: string | null;
   created_at: Date;
 }
 
@@ -597,8 +599,8 @@ export class PostgresStore implements SimStore {
 
   async saveMessage(m: SimMessage, raw?: Uint8Array): Promise<void> {
     await this.pool.query(
-      `INSERT INTO messages (id, project_id, via, relayo_message_id, from_address, recipients, subject, metadata, tags, envelope_from, headers, created_at, size, channel, body, mode, delivery)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO messages (id, project_id, via, relayo_message_id, from_address, recipients, subject, metadata, tags, envelope_from, headers, created_at, size, channel, body, mode, delivery, template)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) ON CONFLICT (id) DO NOTHING`,
       [
         m.id,
         m.projectId,
@@ -617,6 +619,7 @@ export class PostgresStore implements SimStore {
         m.body ?? null,
         m.mode ?? 'test',
         m.delivery ? JSON.stringify(m.delivery) : null,
+        m.template ?? null,
       ],
     );
     if (raw) {
@@ -1012,6 +1015,32 @@ export class PostgresStore implements SimStore {
       if (day) day[row.type as 'delivered' | 'bounced' | 'deferred' | 'complained'] += Number(row.count);
     }
     return stats;
+  }
+
+  async deliverability(
+    projectId: string,
+    query: { since: Date; mode: Mode; by: 'domain' | 'template' | 'tag'; limit: number },
+  ): Promise<Array<{ key: string; counts: Partial<Record<SimEvent['type'], number>> }>> {
+    const key = { domain: "split_part(lower(e.recipient), '@', 2)", template: 'm.template', tag: 't.tag' }[query.by];
+    const tags = query.by === 'tag' ? "CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(m.tags, '[]'::jsonb)) AS t(tag)" : '';
+    const channel = query.by === 'domain' ? "AND m.channel = 'email'" : '';
+    // One count per recipient of a message and type: two opens of the same email are one.
+    const { rows } = await this.pool.query<{ key: string; type: SimEvent['type']; count: number }>(
+      `WITH ev AS (
+         SELECT DISTINCT e.message_id, lower(e.recipient) AS recipient, e.type, ${key} AS key
+         FROM events e JOIN messages m ON m.id = e.message_id ${tags}
+         WHERE e.project_id = $1 AND m.project_id = $1 AND e.occurred_at >= $2 AND m.mode = $3 ${channel}
+       ),
+       top AS (
+         SELECT key FROM ev WHERE key IS NOT NULL AND key <> '' GROUP BY key
+         ORDER BY count(*) FILTER (WHERE type = 'accepted') DESC, key LIMIT $4
+       )
+       SELECT ev.key, ev.type, count(*)::int AS count FROM ev JOIN top ON top.key = ev.key GROUP BY ev.key, ev.type`,
+      [projectId, query.since, query.mode, query.limit],
+    );
+    const groups = new Map<string, Partial<Record<SimEvent['type'], number>>>();
+    for (const row of rows) groups.set(row.key, { ...groups.get(row.key), [row.type]: Number(row.count) });
+    return [...groups].map(([k, counts]) => ({ key: k, counts })).sort((a, b) => (b.counts.accepted ?? 0) - (a.counts.accepted ?? 0));
   }
 
   async createConnection(c: Connection): Promise<void> {
@@ -1534,6 +1563,7 @@ function toMessage(row: MessageRow): SimMessage {
     ...(row.body !== null && row.body !== undefined && { body: row.body }),
     ...(row.mode === 'live' && { mode: 'live' as const }),
     ...(row.delivery && { delivery: row.delivery }),
+    ...(row.template && { template: row.template }),
   };
 }
 

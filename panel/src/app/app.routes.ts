@@ -62,6 +62,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/message-detail').then((m) => m.MessageDetailPage),
         title: page('Mensaje'),
       },
+      {
+        path: 'deliverability',
+        loadComponent: () => import('./pages/deliverability').then((m) => m.DeliverabilityPage),
+        title: page('Entregabilidad'),
+      },
       { path: 'send', loadComponent: () => import('./pages/compose').then((m) => m.ComposePage), title: page('Enviar') },
       { path: 'scheduled', loadComponent: () => import('./pages/scheduled').then((m) => m.ScheduledPage), title: page('Programados') },
       { path: 'templates', loadComponent: () => import('./pages/templates').then((m) => m.TemplatesPage), title: page('Plantillas') },
