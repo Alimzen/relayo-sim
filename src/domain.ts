@@ -279,6 +279,11 @@ export interface Template {
   text?: string;
   /** SMS text. */
   body?: string;
+  /**
+   * The visual editor's blocks, when the email was built with it. The panel generates `html` and `text` from
+   * them; the server only keeps them, and sends use `html` and `text` like any other template.
+   */
+  design?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }

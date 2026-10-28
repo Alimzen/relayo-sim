@@ -53,6 +53,19 @@ describe('templates', () => {
     expect(updated).toMatchObject({ subject: 'Hola {{name}}', text: 'Código: {{code}}' });
     expect(updated.html).toBeUndefined();
   });
+
+  it('keeps the visual design of an email, until it is dropped', async () => {
+    const service = new TemplatesService(new MemoryStore());
+    const design = { version: 1, theme: { accent: '#2f5bea' }, blocks: [{ id: 'b1', type: 'heading', text: 'Hola {{nombre}}' }] };
+    const created = await service.create(project, { alias: 'visual', subject: 'Hola', html: '<h1>Hola {{nombre}}</h1>', design });
+    expect(created.design).toEqual(design);
+    // Other changes keep it; null drops it.
+    expect((await service.update(project, 'visual', { subject: 'Otro' })).design).toEqual(design);
+    expect((await service.update(project, 'visual', { design: null })).design).toBeUndefined();
+    await expect(service.create(project, { alias: 'sms', channel: 'sms', body: 'x', design })).rejects.toMatchObject({ status: 400 });
+    await expect(service.create(project, { alias: 'mal', subject: 's', text: 't', design: [1] })).rejects.toMatchObject({ status: 400 });
+    await expect(service.create(project, { alias: 'grande', subject: 's', text: 't', design: { x: 'a'.repeat(200_001) } })).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe('templates in the API', () => {

@@ -2338,3 +2338,136 @@ fieldset.field {
 .block {
   display: block;
 }
+
+/* Visual template editor. */
+.design-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.design-blocks {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.design-block {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 4px 4px 0;
+  background: var(--surface);
+}
+
+.design-block.selected {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+
+.design-block-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.design-block-main .truncate {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.design-block-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.design-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.design-props {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin: 0;
+  min-width: 0;
+}
+
+.design-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.design-colors label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.design-colors input[type='color'] {
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+/* Pre-send checks of an email. */
+.checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.checks li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.checks svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.check-error svg {
+  color: var(--tone-critical);
+}
+
+.check-warning svg {
+  color: var(--tone-warning);
+}
+
+.check-info svg {
+  color: var(--muted);
+}

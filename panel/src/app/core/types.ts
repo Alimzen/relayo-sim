@@ -63,6 +63,8 @@ export interface Template {
   html?: string;
   text?: string;
   body?: string;
+  /** The visual editor's blocks, when the email was built with it. */
+  design?: unknown;
   /** The variables its content uses. */
   variables: string[];
   createdAt: string;

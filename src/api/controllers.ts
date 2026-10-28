@@ -497,7 +497,9 @@ export class TemplatesController {
 
 function publicTemplate(template: Template) {
   const { projectId: _projectId, ...rest } = template;
-  return { ...rest, variables: templateVariables(template.subject, template.html, template.text, template.body) };
+  // The unsubscribe link is filled by Relayo, not by the sender.
+  const variables = templateVariables(template.subject, template.html, template.text, template.body).filter((v) => v !== 'unsubscribe_url');
+  return { ...rest, variables };
 }
 
 /** The project's webhook delivery log: every try, its answer, and redeliveries. */

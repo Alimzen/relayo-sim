@@ -1,22 +1,47 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LucideFileText, LucidePlus, LucideTrash } from '@lucide/angular';
+import { LucideCircleAlert, LucideFileText, LucideInfo, LucidePlus, LucideTrash, LucideTriangleAlert } from '@lucide/angular';
 import { Api } from '../core/api';
 import { timeAgo } from '../core/format';
+import { checkEmail, defaultDesign, designText, readDesign, renderDesign, type EmailDesign } from '../core/email-design';
 import type { Template, TemplatePreview } from '../core/types';
+import { DesignEditor } from '../ui/design-editor';
 import { EmailPreview } from '../ui/email-preview';
 import { CopyButton, EmptyState, Modal, Toasts } from '../ui/ui';
 
-type Draft = { alias: string; name: string; channel: 'email' | 'sms'; subject: string; html: string; text: string; body: string };
+type Draft = {
+  alias: string;
+  name: string;
+  channel: 'email' | 'sms';
+  subject: string;
+  html: string;
+  text: string;
+  body: string;
+  /** Built with the visual editor: html and text come from it. */
+  design: EmailDesign | null;
+};
 
-const EMPTY: Draft = { alias: '', name: '', channel: 'email', subject: '', html: '', text: '', body: '' };
+const EMPTY: Draft = { alias: '', name: '', channel: 'email', subject: '', html: '', text: '', body: '', design: null };
 /** Same syntax as the server: {{name}}, {{user.name}}, {{{raw}}}. */
 const TAG = /\{\{\{?\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*\}?\}\}/g;
 
 /** Saved emails and SMS: edited here, sent with { template, variables }. */
 @Component({
   selector: 'app-templates',
-  imports: [FormsModule, CopyButton, EmailPreview, EmptyState, Modal, LucideFileText, LucidePlus, LucideTrash],
+  imports: [
+    FormsModule,
+    CopyButton,
+    DesignEditor,
+    EmailPreview,
+    EmptyState,
+    Modal,
+    LucideCircleAlert,
+    LucideFileText,
+    LucideInfo,
+    LucidePlus,
+    LucideTrash,
+    LucideTriangleAlert,
+  ],
   template: `
     <div class="page">
       <header class="page-head">
@@ -60,14 +85,25 @@ const TAG = /\{\{\{?\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*\}?\}\}/g;
                   <input id="t-subject" class="input" name="subject" required [(ngModel)]="draft.subject" (ngModelChange)="refresh()" />
                 </div>
                 <div class="field">
-                  <label for="t-html">HTML</label>
-                  <textarea id="t-html" class="input textarea mono" name="html" rows="10" [(ngModel)]="draft.html" (ngModelChange)="refresh()"></textarea>
-                  <span class="hint">Las variables se escapan; usa <code>{{ raw }}</code> para insertar HTML tal cual.</span>
+                  <span class="label">Contenido</span>
+                  <div class="segmented" role="group" aria-label="Editor">
+                    <button type="button" [attr.aria-pressed]="!!draft.design" (click)="toVisual()">Visual</button>
+                    <button type="button" [attr.aria-pressed]="!draft.design" (click)="toHtml()">HTML</button>
+                  </div>
                 </div>
-                <div class="field">
-                  <label for="t-text">Texto <span class="muted">(recomendado, para clientes sin HTML)</span></label>
-                  <textarea id="t-text" class="input textarea" name="text" rows="5" [(ngModel)]="draft.text" (ngModelChange)="refresh()"></textarea>
-                </div>
+                @if (draft.design) {
+                  <app-design-editor [design]="draft.design" (changed)="onDesign($event)" />
+                } @else {
+                  <div class="field">
+                    <label for="t-html">HTML</label>
+                    <textarea id="t-html" class="input textarea mono" name="html" rows="10" [(ngModel)]="draft.html" (ngModelChange)="refresh()"></textarea>
+                    <span class="hint">Las variables se escapan; usa <code>{{ raw }}</code> para insertar HTML tal cual.</span>
+                  </div>
+                  <div class="field">
+                    <label for="t-text">Texto <span class="muted">(recomendado, para clientes sin HTML)</span></label>
+                    <textarea id="t-text" class="input textarea" name="text" rows="5" [(ngModel)]="draft.text" (ngModelChange)="refresh()"></textarea>
+                  </div>
+                }
               } @else {
                 <div class="field">
                   <label for="t-body">Mensaje</label>
@@ -101,6 +137,27 @@ const TAG = /\{\{\{?\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*\}?\}\}/g;
                   <app-email-preview [html]="rendered().html!" />
                 } @else {
                   <pre class="delivery-pre">{{ rendered().text }}</pre>
+                }
+                @if (checks().length) {
+                  <p class="label template-snippet-label">Antes de enviar</p>
+                  <ul class="checks">
+                    @for (c of checks(); track c.text) {
+                      <li [class]="'check-' + c.level">
+                        @switch (c.level) {
+                          @case ('error') {
+                            <svg lucideCircleAlert [size]="15" aria-label="Error"></svg>
+                          }
+                          @case ('warning') {
+                            <svg lucideTriangleAlert [size]="15" aria-label="Aviso"></svg>
+                          }
+                          @default {
+                            <svg lucideInfo [size]="15" aria-label="Consejo"></svg>
+                          }
+                        }
+                        <span>{{ c.text }}</span>
+                      </li>
+                    }
+                  </ul>
                 }
               } @else {
                 <div class="sms-bubble">{{ rendered().body }}</div>
@@ -147,6 +204,14 @@ const TAG = /\{\{\{?\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*\}?\}\}/g;
       }
     </div>
 
+    <app-modal heading="Pasar al editor visual" [open]="replacing()" (closed)="replacing.set(false)">
+      <p class="text-2">El editor visual empieza con un diseño nuevo y sustituye el HTML y el texto que tienes ahora.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn" (click)="replacing.set(false)">Cancelar</button>
+        <button type="button" class="btn btn-primary" (click)="startVisual()">Empezar en visual</button>
+      </div>
+    </app-modal>
+
     <app-modal heading="Eliminar plantilla" [open]="!!removing()" (closed)="removing.set(null)">
       <p class="text-2">Los envíos con <code>template: "{{ removing()?.alias }}"</code> empezarán a fallar con un 404.</p>
       <div class="modal-actions">
@@ -164,6 +229,7 @@ export class TemplatesPage {
   protected readonly templates = signal<Template[] | null>(null);
   protected readonly editing = signal<{ id?: string; alias: string } | null>(null);
   protected readonly removing = signal<Template | null>(null);
+  protected readonly replacing = signal(false);
   protected readonly busy = signal(false);
   protected readonly ago = (value: string) => timeAgo(value);
   protected draft: Draft = { ...EMPTY };
@@ -203,6 +269,10 @@ export class TemplatesPage {
   });
   protected readonly rendered = computed(() => this.preview().rendered as { subject?: string; html?: string; text?: string; body?: string });
   protected readonly missing = computed(() => this.preview().missing);
+  protected readonly checks = computed(() => {
+    this.version();
+    return this.draft.channel === 'email' ? checkEmail(this.draft.subject, this.draft.html, this.draft.design) : [];
+  });
 
   protected readonly snippet = computed(() => {
     this.version();
@@ -223,7 +293,9 @@ export class TemplatesPage {
   }
 
   protected startNew(): void {
+    // New emails start in the visual editor.
     this.draft = { ...EMPTY };
+    this.useDesign(defaultDesign());
     this.sample = '{}';
     this.editing.set({ alias: '' });
     this.refresh();
@@ -238,10 +310,38 @@ export class TemplatesPage {
       html: t.html ?? '',
       text: t.text ?? '',
       body: t.body ?? '',
+      design: readDesign(t.design),
     };
-    this.sample = JSON.stringify(Object.fromEntries(t.variables.map((v) => [v, ''])), null, 2);
+    this.sample = JSON.stringify(Object.fromEntries(t.variables.filter((v) => v !== 'unsubscribe_url').map((v) => [v, ''])), null, 2);
     this.editing.set({ id: t.id, alias: t.alias });
     this.refresh();
+  }
+
+  /** Builds the HTML and the text from the design, at every change. */
+  protected onDesign(design: EmailDesign): void {
+    this.useDesign(design);
+    this.refresh();
+  }
+
+  protected toVisual(): void {
+    if (this.draft.design) return;
+    if (this.draft.html.trim() || this.draft.text.trim()) this.replacing.set(true);
+    else this.startVisual();
+  }
+
+  protected startVisual(): void {
+    this.replacing.set(false);
+    this.onDesign(defaultDesign());
+  }
+
+  /** From now on the HTML is edited by hand, starting from what the design produced. */
+  protected toHtml(): void {
+    this.draft = { ...this.draft, design: null };
+    this.refresh();
+  }
+
+  private useDesign(design: EmailDesign): void {
+    this.draft = { ...this.draft, design, html: renderDesign(design), text: designText(design) };
   }
 
   /** Recomputes the preview, and adds new variables to the sample so they can be filled in. */
@@ -250,7 +350,7 @@ export class TemplatesPage {
       const values = JSON.parse(this.sample || '{}') as Record<string, unknown>;
       this.sampleError.set('');
       this.version.update((v) => v + 1);
-      const added = this.variables().filter((v) => !v.includes('.') && !(v in values));
+      const added = this.variables().filter((v) => !v.includes('.') && v !== 'unsubscribe_url' && !(v in values));
       if (added.length) this.sample = JSON.stringify({ ...values, ...Object.fromEntries(added.map((v) => [v, ''])) }, null, 2);
     } catch {
       this.sampleError.set('Los valores deben ser un objeto JSON, como {"nombre": "Ana"}');
@@ -262,10 +362,10 @@ export class TemplatesPage {
     if (this.busy()) return;
     this.busy.set(true);
     const d = this.draft;
-    const body: Record<string, string> =
+    const body: Record<string, unknown> =
       d.channel === 'sms'
         ? { alias: d.alias, name: d.name, channel: d.channel, body: d.body }
-        : { alias: d.alias, name: d.name, channel: d.channel, subject: d.subject, html: d.html, text: d.text };
+        : { alias: d.alias, name: d.name, channel: d.channel, subject: d.subject, html: d.html, text: d.text, design: d.design };
     try {
       const id = this.editing()?.id;
       const saved = id ? await this.api.updateTemplate(id, body) : await this.api.createTemplate(body);
@@ -315,6 +415,8 @@ function lookup(values: Record<string, unknown>, path: string): unknown {
 
 function fill(text: string, values: Record<string, unknown>, html: boolean, missing: Set<string>): string {
   return text.replace(/\{\{(\{)?\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*\}?\}\}/g, (_, raw: string | undefined, path: string) => {
+    // Filled per recipient by Relayo when a real email goes out.
+    if (path === 'unsubscribe_url' && !lookup(values, path)) return '#';
     const value = lookup(values, path);
     if (value === undefined || value === null || value === '') {
       missing.add(path);

@@ -165,8 +165,8 @@ export class Api {
     this.call<{ data: ScheduledSend[] }>('GET', `/v1/scheduled${status ? `?status=${status}` : ''}`).then((r) => r.data);
   cancelScheduled = (id: string) => this.call<void>('DELETE', `/v1/scheduled/${encodeURIComponent(id)}`);
   templates = () => this.call<{ data: Template[] }>('GET', '/v1/project/templates').then((r) => r.data);
-  createTemplate = (body: Record<string, string>) => this.call<Template>('POST', '/v1/project/templates', body);
-  updateTemplate = (id: string, body: Record<string, string>) => this.call<Template>('PATCH', `/v1/project/templates/${encodeURIComponent(id)}`, body);
+  createTemplate = (body: Record<string, unknown>) => this.call<Template>('POST', '/v1/project/templates', body);
+  updateTemplate = (id: string, body: Record<string, unknown>) => this.call<Template>('PATCH', `/v1/project/templates/${encodeURIComponent(id)}`, body);
   deleteTemplate = (id: string) => this.call<void>('DELETE', `/v1/project/templates/${encodeURIComponent(id)}`);
 
   // Messages

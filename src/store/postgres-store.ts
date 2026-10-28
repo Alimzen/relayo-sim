@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS templates (
   updated_at timestamptz NOT NULL,
   UNIQUE (project_id, alias)
 );
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS design jsonb;
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   key text NOT NULL,
@@ -774,9 +775,22 @@ export class PostgresStore implements SimStore {
 
   async createTemplate(t: Template): Promise<void> {
     await this.pool.query(
-      `INSERT INTO templates (id, project_id, alias, name, channel, subject, html, text, body, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [t.id, t.projectId, t.alias, t.name, t.channel, t.subject ?? null, t.html ?? null, t.text ?? null, t.body ?? null, t.createdAt, t.updatedAt],
+      `INSERT INTO templates (id, project_id, alias, name, channel, subject, html, text, body, created_at, updated_at, design)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        t.id,
+        t.projectId,
+        t.alias,
+        t.name,
+        t.channel,
+        t.subject ?? null,
+        t.html ?? null,
+        t.text ?? null,
+        t.body ?? null,
+        t.createdAt,
+        t.updatedAt,
+        t.design ? JSON.stringify(t.design) : null,
+      ],
     );
   }
 
@@ -792,9 +806,9 @@ export class PostgresStore implements SimStore {
 
   async updateTemplate(t: Template): Promise<void> {
     await this.pool.query(
-      `UPDATE templates SET alias = $3, name = $4, subject = $5, html = $6, text = $7, body = $8, updated_at = $9
+      `UPDATE templates SET alias = $3, name = $4, subject = $5, html = $6, text = $7, body = $8, updated_at = $9, design = $10
        WHERE id = $1 AND project_id = $2`,
-      [t.id, t.projectId, t.alias, t.name, t.subject ?? null, t.html ?? null, t.text ?? null, t.body ?? null, t.updatedAt],
+      [t.id, t.projectId, t.alias, t.name, t.subject ?? null, t.html ?? null, t.text ?? null, t.body ?? null, t.updatedAt, t.design ? JSON.stringify(t.design) : null],
     );
   }
 
@@ -1389,6 +1403,7 @@ interface TemplateRow {
   html: string | null;
   text: string | null;
   body: string | null;
+  design: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -1406,6 +1421,7 @@ function toTemplate(row: TemplateRow): Template {
     ...(row.html !== null && { html: row.html }),
     ...(row.text !== null && { text: row.text }),
     ...(row.body !== null && { body: row.body }),
+    ...(row.design && { design: row.design }),
   };
 }
 

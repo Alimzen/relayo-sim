@@ -593,6 +593,13 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect(read).toMatchObject({ text: 'nuevo', updatedAt: new Date('2026-10-19T10:00:00Z') });
     expect(read?.html).toBeUndefined();
 
+    const design = { version: 1, blocks: [{ id: 'b1', type: 'text', text: 'Hola' }] };
+    await store.updateTemplate({ ...read!, design });
+    expect((await store.getTemplate('prj_1', 'pedido-enviado'))?.design).toEqual(design);
+    const { design: _drop, ...plain } = (await store.getTemplate('prj_1', 'pedido-enviado'))!;
+    await store.updateTemplate(plain);
+    expect((await store.getTemplate('prj_1', 'pedido-enviado'))?.design).toBeUndefined();
+
     expect(await store.deleteTemplate('prj_other', 'tpl_a')).toBe(false);
     expect(await store.deleteTemplate('prj_1', 'tpl_a')).toBe(true);
   });

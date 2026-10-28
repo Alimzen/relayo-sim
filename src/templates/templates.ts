@@ -84,6 +84,7 @@ export class TemplatesService {
   async create(project: Project, input: Record<string, unknown>): Promise<Template> {
     const channel = input.channel === 'sms' ? 'sms' : 'email';
     const now = new Date();
+    const design = this.design(channel, input.design);
     const template: Template = {
       id: `tpl_${randomUUID()}`,
       projectId: project.id,
@@ -91,6 +92,7 @@ export class TemplatesService {
       name: this.name(input.name, input.alias),
       channel,
       ...this.content(channel, input),
+      ...(design && { design }),
       createdAt: now,
       updatedAt: now,
     };
@@ -106,12 +108,15 @@ export class TemplatesService {
       throw new TemplateError(`Ya hay una plantilla con el alias «${alias}»`, 409);
     }
     // Missing fields keep their value; fields sent empty are cleared.
-    const { subject: _s, html: _h, text: _t, body: _b, ...rest } = current;
+    const { subject: _s, html: _h, text: _t, body: _b, design: _d, ...rest } = current;
+    // A design sent replaces the one kept; null drops it (the HTML is edited by hand from then on).
+    const design = input.design === undefined ? current.design : this.design(current.channel, input.design);
     const next: Template = {
       ...rest,
       alias,
       name: input.name === undefined ? current.name : this.name(input.name, alias),
       ...this.content(current.channel, { ...current, ...input }),
+      ...(design && { design }),
       updatedAt: new Date(),
     };
     await this.store.updateTemplate(next);
@@ -162,6 +167,15 @@ export class TemplatesService {
     const name = typeof value === 'string' && value.trim() ? value.trim() : String(fallback ?? '');
     if (name.length > 80) throw new TemplateError('El nombre puede tener hasta 80 caracteres', 400);
     return name;
+  }
+
+  /** The visual editor's design: an object, of email templates only, up to 200 KB. */
+  private design(channel: 'email' | 'sms', value: unknown): Record<string, unknown> | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (channel !== 'email') throw new TemplateError('Solo las plantillas de email tienen diseño visual', 400);
+    if (typeof value !== 'object' || Array.isArray(value)) throw new TemplateError('«design» debe ser un objeto', 400);
+    if (JSON.stringify(value).length > 200_000) throw new TemplateError('El diseño puede ocupar hasta 200 KB', 400);
+    return value as Record<string, unknown>;
   }
 
   private content(channel: 'email' | 'sms', input: Record<string, unknown>): Pick<Template, 'subject' | 'html' | 'text' | 'body'> {

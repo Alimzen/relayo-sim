@@ -480,7 +480,7 @@ export class MemoryStore implements SimStore {
 
   async createTemplate(template: Template): Promise<void> {
     if (await this.getTemplate(template.projectId, template.alias)) throw new Error('A template with this alias already exists');
-    this.templates.set(template.id, { ...template });
+    this.templates.set(template.id, structuredClone(template));
   }
 
   async listTemplates(projectId: string): Promise<Template[]> {
@@ -493,7 +493,7 @@ export class MemoryStore implements SimStore {
 
   async updateTemplate(template: Template): Promise<void> {
     const current = this.templates.get(template.id);
-    if (current?.projectId === template.projectId) this.templates.set(template.id, { ...template });
+    if (current?.projectId === template.projectId) this.templates.set(template.id, structuredClone(template));
   }
 
   async deleteTemplate(projectId: string, id: string): Promise<boolean> {
