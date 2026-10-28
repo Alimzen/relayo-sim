@@ -118,9 +118,12 @@ interface Draft {
             </div>
             <span class="hint">Sin marcar ninguno, recibe todos los de los mensajes (con «Correos recibidos», solo esos correos).</span>
           </fieldset>
-          <label class="check field">
-            <input type="checkbox" name="inbound" [(ngModel)]="d.inbound" />Correos recibidos (<code>inbound</code>): las respuestas y lo que llegue a
-            la dirección de entrada
+          <label class="check option endpoint-inbound">
+            <input type="checkbox" name="inbound" [(ngModel)]="d.inbound" />
+            <span>
+              <strong>Correos recibidos</strong> (<code>inbound</code>)
+              <span class="muted small block">Las respuestas y lo que llegue a la dirección de entrada.</span>
+            </span>
           </label>
           @if (editing()) {
             <label class="check">

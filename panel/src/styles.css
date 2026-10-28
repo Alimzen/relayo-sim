@@ -2471,3 +2471,7 @@ fieldset.field {
 .check-info svg {
   color: var(--muted);
 }
+
+.endpoint-inbound {
+  margin-bottom: 8px;
+}

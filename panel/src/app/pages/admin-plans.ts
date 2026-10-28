@@ -16,6 +16,7 @@ const FIELDS: Array<{ key: keyof PlanLimits; label: string; hint: string }> = [
 /** Platform admins: each project's usage and plan; a plan's limits replace the platform's. */
 @Component({
   selector: 'app-admin-plans',
+  styles: ':host { display: block; margin-top: 20px; }',
   imports: [FormsModule, Modal, LucidePencil, LucideSearch],
   template: `
     <section class="card">
