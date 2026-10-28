@@ -166,6 +166,20 @@ export interface ApiRequestLog {
 }
 
 /** An email the project received. */
+export type StatusComponent = 'api' | 'database' | 'queues' | 'smtp';
+export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';
+
+export interface Incident {
+  id: string;
+  title: string;
+  impact: 'minor' | 'major' | 'critical';
+  status: IncidentStatus;
+  components: StatusComponent[];
+  updates: Array<{ at: string; status: IncidentStatus; message: string }>;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
 export interface InboundEmail {
   id: string;
   from: string;

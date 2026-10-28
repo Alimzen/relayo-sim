@@ -1,4 +1,4 @@
-import type { InboundEmail, ProjectOptions, WebhookEndpoint, AuditEntry, ApiRequestLog, ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
+import type { Incident, StatusComponent, StatusSample, InboundEmail, ProjectOptions, WebhookEndpoint, AuditEntry, ApiRequestLog, ProjectLimits, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, SendingDomain, Connection, Mode, Suppression, SuppressionReason, MessageListItem, PasswordReset, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User } from '../domain.js';
 
 export interface ProjectChanges {
   name?: string;
@@ -190,6 +190,15 @@ export interface SimStore {
   completeIdempotencyKey(projectId: string, key: string, response: unknown): Promise<void>;
   /** Frees a key whose request failed, so it can be retried. */
   releaseIdempotencyKey(projectId: string, key: string): Promise<void>;
+
+  // Status page
+  addStatusSamples(samples: StatusSample[]): Promise<void>;
+  /** Per UTC day (`2026-10-18`) and component since a date: minutes checked and minutes that answered. */
+  statusDays(since: Date): Promise<Array<{ day: string; component: StatusComponent; ok: number; total: number }>>;
+  saveIncident(incident: Incident): Promise<void>;
+  getIncident(id: string): Promise<Incident | undefined>;
+  /** Newest first: the open ones, and the ones resolved since a date. */
+  listIncidents(query: { resolvedSince: Date; limit: number }): Promise<Incident[]>;
 
   // Received emails
   findProjectByInboundToken(token: string): Promise<Project | undefined>;

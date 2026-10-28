@@ -5,6 +5,7 @@ import { timeAgo } from '../core/format';
 import type { ManagedRequest } from '../core/types';
 import { Badge, EmptyState, Toasts } from '../ui/ui';
 import { AdminPlans } from './admin-plans';
+import { AdminIncidents } from './admin-incidents';
 
 const ACCESS: Record<string, { label: string; tone: 'warning' | 'good' | 'critical' }> = {
   requested: { label: 'Pendiente', tone: 'warning' },
@@ -15,7 +16,7 @@ const ACCESS: Record<string, { label: string; tone: 'warning' | 'good' | 'critic
 /** Platform admins: who may send through Relayo's own relay. */
 @Component({
   selector: 'app-admin',
-  imports: [Badge, EmptyState, AdminPlans, LucideCheck, LucideShieldCheck, LucideX],
+  imports: [Badge, EmptyState, AdminPlans, AdminIncidents, LucideCheck, LucideShieldCheck, LucideX],
   template: `
     <div class="page">
       <header class="page-head">
@@ -89,6 +90,7 @@ const ACCESS: Record<string, { label: string; tone: 'warning' | 'good' | 'critic
       </section>
 
       <app-admin-plans />
+      <app-admin-incidents />
     </div>
   `,
 })

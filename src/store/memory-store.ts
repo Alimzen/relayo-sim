@@ -1,4 +1,4 @@
-import type { InboundEmail, WebhookEndpoint, AuditEntry, ApiRequestLog, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { Incident, StatusComponent, StatusSample, InboundEmail, WebhookEndpoint, AuditEntry, ApiRequestLog, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { AttemptQuery, MessageQuery, ProjectChanges, SealedValue, SimStore, WebhookEndpointChanges } from './store.js';
 
@@ -20,6 +20,8 @@ export class MemoryStore implements SimStore {
   private readonly audit: AuditEntry[] = [];
   private readonly endpoints: WebhookEndpoint[] = [];
   private readonly inbound: InboundEmail[] = [];
+  private readonly samples: StatusSample[] = [];
+  private readonly incidents = new Map<string, Incident>();
   private readonly requests: ApiRequestLog[] = [];
   private readonly templates = new Map<string, Template>();
   private readonly scheduled = new Map<string, ScheduledSend>();
@@ -408,6 +410,8 @@ export class MemoryStore implements SimStore {
     keep(this.requests, (r) => r.createdAt >= before || keepProjects.includes(r.projectId));
     keep(this.inbound, (e) => e.createdAt >= before || keepProjects.includes(e.projectId));
     const yearAgo = new Date(Date.now() - 365 * 86_400_000);
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000);
+    keep(this.samples, (s) => s.at >= ninetyDaysAgo);
     keep(this.audit, (e) => e.createdAt >= yearAgo);
     const now = new Date();
     for (const [hash, session] of this.sessions) if (session.expiresAt <= now) this.sessions.delete(hash);
@@ -523,6 +527,44 @@ export class MemoryStore implements SimStore {
 
   async releaseIdempotencyKey(projectId: string, key: string): Promise<void> {
     this.idempotency.delete(`${projectId}|${key}`);
+  }
+
+  async addStatusSamples(samples: StatusSample[]): Promise<void> {
+    // One per minute, like the database's primary key.
+    const taken = new Set(this.samples.map((s) => s.at.getTime()));
+    for (const sample of samples) if (!taken.has(sample.at.getTime())) this.samples.push(structuredClone(sample));
+  }
+
+  async statusDays(since: Date): Promise<Array<{ day: string; component: StatusComponent; ok: number; total: number }>> {
+    const days = new Map<string, { day: string; component: StatusComponent; ok: number; total: number }>();
+    for (const sample of this.samples) {
+      if (sample.at < since) continue;
+      const day = sample.at.toISOString().slice(0, 10);
+      for (const [component, up] of Object.entries(sample.checks) as Array<[StatusComponent, boolean]>) {
+        const row = days.get(`${day}|${component}`) ?? { day, component, ok: 0, total: 0 };
+        row.total++;
+        if (up) row.ok++;
+        days.set(`${day}|${component}`, row);
+      }
+    }
+    return [...days.values()];
+  }
+
+  async saveIncident(incident: Incident): Promise<void> {
+    this.incidents.set(incident.id, structuredClone(incident));
+  }
+
+  async getIncident(id: string): Promise<Incident | undefined> {
+    const found = this.incidents.get(id);
+    return found && structuredClone(found);
+  }
+
+  async listIncidents(query: { resolvedSince: Date; limit: number }): Promise<Incident[]> {
+    return [...this.incidents.values()]
+      .filter((i) => i.status !== 'resolved' || (i.resolvedAt ?? i.createdAt) >= query.resolvedSince)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, query.limit)
+      .map((i) => structuredClone(i));
   }
 
   async findProjectByInboundToken(token: string): Promise<Project | undefined> {

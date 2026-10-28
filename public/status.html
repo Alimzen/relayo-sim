@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estado del servicio</title>
+<meta name="description" content="Estado de la plataforma ahora y en los últimos 90 días, con sus incidencias.">
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f6f7; --surface: #fff; --text: #18181b; --muted: #71717a; --border: #e4e4e7;
+    --good: #16a34a; --good-bg: #dcfce7; --warn: #b45309; --warn-bg: #fef3c7; --bad: #dc2626; --bad-bg: #fee2e2;
+    --none: #e4e4e7; --bar-good: #22c55e; --bar-warn: #f59e0b; --bar-bad: #ef4444;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f0f11; --surface: #18181b; --text: #f4f4f5; --muted: #a1a1aa; --border: #2e2e33;
+      --good: #4ade80; --good-bg: #052e16; --warn: #fbbf24; --warn-bg: #3a2a06; --bad: #f87171; --bad-bg: #3b0d0d;
+      --none: #2e2e33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  main { width: min(760px, 100% - 32px); margin: 40px auto 64px; }
+  h1 { font-size: 22px; margin: 0 0 20px; }
+  h2 { font-size: 16px; margin: 32px 0 12px; }
+  .banner { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 10px; font-weight: 600; }
+  .banner.operational { background: var(--good-bg); color: var(--good); }
+  .banner.degraded { background: var(--warn-bg); color: var(--warn); }
+  .banner.outage { background: var(--bad-bg); color: var(--bad); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px 16px; margin-top: 16px; }
+  .component { padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .component:last-child { border-bottom: 0; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .state { font-size: 13px; font-weight: 600; }
+  .state.operational { color: var(--good); } .state.degraded { color: var(--warn); } .state.outage { color: var(--bad); }
+  .bars { display: flex; gap: 2px; height: 32px; margin: 10px 0 4px; }
+  .bars span { flex: 1; border-radius: 2px; background: var(--none); min-width: 2px; }
+  .bars .good { background: var(--bar-good); } .bars .warn { background: var(--bar-warn); } .bars .bad { background: var(--bar-bad); }
+  .legend { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+  .incident { padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .incident:last-child { border-bottom: 0; }
+  .incident h3 { font-size: 15px; margin: 0 0 6px; }
+  .update { margin: 6px 0 0; font-size: 14px; }
+  .update b { font-weight: 600; }
+  .muted { color: var(--muted); font-size: 13px; }
+  footer { margin-top: 32px; color: var(--muted); font-size: 13px; }
+  .d30 { display: none; }
+  @media (max-width: 520px) { .bars span:nth-child(-n+60) { display: none; } .d90 { display: none; } .d30 { display: inline; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Estado del servicio</h1>
+  <div id="banner" class="banner"><span class="dot"></span><span>Comprobando…</span></div>
+  <section id="open"></section>
+  <div class="card" id="components" aria-live="polite"></div>
+  <section id="recent"></section>
+  <footer id="updated"></footer>
+</main>
+<script>
+  const LEVELS = { operational: 'Funciona con normalidad', degraded: 'Funciona con problemas', outage: 'Sin servicio' };
+  const BANNER = { operational: 'Todo funciona con normalidad', degraded: 'Algunos servicios tienen problemas', outage: 'Hay servicios caídos' };
+  const STATUSES = { investigating: 'Investigando', identified: 'Identificado', monitoring: 'En observación', resolved: 'Resuelto' };
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const pct = (v) => (v === null ? 'sin datos' : `${(v * 100).toLocaleString('es', { maximumFractionDigits: v < 1 ? 2 : 0 })} %`);
+  const when = (iso) => new Date(iso).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' });
+  const tone = (u) => (u === null ? '' : u >= 0.999 ? 'good' : u >= 0.99 ? 'warn' : 'bad');
+
+  function incidents(list, title) {
+    if (!list.length) return '';
+    return `<h2>${title}</h2><div class="card">${list
+      .map(
+        (i) => `<div class="incident"><h3>${esc(i.title)}</h3>${[...i.updates]
+          .reverse()
+          .map((u) => `<p class="update"><b>${STATUSES[u.status]}</b> · <span class="muted">${when(u.at)}</span><br>${esc(u.message)}</p>`)
+          .join('')}</div>`,
+      )
+      .join('')}</div>`;
+  }
+
+  async function load() {
+    try {
+      const response = await fetch('/v1/status', { cache: 'no-store' });
+      const s = await response.json();
+      const banner = document.getElementById('banner');
+      banner.className = `banner ${s.status}`;
+      banner.lastElementChild.textContent = BANNER[s.status];
+      document.getElementById('open').innerHTML = incidents(s.incidents.open, 'Incidencias abiertas');
+      document.getElementById('components').innerHTML = s.components
+        .map(
+          (c) => `<div class="component"><div class="row"><strong>${esc(c.name)}</strong><span class="state ${c.status}">${LEVELS[c.status]}</span></div>
+            <div class="bars" role="img" aria-label="Disponibilidad de ${esc(c.name)} en 90 días: ${pct(c.uptime)}">${c.days
+              .map((d) => `<span class="${tone(d.uptime)}" title="${d.day}: ${pct(d.uptime)}"></span>`)
+              .join('')}</div>
+            <div class="legend"><span><span class="d90">Hace 90 días</span><span class="d30">Hace 30 días</span></span><span>${c.uptime === null ? 'Sin datos todavía' : `${pct(c.uptime)} en 90 días`}</span><span>Hoy</span></div></div>`,
+        )
+        .join('');
+      document.getElementById('recent').innerHTML = incidents(s.incidents.recent, 'Incidencias de las dos últimas semanas');
+      document.getElementById('updated').textContent = `Actualizado: ${when(s.updatedAt)}. Se comprueba cada minuto.`;
+    } catch {
+      const banner = document.getElementById('banner');
+      banner.className = 'banner outage';
+      banner.lastElementChild.textContent = 'No se puede consultar el estado: el servicio no responde.';
+    }
+  }
+  load();
+  setInterval(load, 60_000);
+</script>
+</body>
+</html>

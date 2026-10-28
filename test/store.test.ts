@@ -714,6 +714,41 @@ describe.each(stores)('%s store: accounts, filters and stats', (_, open) => {
     expect((await store.listMessages('prj_1', { limit: 10, status: 'bounced' })).map((m) => m.id)).toEqual(['sim_1']);
   });
 
+  it('keeps the status checks per day and component, and the incidents', async () => {
+    const store = await open();
+    const at = (iso: string) => new Date(iso);
+    await store.addStatusSamples([
+      { at: at('2026-10-17T23:59:00Z'), checks: { api: true, database: false } },
+      { at: at('2026-10-18T00:00:00Z'), checks: { api: true, database: true } },
+      { at: at('2026-10-18T00:01:00Z'), checks: { api: true, database: false } },
+    ]);
+    // The same minute again (a restart) is not counted twice.
+    await store.addStatusSamples([{ at: at('2026-10-18T00:01:00Z'), checks: { api: true, database: true } }]);
+    const days = await store.statusDays(at('2026-10-18T00:00:00Z'));
+    const row = (component: string) => days.find((d) => d.component === component);
+    expect(days).toHaveLength(2);
+    expect(row('api')).toEqual({ day: '2026-10-18', component: 'api', ok: 2, total: 2 });
+    expect(row('database')).toEqual({ day: '2026-10-18', component: 'database', ok: 1, total: 2 });
+
+    const incident = {
+      id: 'inc_1',
+      title: 'Lento',
+      impact: 'minor' as const,
+      status: 'investigating' as const,
+      components: ['smtp' as const],
+      updates: [{ at: at('2026-10-18T10:00:00Z'), status: 'investigating' as const, message: 'Mirando' }],
+      createdAt: at('2026-10-18T10:00:00Z'),
+    };
+    await store.saveIncident(incident);
+    await store.saveIncident({ ...incident, id: 'inc_old', status: 'resolved', createdAt: at('2026-09-01T10:00:00Z'), resolvedAt: at('2026-09-01T11:00:00Z') });
+    expect(await store.getIncident('inc_1')).toEqual(incident);
+    expect((await store.listIncidents({ resolvedSince: at('2026-10-01T00:00:00Z'), limit: 10 })).map((i) => i.id)).toEqual(['inc_1']);
+    const resolved = { ...incident, status: 'resolved' as const, resolvedAt: at('2026-10-18T12:00:00Z') };
+    await store.saveIncident(resolved);
+    expect(await store.getIncident('inc_1')).toEqual(resolved);
+    expect((await store.listIncidents({ resolvedSince: at('2026-08-01T00:00:00Z'), limit: 10 })).map((i) => i.id)).toEqual(['inc_1', 'inc_old']);
+  });
+
   it('keeps received emails, finds the project by its inbound token and the message a reply names', async () => {
     const store = await open();
     await store.createProject(project());

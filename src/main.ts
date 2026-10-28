@@ -79,6 +79,13 @@ async function bootstrap(): Promise<void> {
     res.sendFile(join(publicDir, 'docs.html'));
   });
 
+  // The public status page (public/status.html), from /v1/status.
+  app.use('/status', (req: Request, res: Response, next: NextFunction) => {
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || (req.path !== '/' && req.path !== '')) return next();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(join(publicDir, 'status.html'));
+  });
+
   // An installation's own website (SITE_DIR, ./site by default; not in this repository): its index.html at /,
   // each other page.html at /page, and its assets under /site/. Without one, / is the panel.
   const siteDir = process.env.SITE_DIR ?? process.env.LANDING_DIR ?? join(process.cwd(), 'site');

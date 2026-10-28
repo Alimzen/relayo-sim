@@ -413,3 +413,28 @@ export interface InboundEmail {
   size: number;
   createdAt: Date;
 }
+
+/** The parts of the platform the status page reports on. */
+export type StatusComponent = 'api' | 'database' | 'queues' | 'smtp';
+
+/** One check of every component, taken each minute. */
+export interface StatusSample {
+  at: Date;
+  /** Whether each component answered; a component the installation does not run is absent. */
+  checks: Partial<Record<StatusComponent, boolean>>;
+}
+
+export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';
+
+/** A problem the platform's admins report on the status page, with its updates. */
+export interface Incident {
+  id: string;
+  title: string;
+  /** minor: some things slow or failing; major: a component down; critical: the platform down. */
+  impact: 'minor' | 'major' | 'critical';
+  status: IncidentStatus;
+  components: StatusComponent[];
+  updates: Array<{ at: Date; status: IncidentStatus; message: string }>;
+  createdAt: Date;
+  resolvedAt?: Date;
+}

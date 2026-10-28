@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { InboundEmail, ProjectOptions, WebhookEndpoint, AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
+import type { Incident, IncidentStatus, StatusComponent, StatusSample, InboundEmail, ProjectOptions, WebhookEndpoint, AuditEntry, AuditActor, ApiRequestLog, ProjectLimits, KeyPermission, TokenPurpose, TwoFactor, ProjectInvite, ProjectMember, ProjectRole, ScheduledSend, Template, WebhookAttempt, ManagedAccess, ApiKey, MessageListItem, MessageWithEvents, Project, ProjectStats, Session, SimEvent, SimMessage, User, PasswordReset, Connection, Mode, Suppression, SuppressionReason, SendingDomain } from '../domain.js';
 import { emptyStats } from './stats.js';
 import type { MessageQuery, ProjectChanges, SealedValue, SimStore, AttemptQuery, WebhookEndpointChanges } from './store.js';
 
@@ -267,6 +267,17 @@ CREATE TABLE IF NOT EXISTS api_requests (
   created_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS api_requests_project_created ON api_requests (project_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS status_samples (
+  at timestamptz PRIMARY KEY,
+  checks jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS incidents (
+  id text PRIMARY KEY,
+  body jsonb NOT NULL,
+  status text NOT NULL,
+  created_at timestamptz NOT NULL,
+  resolved_at timestamptz
+);
 CREATE TABLE IF NOT EXISTS smtp_attempts (
   key text PRIMARY KEY,
   count integer NOT NULL,
@@ -849,6 +860,46 @@ export class PostgresStore implements SimStore {
     await this.pool.query('DELETE FROM idempotency_keys WHERE project_id = $1 AND key = $2', [projectId, key]);
   }
 
+  async addStatusSamples(samples: StatusSample[]): Promise<void> {
+    if (!samples.length) return;
+    const values: unknown[] = [];
+    const rows = samples.map((s) => `($${values.push(s.at)}, $${values.push(JSON.stringify(s.checks))})`);
+    await this.pool.query(`INSERT INTO status_samples (at, checks) VALUES ${rows.join(', ')} ON CONFLICT (at) DO NOTHING`, values);
+  }
+
+  async statusDays(since: Date): Promise<Array<{ day: string; component: StatusComponent; ok: number; total: number }>> {
+    const { rows } = await this.pool.query<{ day: string; component: StatusComponent; ok: string; total: string }>(
+      `SELECT to_char(s.at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, c.key AS component,
+              count(*) FILTER (WHERE c.value = 'true'::jsonb) AS ok, count(*) AS total
+       FROM status_samples s CROSS JOIN LATERAL jsonb_each(s.checks) AS c
+       WHERE s.at >= $1 GROUP BY 1, 2`,
+      [since],
+    );
+    return rows.map((r) => ({ day: r.day, component: r.component, ok: Number(r.ok), total: Number(r.total) }));
+  }
+
+  async saveIncident(incident: Incident): Promise<void> {
+    const { id, createdAt, resolvedAt, status, ...body } = incident;
+    await this.pool.query(
+      `INSERT INTO incidents (id, body, status, created_at, resolved_at) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (id) DO UPDATE SET body = $2, status = $3, resolved_at = $5`,
+      [id, JSON.stringify(body), status, createdAt, resolvedAt ?? null],
+    );
+  }
+
+  async getIncident(id: string): Promise<Incident | undefined> {
+    const { rows } = await this.pool.query<IncidentRow>('SELECT * FROM incidents WHERE id = $1', [id]);
+    return rows[0] && toIncident(rows[0]);
+  }
+
+  async listIncidents(query: { resolvedSince: Date; limit: number }): Promise<Incident[]> {
+    const { rows } = await this.pool.query<IncidentRow>(
+      `SELECT * FROM incidents WHERE status <> 'resolved' OR coalesce(resolved_at, created_at) >= $1 ORDER BY created_at DESC LIMIT $2`,
+      [query.resolvedSince, query.limit],
+    );
+    return rows.map(toIncident);
+  }
+
   async findProjectByInboundToken(token: string): Promise<Project | undefined> {
     const { rows } = await this.pool.query<ProjectRow>('SELECT * FROM projects WHERE inbound_token = $1', [token]);
     return rows[0] && toProject(rows[0]);
@@ -1286,6 +1337,7 @@ export class PostgresStore implements SimStore {
     await this.pool.query('DELETE FROM api_requests WHERE created_at < $1 AND NOT (project_id = ANY($2))', [before, keepProjects]);
     await this.pool.query('DELETE FROM inbound_emails WHERE created_at < $1 AND NOT (project_id = ANY($2))', [before, keepProjects]);
     await this.pool.query("DELETE FROM audit_log WHERE created_at < now() - interval '365 days'");
+    await this.pool.query("DELETE FROM status_samples WHERE at < now() - interval '90 days'");
     await this.pool.query('DELETE FROM idempotency_keys WHERE expires_at <= now()');
     await this.pool.query('DELETE FROM project_invites WHERE expires_at <= now()');
     await this.pool.query("DELETE FROM scheduled_sends WHERE status IN ('sent', 'failed', 'canceled') AND updated_at < $1", [before]);
@@ -1320,7 +1372,7 @@ export class PostgresStore implements SimStore {
 
   /** For tests: removes all data. */
   async truncate(): Promise<void> {
-    await this.pool.query('TRUNCATE inbound_emails, webhook_endpoints, audit_log, api_requests, project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
+    await this.pool.query('TRUNCATE status_samples, incidents, inbound_emails, webhook_endpoints, audit_log, api_requests, project_invites, project_members, scheduled_sends, templates, idempotency_keys, webhook_attempts, events, message_contents, messages, usage, password_resets, connections, suppressions, sending_domains, api_keys, projects, sessions, users, smtp_attempts');
   }
 }
 
@@ -1422,6 +1474,25 @@ function toTemplate(row: TemplateRow): Template {
     ...(row.text !== null && { text: row.text }),
     ...(row.body !== null && { body: row.body }),
     ...(row.design && { design: row.design }),
+  };
+}
+
+interface IncidentRow {
+  id: string;
+  body: Omit<Incident, 'id' | 'createdAt' | 'resolvedAt' | 'status' | 'updates'> & { updates: Array<{ at: string; status: IncidentStatus; message: string }> };
+  status: IncidentStatus;
+  created_at: Date;
+  resolved_at: Date | null;
+}
+
+function toIncident(row: IncidentRow): Incident {
+  return {
+    id: row.id,
+    ...row.body,
+    status: row.status,
+    updates: row.body.updates.map((u) => ({ ...u, at: new Date(u.at) })),
+    createdAt: row.created_at,
+    ...(row.resolved_at && { resolvedAt: row.resolved_at }),
   };
 }
 

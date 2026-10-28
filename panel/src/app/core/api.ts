@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from '@angular/
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import type { InboundEmail, ProjectInbound, Deliverability, DeliverabilityGroup, WebhookEndpoint, AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
+import type { Incident, IncidentStatus, InboundEmail, ProjectInbound, Deliverability, DeliverabilityGroup, WebhookEndpoint, AuditEntry, ApiRequestLog, PlanLimits, PlanRow, KeyPermission, InviteInfo, TeamView, ScheduledSend, Template, WebhookDelivery, WebhookDeliveryDetail, WebhookStats, ManagedAccess, ManagedRequest, ApiKey, Connection, Provider, SendingDomain, Suppression, MessageContent, MessageDetail, Project, ProjectStats, ProjectUsage, Scenario, SimMessage, User } from './types';
 
 /** Sent with every request: the simulator refuses state-changing session requests without it (CSRF). */
 export const CLIENT_HEADER = 'X-Relayo-Client';
@@ -123,6 +123,11 @@ export class Api {
   revokeKey = (id: string) => this.call<void>('DELETE', `/v1/project/keys/${encodeURIComponent(id)}`);
   webhookSecret = () => this.call<{ webhookSecret: string }>('GET', '/v1/project/webhook-secret');
   rotateWebhookSecret = () => this.call<{ webhookSecret: string }>('POST', '/v1/project/webhook-secret/rotate');
+  incidents = () => this.call<{ data: Incident[] }>('GET', '/v1/admin/incidents').then((r) => r.data);
+  openIncident = (body: Pick<Incident, 'title' | 'impact' | 'components' | 'status'> & { message: string }) =>
+    this.call<Incident>('POST', '/v1/admin/incidents', body);
+  updateIncident = (id: string, body: { status: IncidentStatus; message: string }) =>
+    this.call<Incident>('POST', `/v1/admin/incidents/${encodeURIComponent(id)}/updates`, body);
   inbound = () => this.call<ProjectInbound>('GET', '/v1/project/inbound');
   enableInbound = () => this.call<ProjectInbound>('POST', '/v1/project/inbound');
   disableInbound = () => this.call<void>('DELETE', '/v1/project/inbound');

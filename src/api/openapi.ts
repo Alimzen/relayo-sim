@@ -933,6 +933,39 @@ const paths = {
       },
     },
   },
+  '/v1/status': {
+    get: {
+      tags: ['Operadores'],
+      summary: 'Estado del servicio',
+      operationId: 'getStatus',
+      security: [],
+      description:
+        'Público, sin clave. El estado de cada componente ahora (`operational`, `degraded` u `outage`, también según las incidencias abiertas), su disponibilidad por día en los últimos 90 (comprobada cada minuto) y las incidencias abiertas y de las dos últimas semanas. Lo muestra la página `/status`.',
+      responses: {
+        200: ok('El estado.', {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['operational', 'degraded', 'outage'] },
+            updatedAt: { type: 'string', format: 'date-time' },
+            components: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', enum: ['api', 'database', 'queues', 'smtp'] },
+                  name: { type: 'string' },
+                  status: { type: 'string', enum: ['operational', 'degraded', 'outage'] },
+                  uptime: { type: ['number', 'null'], description: 'De 0 a 1 en los días con datos.' },
+                  days: { type: 'array', items: { type: 'object', properties: { day: { type: 'string', format: 'date' }, uptime: { type: ['number', 'null'] } } } },
+                },
+              },
+            },
+            incidents: { type: 'object', properties: { open: { type: 'array', items: { type: 'object' } }, recent: { type: 'array', items: { type: 'object' } } } },
+          },
+        }),
+      },
+    },
+  },
   '/v1/project/inbound': {
     get: {
       tags: ['Recepción'],
@@ -1260,5 +1293,5 @@ export const UNDOCUMENTED = [
   'POST /v1/inbound/managed/:token',
   'GET /v1/admin/plans', 'PATCH /v1/admin/plans/:projectId',
   'GET /v1/project/webhook/endpoints/:id/secret', 'POST /v1/project/webhook/endpoints/:id/secret/rotate',
-  'GET /openapi.json', 'GET /u/:token', 'POST /u/:token', 'POST /v1/inbound/email/:token', 'GET /t/o/:token', 'GET /t/c/:token',
+  'GET /openapi.json', 'GET /v1/admin/incidents', 'POST /v1/admin/incidents', 'POST /v1/admin/incidents/:id/updates', 'GET /u/:token', 'POST /u/:token', 'POST /v1/inbound/email/:token', 'GET /t/o/:token', 'GET /t/c/:token',
 ];

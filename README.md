@@ -63,6 +63,7 @@ Los envíos (`POST /v1/messages`, `POST /v1/sms`) aceptan `Idempotency-Key`: rep
 | --- | --- | --- |
 | `GET /health` | — | 200 si PostgreSQL y Redis responden, 503 si no (`checks` dice cuál); para monitores de disponibilidad |
 | `GET /health/live` | — | El proceso responde: para el health check del contenedor |
+| `GET /v1/status` · `/status` | — | Estado público: cada componente ahora y su disponibilidad en 90 días (comprobada cada minuto), con las incidencias que publican los administradores en Administración |
 | `GET /v1/auth/config` | — | `{ signup, minPassword }` |
 | `POST /v1/auth/signup`, `/login`, `/logout` | — | Abre o cierra la sesión |
 | `GET`, `PATCH /v1/auth/me` · `POST /v1/auth/password` | Sesión | Perfil y contraseña (cierra las otras sesiones) |

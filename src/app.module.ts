@@ -18,6 +18,8 @@ import { InboundEmailController, ProjectInboundController } from './api/inbound.
 import { InboundService } from './inbound/inbound.js';
 import { LinkSigner } from './live/links.js';
 import { DeliverabilityAlerts } from './analytics/deliverability.js';
+import { IncidentsController, StatusController } from './api/status.js';
+import { canConnect, StatusService } from './status/status.js';
 import { BatchSends } from './api/batch.js';
 import {
   AdminController,
@@ -192,6 +194,8 @@ export class AppModule {
         ManagedReviewController,
         UnsubscribeController,
         TrackingController,
+        StatusController,
+        IncidentsController,
         InboundEmailController,
         ProjectInboundController,
         WebhookDeliveriesController,
@@ -255,6 +259,23 @@ export class AppModule {
         ScheduledSends,
         ActivityLog,
         BatchSends,
+        {
+          provide: StatusService,
+          useFactory: (store: SimStore, infra: Infrastructure, lifecycle: Lifecycle) => {
+            const service = new StatusService(store, async () => {
+              const checks = await infra.check();
+              return {
+                api: true,
+                ...(checks.database !== undefined && { database: checks.database === 'ok' }),
+                ...(checks.redis !== undefined && { queues: checks.redis === 'ok' }),
+                ...(config.smtpPort !== undefined && { smtp: lifecycle.smtpPort !== undefined && (await canConnect(lifecycle.smtpPort)) }),
+              };
+            });
+            service.start();
+            return service;
+          },
+          inject: [SIM_STORE, INFRASTRUCTURE, Lifecycle],
+        },
         {
           provide: InboundService,
           useFactory: (store: SimStore, dispatcher: WebhookDispatcher) => new InboundService(store, dispatcher),
