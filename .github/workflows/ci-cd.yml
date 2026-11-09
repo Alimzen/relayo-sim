@@ -33,7 +33,7 @@ jobs:
       TEST_DATABASE_URL: postgres://relayo:relayo@localhost:5432/relayo_sim
       TEST_REDIS_URL: redis://localhost:6379
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4 # version from "packageManager" in package.json
       - uses: actions/setup-node@v4
         with:
@@ -75,7 +75,7 @@ jobs:
     env:
       IMAGE: ghcr.io/alimzen/relayo-sim
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # relayo.alimzen.com's website (landing, terms, privacy) lives in a private repository: it goes into
       # site/ for the image. Without the token the image has no website and / is the panel.
